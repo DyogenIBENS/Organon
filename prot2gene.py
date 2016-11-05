@@ -2,12 +2,19 @@
 
 """Convert any Ensembl protein ID to gene ID and vice-versa
 EXAMPLE:
-    ./prot2gene ~/ws2/DUPLI_data85/gene_info/%s_gene_info.tsv ENSMODP00000031002
+    ./prot2gene ~/ws2/DUPLI_data85/gene_info/%s_gene_info.tsv <fastafiles>
 """
 
 import sys
 import os.path
 import argparse
+from bz2 import BZ2File
+
+def myopen(filename, *args, **kwargs):
+    if filename.endswith('.bz2'):
+        return BZ2File(filename, *args, **kwargs)
+    else:
+        return open(filename, *args, **kwargs)
 
 
 def convert_prot2species(modernID):
@@ -17,6 +24,7 @@ def convert_prot2species(modernID):
                 #'WBGene0': 'Caenorhabditis elegans',  # No consensus
                 'ENSCINP': 'Ciona intestinalis',
                 'ENSCSAP': 'Ciona savignyi',
+                'ENSCSAV': 'Ciona savignyi',
                 'ENSPMAP': 'Petromyzon marinus',
                 'ENSXETP': 'Xenopus tropicalis',
                 'ENSPSIP': 'Pelodiscus sinensis',
@@ -92,30 +100,33 @@ def convert_prot2species(modernID):
                 return 'Caenorhabditis elegans'
 
 
-def grep_prot(filename, protID):
-    with open(filename) as IN:
+def grep_prot(filename, protID, cprot=2, cgene=0):
+    with myopen(filename) as IN:
         for line in IN:
-            fields = line.split('\t')
-            if fields[2] == protID:
-                return fields[0]
+            fields = line.rstrip('\r\n').split('\t')
+            if fields[cprot] == protID:
+                return fields[cgene]
 
 
-def grep_gene(filename, geneID):
-    with open(filename) as IN:
+def grep_gene(filename, geneID, cprot=2, cgene=0):
+    with myopen(filename) as IN:
         for line in IN:
-            fields = line.split('\t')
-            if fields[0] == geneID:
-                return fields[2]
+            fields = line.rstrip('\r\n').split('\t')
+            if fields[cgene] == geneID:
+                return fields[cprot]
 
 
 def convert_prot2gene(protID):
     sp = convert_prot2species(protID)
-    spsplit = sp.split()
-    sp2 = spsplit[0][0].lower() + spsplit[-1]
+    if shorten_species:
+        spsplit = sp.split()
+        sp2 = spsplit[0][0].lower() + spsplit[-1]
+    else:
+        sp2 = sp.replace(' ', '.')
     return grep_prot(gene_info % sp2, protID)
 
 
-def rewrite_fastafile(fastafile, outputformat="{0}_genes.fa"):
+def rewrite_fastafile(fastafile, outputformat="{0}_genes.fa", cprot=2, cgene=0):
     # avoid duplicate genes
     found = {}
     genetree, ext = os.path.splitext(fastafile)
@@ -123,11 +134,14 @@ def rewrite_fastafile(fastafile, outputformat="{0}_genes.fa"):
     #print >>sys.stderr, genetree, genetreedir, genetreefile
     outfile = outputformat.format(genetreefile)
     unknowns = 0
-    with open(fastafile) as IN, open(outfile, 'w') as OUT:
+    with myopen(fastafile) as IN, myopen(outfile, 'w') as OUT:
         for line in IN:
             if line[0] == '>':
                 protID = line[1:].split('/')[0]
                 geneID = convert_prot2gene(protID)
+                if not geneID and protID.startswith('ENSCSAP'):
+                    protID = protID.replace('ENSCSAP', 'ENSCSAVP')
+                    geneID = convert_prot2gene(protID)
                 if not geneID:
                     unknowns += 1
                     geneID = "unknown_gene_%s" % unknowns
@@ -143,17 +157,23 @@ def rewrite_fastafile(fastafile, outputformat="{0}_genes.fa"):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("gene_info", type=str, help=("string with wildcard,"
-                        "for example ../gene_info/%s_gene_info.tsv"))
+    parser.add_argument("gene_info", type=str, help=('string with wildcard,'
+                        'for example ../gene_info/%s_gene_info.tsv'))
     parser.add_argument("fastafiles", nargs="+")
     parser.add_argument("-o", "--outputformat", default="{0}_genes.fa",
                         help=("output file: '{0}' will be replaced by the "
                               "basename of the input file"))
+    parser.add_argument("--shorten-species", action='store_true',
+                        help="change 'Mus musculus' to 'mmusculus'?")
+    parser.add_argument("--cprot", type=int, default=2, help="column for protein")
+    parser.add_argument("--cgene", type=int, default=0, help="column for gene")
+
     args = parser.parse_args()
     gene_info = args.gene_info # global variable
+    shorten_species = args.shorten_species # global variable
     #for protID in sys.argv[2:]:
     for fastafile in args.fastafiles:
         print >>sys.stderr, fastafile
-        rewrite_fastafile(fastafile, args.outputformat)
+        rewrite_fastafile(fastafile, args.outputformat, args.cprot, args.cgene)
 
 
