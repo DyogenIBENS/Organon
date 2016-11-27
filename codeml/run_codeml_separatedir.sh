@@ -4,6 +4,8 @@
 set -e
 # For the same behavior with every command in a pipe (not wanted here):
 #set -o pipefail
+# Error when trying to use unset variable
+#set -u
 
 help='
 DESCRIPTION
@@ -32,7 +34,6 @@ OPTIONS
         (will delay stdout messages).
     -q  Quiet mode.
 '
-
 ### PARSE COMMAND LINE ###
 
 # A POSIX variable
@@ -46,7 +47,7 @@ quiet=0
 while getopts "h?vbq" opt; do
 	case "$opt" in
 	h|\?)
-		echo -e "$help"
+		echo "$help"
 		exit 0
 		;;
 	v)  valgrind=1
@@ -63,10 +64,12 @@ shift $((OPTIND-1))
 [ "$1" = "--" ] && shift
 
 if [ -z "$1" ]; then
-	echo -e "$help"
+	echo "$help"
 	exit 1
 fi
 
+### Set up command executed in case of error
+trap pwd EXIT
 
 ### SET UP FILENAMES AND TEMPORARY DIRECTORY ###
 
@@ -91,10 +94,9 @@ if [ ! -d "$genetree" ]; then
 	mkdir "$genetree"
 fi
 
-
-
-# convert to absolute paths for `ln` to correctly point to it.
+# convert to absolute path. Needed in the temporary ctl file.
 # Function from: http://stackoverflow.com/a/13087801/4614641
+# Works only for existing files.
 function abspath {
     if [[ -d "$1" ]]
     then
@@ -112,29 +114,40 @@ function abspath {
     fi
 }
 
-echo "seqfile  = $seqfile"  >&2
-echo "treefile = $treefile" >&2
-echo "outfile  = $outfile"  >&2
+#echo "Linking seqfile and treefile in temporary directory." >&2
+seqfile=$(abspath $seqfile)
+treefile=$(abspath $treefile)
+outbase=$(basename $outfile)
+outdir=$(abspath $(dirname $outfile))
+outfile="$outdir/$outbase"
 
-echo "Linking seqfile and treefile in temporary directory." >&2
-seqfile=$(abspath $seqfile)   #|| exit $? #not necessary anymore because set -e
-treefile=$(abspath $treefile) #|| exit $?
+files="seqfile  = $seqfile
+treefile = $treefile
+outfile  = $outfile"
 
-ln -fs -t $genetree/ $seqfile
-ln -fs -t $genetree/ $treefile
+echo "$files" >&2
 
-cd $genetree
+# Create a temporary control file in the temporary directory, containing the 
+# absolute paths to the input and output files
+tmpctl="$genetree/$genetree.$ctlext"
+echo "$files" > "$tmpctl"
+sed -rn '/^\s*(seqfile|treefile|outfile)\s*=/!p' "$genetree.$ctlext" >> "$tmpctl"
+
+#ln -fs -t $genetree/ $seqfile
+#ln -fs -t $genetree/ $treefile
+
+cd "$genetree"
 
 ### Execute CODEML ###
-if [ $valgrind = 1 ]; then
-	valgrind --tool=massif --massif-out-file=../$genetree.massif.out \
-		codeml ../$genetree.$ctlext
-elif [ $buffer = 1 ]; then
-	codeml ../$genetree.$ctlext | tee ../$genetree.log
-elif [ $quiet = 1 ]; then
-	codeml ../$genetree.$ctlext > ../$genetree.log
+if [ "$valgrind" -eq 1 ]; then
+	valgrind --tool=massif --massif-out-file=../"$genetree.massif.out" \
+		codeml "$genetree.$ctlext"
+elif [ "$buffer" -eq 1 ]; then
+	codeml "$genetree.$ctlext" | tee ../"$genetree.log"
+elif [ "$quiet" -eq 1 ]; then
+	codeml "$genetree.$ctlext" > ../"$genetree.log"
 else
-	unbuffer codeml ../$genetree.$ctlext | tee ../$genetree.log
+	unbuffer codeml "$genetree.$ctlext" | tee ../"$genetree.log"
 fi
 # TODO: build command as string, then eval.
 
@@ -144,17 +157,19 @@ if [ ${PIPESTATUS[0]} -eq 0 ]; then
 	for f in "2NG.dS" "2NG.dN" "2NG.t" "rub" "rst" "rst1" "lnf" "4fold.nuc"; do
 		mv $f ../${genetree}_$f
 	done
-
+	
+	# remove the temporary control file
+	rm "$genetree.$ctlext"
 	# remove symbolic links (to seqfile and treefile)
-	find -type l -delete
+	#find -type l -delete
 	
 	# move the result file if present in the output directory
-	maybeoutfile=$(basename $outfile)
-	if [ -f $maybeoutfile ]; then
-		# check if need overwriting an existing file
-		#if [ -f ../$maybeoutfile ]; then ;fi
-		mv $maybeoutfile ../$maybeoutfile
-	fi
+	#maybeoutfile=$(basename $outfile)
+	#if [ -f $maybeoutfile ]; then
+	#	# check if need overwriting an existing file
+	#	#if [ -f ../$maybeoutfile ]; then ;fi
+	#	mv $maybeoutfile ../$maybeoutfile
+	#fi
 
 	cd ..
 	rmdir $genetree/ #|| echo >&2 "$!"
@@ -163,3 +178,5 @@ else
 	exit 1
 fi
 
+# Unset the trap
+trap - EXIT
