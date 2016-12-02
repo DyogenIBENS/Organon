@@ -43,13 +43,14 @@ def add_species_nodes_back(tree, phyltree):
         parent_ancestor, _ = split_species_gene(parent_node.name)
 
         # If doesn't match species tree
-        if parent_ancestor != ancestor_lineage[-1]:
+        # same ancestor as child is possible for duplication node
+        if parent_ancestor not in set((ancestor_lineage[-1], ancestor)):
             idx = ancestor_lineage.index(parent_ancestor)
             # Add missing links
             for link in ancestor_lineage[idx:-1]:
                 parent_node = parent_node.add_child(name=(link + genename))
             # Move the node on top of the created intermediate links
-            parent_node.add_node(child=node.detach())
+            parent_node.add_child(child=node.detach())
 
 
 def search_by_ancestorspecies(tree, ancestor):
