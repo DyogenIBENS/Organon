@@ -36,18 +36,19 @@ def add_species_nodes_back(tree, phyltree):
             ancestor = convert_gene2species(node.name)
             genename = node.name
         else:
-            ancestor, genename = split_species_gene(node.name)
-        ancestor_lineage = phyltree.dicLinks[phyltree.root][ancestor] 
+            ancestor, _ = split_species_gene(node.name)
         
         parent_node = node.up
-        parent_ancestor, _ = split_species_gene(parent_node.name)
+        parent_ancestor, genename = split_species_gene(parent_node.name)
+
+        ancestor_lineage = phyltree.dicLinks[parent_ancestor][ancestor] 
 
         # If doesn't match species tree
         # same ancestor as child is possible for duplication node
-        if parent_ancestor not in set((ancestor_lineage[-1], ancestor)):
-            idx = ancestor_lineage.index(parent_ancestor)
+        # So check for length 1 or 2
+        if len(ancestor_lineage) > 2:
             # Add missing links
-            for link in ancestor_lineage[idx:-1]:
+            for link in ancestor_lineage[1:-1]:
                 parent_node = parent_node.add_child(name=(link + genename))
             # Move the node on top of the created intermediate links
             parent_node.add_child(child=node.detach())
@@ -71,8 +72,9 @@ def save_subtrees(treefile, ancestors, outdir='.'):
     for ancestor in ancestors:
         ancestor = ancestor.capitalize()
         for node in search_by_ancestorspecies(tree, ancestor):
-            outfile = os.path.join(outdir, node.name + '.nwk')
-            node.write(format=1, outfile=outfile)
+            if len(node.get_leaves()) > 1:
+                outfile = os.path.join(outdir, node.name + '.nwk')
+                node.write(format=1, outfile=outfile)
 
 
 if __name__ == '__main__':
