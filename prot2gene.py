@@ -23,8 +23,8 @@ def convert_prot2species(modernID):
                 'FBpp': 'Drosophila melanogaster',
                 #'WBGene0': 'Caenorhabditis elegans',  # No consensus
                 'ENSCINP': 'Ciona intestinalis',
-                'ENSCSAP': 'Ciona savignyi',
                 'ENSCSAV': 'Ciona savignyi',
+                'ENSCSAP': 'Chlorocebus sabaeus',
                 'ENSPMAP': 'Petromyzon marinus',
                 'ENSXETP': 'Xenopus tropicalis',
                 'ENSPSIP': 'Pelodiscus sinensis',
