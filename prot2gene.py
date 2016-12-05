@@ -134,9 +134,9 @@ def rewrite_fastafile(fastafile, outputformat="{0}_genes.fa", cprot=2, cgene=0):
     outfile = outputformat.format(genetreefile)
     if os.path.exists(outfile):
         if force_overwrite:
-            print >>sys.stderr, "(Overwriting)"
+            print >>sys.stderr, "(Overwriting %s)" % outfile
         else:
-            print >>sys.stderr, "Exists. Skipping."
+            print >>sys.stderr, "%s exists. Skipping." % outfile
             return
 
     # avoid duplicate genes
@@ -170,17 +170,19 @@ def rewrite_fastafile(fastafile, outputformat="{0}_genes.fa", cprot=2, cgene=0):
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("gene_info", type=str, help=('string with wildcard,'
-                        'for example ../gene_info/%s_gene_info.tsv'))
+                        'for example ../gene_info/%%s_gene_info.tsv'))
     parser.add_argument("fastafiles", nargs="+")
     parser.add_argument("-o", "--outputformat", default="{0}_genes.fa",
                         help=("output file: '{0}' will be replaced by the "
-                              "basename of the input file"))
+                              "basename of the input file. [%(default)r]"))
     parser.add_argument("--shorten-species", action='store_true',
                         help="change 'Mus musculus' to 'mmusculus'?")
     parser.add_argument("-f", "--force-overwrite", action='store_true',
                         help="overwrite already existing files")
-    parser.add_argument("--cprot", type=int, default=2, help="column for protein")
-    parser.add_argument("--cgene", type=int, default=0, help="column for gene")
+    parser.add_argument("--cprot", type=int, default=2, metavar='INT',
+                        help="column for protein [%(default)s]")
+    parser.add_argument("--cgene", type=int, default=0, metavar='INT',
+                        help="column for gene [%(default)s]")
 
     args = parser.parse_args()
     gene_info = args.gene_info # global variable
