@@ -6,6 +6,7 @@
 #    tree = Phylo.read(filename, "newick")
 #    return tree
 
+import sys
 import os.path
 import argparse
 
@@ -41,7 +42,14 @@ def add_species_nodes_back(tree, phyltree):
         parent_node = node.up
         parent_ancestor, genename = split_species_gene(parent_node.name)
 
-        ancestor_lineage = phyltree.dicLinks[parent_ancestor][ancestor] 
+        try:
+            ancestor_lineage = phyltree.dicLinks[parent_ancestor][ancestor] 
+        except KeyError:
+            print >>sys.stderr, "node       : %s (%r)" % (node.name, ancestor)
+            print >>sys.stderr, "parent_node: %s (%r)" % (parent_node.name,
+                                                          parent_ancestor)
+            raise
+
 
         # If doesn't match species tree
         # same ancestor as child is possible for duplication node
@@ -65,6 +73,8 @@ def save_subtrees_byspecieslist(tree, specieslist, outdir='.'):
         outfile = os.path.join(outdir, node.name + '.nwk')
         node.write(format=1, outfile=outfile)
 
+#def stop_at_duplicates(values):
+#    for values in
 
 def save_subtrees(treefile, ancestors, outdir='.'):
     tree = ete3.Tree(treefile, format=1)
@@ -72,7 +82,10 @@ def save_subtrees(treefile, ancestors, outdir='.'):
     for ancestor in ancestors:
         ancestor = ancestor.capitalize()
         for node in search_by_ancestorspecies(tree, ancestor):
-            if len(node.get_leaves()) > 1:
+            leafnames = node.get_leaf_names()
+            leafspecies = [convert_gene2species(leaf) for leaf in leafnames]
+            if len(node.get_leaves()) > 1 and \
+                    len(leafspecies) > len(set(leafspecies)):
                 outfile = os.path.join(outdir, node.name + '.nwk')
                 node.write(format=1, outfile=outfile)
 
