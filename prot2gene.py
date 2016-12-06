@@ -5,6 +5,7 @@ EXAMPLE:
     ./prot2gene ~/ws2/DUPLI_data85/gene_info/%s_gene_info.tsv <fastafiles>
 """
 
+import re
 import sys
 import os.path
 import argparse
@@ -18,9 +19,9 @@ def myopen(filename, *args, **kwargs):
 
 
 def convert_prot2species(modernID):
-    prot2sp = { 'Y': 'Saccharomyces cerevisiae',
-                'Q': 'Saccharomyces cerevisiae',
-                'FBpp': 'Drosophila melanogaster',
+    prot2sp = { #'Y': 'Saccharomyces cerevisiae',  # there are C.elegans prot with 'Y' too
+                'Q0': 'Saccharomyces cerevisiae',
+                'FB': 'Drosophila melanogaster',
                 #'WBGene0': 'Caenorhabditis elegans',  # No consensus
                 'ENSCINP': 'Ciona intestinalis',
                 'ENSCSAV': 'Ciona savignyi',
@@ -92,11 +93,12 @@ def convert_prot2species(modernID):
         return prot2sp[modernID[:7]]
     except KeyError:
         try:
-            return prot2sp[modernID[:4]]
+            # Saccharomyces cerevisiae (Q0) or Drosophila melanogaster
+            return prot2sp[modernID[:2]]
         except KeyError:
-            try:
-                return prot2sp[modernID[0]]
-            except KeyError:
+            if re.match('Y[A-Z]', modernID):
+                return 'Saccharomyces cerevisiae'
+            else:
                 return 'Caenorhabditis elegans'
 
 
