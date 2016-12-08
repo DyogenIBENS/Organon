@@ -149,13 +149,13 @@ def rewrite_fastafile(fastafile, outputformat="{0}_genes.fa", cprot=2, cgene=0):
             if line[0] == '>':
                 protID = line[1:].split('/')[0]
                 geneID = convert_prot2gene(protID)
-                if not geneID and protID.startswith('ENSCSAP'):
-                    protID = protID.replace('ENSCSAP', 'ENSCSAVP')
-                    geneID = convert_prot2gene(protID)
-                    print >>sys.stderr, "converting", geneID
-                    if geneID:
-                        # Fit names in tree
-                        geneID = geneID.replace('ENSCSAVG', 'ENSCSAG')
+                #if not geneID and protID.startswith('ENSCSAP'):
+                #    protID = protID.replace('ENSCSAP', 'ENSCSAVP')
+                #    geneID = convert_prot2gene(protID)
+                #    print >>sys.stderr, "converting", geneID
+                #    if geneID:
+                #        # Fit names in tree
+                #        geneID = geneID.replace('ENSCSAVG', 'ENSCSAG')
                 if not geneID:
                     unknowns += 1
                     geneID = "unknown_gene_%s" % unknowns
@@ -194,5 +194,4 @@ if __name__=='__main__':
     for fastafile in args.fastafiles:
         print >>sys.stderr, fastafile
         rewrite_fastafile(fastafile, args.outputformat, args.cprot, args.cgene)
-
 
