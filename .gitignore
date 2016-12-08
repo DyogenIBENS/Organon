@@ -1,3 +1,4 @@
 *.pyc
 *~
 htcondor_descript/*
+evosite3d/*
