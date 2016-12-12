@@ -1,10 +1,12 @@
 #configfile: "codeml1-300.snake.config.yaml"
+import re
 import os.path
-from glob import glob
+from glob import iglob
 
 ruleorder: codeml_condor > codeml
 
-#wildcard_constraints:
+wildcard_constraints:
+	ancestorgenetreesuffix='[A-Z][a-z]+ENSGT00\d+[.`a-zA-Z]*'
 #	genetree = 'ENSGT\d+',#,
 #	suffix = '[a-zA-Z.]+'
 #	#bz2_or_not = "|\.bz2"
@@ -27,7 +29,7 @@ ANCESTORS = config.setdefault('ancestors',
 
 def get_subtrees(wildcards):
 	pattern = '{genetree}/subtrees/{ancestor}{genetree}*.nwk'
-	return glob(pattern.format(**vars(wildcards)))
+	return iglob(pattern.format(**vars(wildcards)))
 
 def get_ctl_pre(wildcards):
 	return [f.replace('.nwk', '.ctl') for f in get_subtrees(wildcards)]
@@ -36,15 +38,35 @@ def get_subtrees_ancestor(wildcards):
 	patterns = ['{0}/subtrees/{ancestor}{0}*.nwk'.format(genetree, \
 														 **vars(wildcards)) \
 				for genetree in GENETREES]
-	found = []
+	#discarded = 0
+	#discarded_codeml = 0
 	for pattern in patterns:
-		found += glob(pattern)
-	return found
+		stricter_pattern = re.compile(pattern.replace('*', '([.`a-zA-Z])*'))
+		for f in iglob(pattern):
+			if stricter_pattern.match(f):
+				yield f
+			#else:
+			#	discarded += 1
+			#	if re.search(r'_codeml', f):
+			#		discarded_codeml += 1
+			#	else:
+			#		print(f, end=',', file=sys.stderr)
+	#print("Discarded: %d (codeml: %d). " % (discarded, discarded_codeml),
+	#	  end=' ', file=sys.stderr)
 
 def get_ctl_ancestor_pre(wildcards):
-	print("get_ctl_ancestor_pre...", end=' ')
-	r = [f.replace('.nwk', '.ctl') for f in get_subtrees_ancestor(wildcards)]
-	print("Done (%d files)." % len(r))
+	print("get_ctl_ancestor_pre...", end=' ', file=sys.stderr)
+	# Do not yield if there is a codeml result file already
+	#r = [f.replace('.nwk', '.ctl') for f in get_subtrees_ancestor(wildcards) \
+	#		if not os.path.isfile(f.replace('.nwk', '.mlc'))]
+	#print("Done (%d files)." % len(r), file=sys.stderr)
+	r = []
+	for count, f in enumerate(get_subtrees_ancestor(wildcards), start=1):
+		if not os.path.isfile(f.replace('.nwk', '.mlc')):
+			r.append(f.replace('.nwk', '.ctl'))
+	todo = len(r)
+	print("To include: %d ; already done: %d files." % (todo, count-todo),
+			file=sys.stderr)
 	return r
 
 def get_ctl_ancestor(wildcards):
@@ -59,7 +81,7 @@ def get_ctl_ancestor(wildcards):
 #rule all:
 #	input: "codeml.condor.txt"
 
-# prepare multiple alignment
+# prepare multiple alignment. Once for each gene tree.
 rule prot2gene_in_align:
 	input:  "{genetree}.fa.bz2"
 	output: "{genetree}/{genetree}_genes.fa"
@@ -84,71 +106,77 @@ rule get_tree:
     > {output}"
 
 
-rule prune2family:
-	input: rules.get_tree.output
-	output: expand("{{genetree}}/subtrees/")
-	shell:
-		"~glouvel/scripts/codeml/prune2family.py -o #TODO"
+#rule prune2family:
+#	input: rules.get_tree.output
+#	output: expand("{{genetree}}/subtrees/")
+#	shell:
+#		"~glouvel/scripts/codeml/prune2family.py -o #TODO"
 
 
 # The actual starting rule
 rule rm_inner_node_labels:
-	input: "{genetree}/subtrees/{ancestor}{genetree}{suffix}.nwk"
-	output: "{genetree}/subtrees/{ancestor}{genetree}{suffix}_codeml.nwk"
+	# /!\ Cyclic rule!
+	input: "{genetree}/subtrees/{ancestorgenetreesuffix}.nwk"
+	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_codeml.nwk"
 	shell:
-		r"sed 's/)[a-zA-Z0-9._]\+\(:\|;\)/)\1/g' {input} > {output}"
+		r"sed 's/)[a-zA-Z0-9._]\+\(:\|;\)/)\1/g' '{input}' > '{output}'"
 
 rule list_tree_labels:
 	input: rules.rm_inner_node_labels.output # "{genetree}_codeml.pruned.nwk",
-	output: temp("{genetree}/subtrees/{ancestor}{genetree}{suffix}_labels.txt")
+	output: temp("{genetree}/subtrees/{ancestorgenetreesuffix}_labels.txt")
 	# the perl part removes the last newline of stdin. (Otherwise
 	# evosite3d/extract_sequences.py fails if there are no labels)
-	shell: "nw_labels -I {input} | perl -pe 'chomp if eof' > {output}"
+	shell: "nw_labels -I '{input}' | perl -pe 'chomp if eof' > '{output}'"
 
 rule rm_seq_not_in_tree:
 	input:
 		labels=rules.list_tree_labels.output,  #"{genetree}_labels.txt",
 		al    =rules.prot2gene_in_align.output #"{genetree}_genes.fa"
-	output: "{genetree}/subtrees/{ancestor}{genetree}{suffix}_genes.fa"
+	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_genes.fa"
 	shell:
-		"~glouvel/scripts/evosite3d/extract_sequences.py {input.labels} {input.al} > {output}"
+		"~glouvel/scripts/evosite3d/extract_sequences.py '{input.labels}' "\
+		"'{input.al}' > '{output}'"
 
 rule fasta2phylip:
-	input:  rules.rm_seq_not_in_tree.output #"{genetree}_genes.filtered.fa"
-	output: "{genetree}/subtrees/{ancestor}{genetree}{suffix}_genes.phy"
+	input:  rules.rm_seq_not_in_tree.output #"{ancestorgenetreesuffix}_genes.fa"
+	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_genes.phy"
 	shell:
-		"/users/ldog/glouvel/scripts/evosite3d/convert_fasta2phylip.py {input} {output}"
+		"/users/ldog/glouvel/scripts/evosite3d/convert_fasta2phylip.py "\
+		"'{input}' '{output}'"
 
 rule make_ctl:
-	input: "base0.ctl"
-	output: "{genetree}/subtrees/{ancestor}{genetree}{suffix}.ctl"
+	input:
+		ctl="base0.ctl",
+		phy=rules.fasta2phylip.output,
+		tree=rules.rm_inner_node_labels.output
+	output: "{genetree}/subtrees/{ancestorgenetreesuffix}.ctl"
 	run:
 		with open(output[0], 'w') as out:
 			out.write(
-				("seqfile  = subtrees/{ancestor}{genetree}{suffix}_genes.phy\n"
-				 "treefile = subtrees/{ancestor}{genetree}{suffix}_codeml.nwk\n"
-				 "outfile  = subtrees/{ancestor}{genetree}{suffix}.mlc\n").format(**vars(wildcards)))
-			with open(input[0]) as IN:
+				("seqfile  = subtrees/{ancestorgenetreesuffix}_genes.phy\n"
+				 "treefile = subtrees/{ancestorgenetreesuffix}_codeml.nwk\n"
+				 "outfile  = subtrees/{ancestorgenetreesuffix}.mlc\n").format(**vars(wildcards)))
+			with open(input.ctl) as IN:
 				out.write(IN.read())
 
 rule codeml:
 	input:
 		ctl =rules.make_ctl.output,
 		seq =rules.fasta2phylip.output,
-		tree="{genetree}/subtrees/{ancestor}{genetree}{suffix}.nwk"
+		tree="{genetree}/subtrees/{ancestorgenetreesuffix}.nwk"
 	output:
-		mlc  ="{genetree}/subtrees/{ancestor}{genetree}{suffix}.mlc",
-		dN   ="{genetree}/subtrees/{ancestor}{genetree}{suffix}_2NG.dN",
-		dS   ="{genetree}/subtrees/{ancestor}{genetree}{suffix}_2NG.dS",
-		t    ="{genetree}/subtrees/{ancestor}{genetree}{suffix}_2NG.t",
-		ffold="{genetree}/subtrees/{ancestor}{genetree}{suffix}_4fold.nuc",
-		lnf  ="{genetree}/subtrees/{ancestor}{genetree}{suffix}_lnf",
-		rst  ="{genetree}/subtrees/{ancestor}{genetree}{suffix}_rst",
-		rst1 ="{genetree}/subtrees/{ancestor}{genetree}{suffix}_rst1",
-		rub  ="{genetree}/subtrees/{ancestor}{genetree}{suffix}_rub"
-	log: "{genetree}/subtrees/{ancestor}{genetree}{suffix}.log"
+		mlc  ="{genetree}/subtrees/{ancestorgenetreesuffix}.mlc",
+		dN   ="{genetree}/subtrees/{ancestorgenetreesuffix}_2NG.dN",
+		dS   ="{genetree}/subtrees/{ancestorgenetreesuffix}_2NG.dS",
+		t    ="{genetree}/subtrees/{ancestorgenetreesuffix}_2NG.t",
+		ffold="{genetree}/subtrees/{ancestorgenetreesuffix}_4fold.nuc",
+		lnf  ="{genetree}/subtrees/{ancestorgenetreesuffix}_lnf",
+		rst  ="{genetree}/subtrees/{ancestorgenetreesuffix}_rst",
+		rst1 ="{genetree}/subtrees/{ancestorgenetreesuffix}_rst1",
+		rub  ="{genetree}/subtrees/{ancestorgenetreesuffix}_rub"
+	log: "{genetree}/subtrees/{ancestorgenetreesuffix}.log"
 	shell:
-		"bash ~glouvel/scripts/codeml/run_codeml_separatedir.sh {input.ctl}"
+		"bash ~glouvel/scripts/codeml/run_codeml_separatedir.sh '{input.ctl}'"
 
 #rule allocate_codeml_memory:
 #	input: rules.fasta2phylip.output
@@ -158,15 +186,15 @@ rule codeml:
 		
 rule condor_descript:
 	#input: rules.allocate_codeml_memory.output
-	output: "{genetree}/subtrees/{ancestor}{genetree}{suffix}.condor.txt"
-	params: ctl="{genetree}/subtrees/{ancestor}{genetree}{suffix}.ctl"
+	output: "{genetree}/subtrees/{ancestorgenetreesuffix}.condor.txt"
+	params: ctl="{genetree}/subtrees/{ancestorgenetreesuffix}.ctl"
 	shell:
 		'/users/ldog/glouvel/scripts/htcondor_descript/condor_descript.py'
 		' {output}'
 		' /users/ldog/glouvel/scripts/codeml/run_codeml_separatedir.sh'
 		' -a {params.ctl}'
 		' -cl \'glouvel:34\''
-		' -m "`cat {input}`"'
+		' -m 100M'
 
 # Check that all the .ctl corresponding to the .nwk have been produced.
 #rule all_ready_for_codeml:
@@ -183,7 +211,7 @@ rule condor_descript_prepare:
 	run:
 		with open(output[0], 'w') as OUT:
 			OUT.write("template\targuments\n")
-			for ctlfile in params:
+			for ctlfile in input:
 				base, _ = os.path.splitext(os.path.basename(ctlfile))
 				tmpl = 'condor_logs/%s' % base
 				OUT.write('%s\t-q %s\n' % (tmpl, ctlfile))
@@ -200,7 +228,7 @@ rule condor_descript_all:
 		' /users/ldog/glouvel/scripts/codeml/run_codeml_separatedir.sh'
 		' --fromfile {input}'
 		' -cl \'glouvel:34\''
-		' -m "50M"'
+		' -m "100M"'
 
 rule codeml_condor_all:
 	input: rules.condor_descript_all.output
@@ -212,7 +240,7 @@ rule codeml_condor:
 		desc=rules.condor_descript.output,
 		ctl =rules.make_ctl.output,
 		seq =rules.fasta2phylip.output,
-		tree="{genetree}/subtrees/{ancestor}{genetree}{suffix}.nwk"
+		tree="{genetree}/subtrees/{ancestorgenetreesuffix}.nwk"
 	output: "{genetree}/{genetree}.condor.jobsubmitted.txt"
 	shell:
 		"condor_submit {input.desc} | tee {output}"
