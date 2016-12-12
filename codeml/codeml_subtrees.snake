@@ -114,19 +114,25 @@ rule get_tree:
 
 
 # The actual starting rule
-rule rm_inner_node_labels:
-	# /!\ Cyclic rule!
-	input: "{genetree}/subtrees/{ancestorgenetreesuffix}.nwk"
-	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_codeml.nwk"
-	shell:
-		r"sed 's/)[a-zA-Z0-9._]\+\(:\|;\)/)\1/g' '{input}' > '{output}'"
-
 rule list_tree_labels:
-	input: rules.rm_inner_node_labels.output # "{genetree}_codeml.pruned.nwk",
+	input: "{genetree}/subtrees/{ancestorgenetreesuffix}.nwk"
 	output: temp("{genetree}/subtrees/{ancestorgenetreesuffix}_labels.txt")
 	# the perl part removes the last newline of stdin. (Otherwise
 	# evosite3d/extract_sequences.py fails if there are no labels)
 	shell: "nw_labels -I '{input}' | perl -pe 'chomp if eof' > '{output}'"
+
+rule reshape_tree:
+	# /!\ Cyclic rule!
+	# nw_topology -bI: remove inner node labels (but keep branch lengths)
+	# nw_clade: remove nodes with one child at the root.
+	input:
+		tree="{genetree}/subtrees/{ancestorgenetreesuffix}.nwk",
+		labels=rules.list_tree_labels.output
+	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_codeml.nwk"
+	shell:
+		"nw_topology -bI '{input.tree}'"
+		" | nw_clade - `cat '{input.labels}'`"
+		" > '{output}'"
 
 rule rm_seq_not_in_tree:
 	input:
@@ -148,14 +154,15 @@ rule make_ctl:
 	input:
 		ctl="base0.ctl",
 		phy=rules.fasta2phylip.output,
-		tree=rules.rm_inner_node_labels.output
+		tree=rules.reshape_tree.output
 	output: "{genetree}/subtrees/{ancestorgenetreesuffix}.ctl"
 	run:
 		with open(output[0], 'w') as out:
+			# Write paths relatively to the directory of the .ctl file!
 			out.write(
-				("seqfile  = subtrees/{ancestorgenetreesuffix}_genes.phy\n"
-				 "treefile = subtrees/{ancestorgenetreesuffix}_codeml.nwk\n"
-				 "outfile  = subtrees/{ancestorgenetreesuffix}.mlc\n").format(**vars(wildcards)))
+				("seqfile  = {ancestorgenetreesuffix}_genes.phy\n"
+				 "treefile = {ancestorgenetreesuffix}_codeml.nwk\n"
+				 "outfile  = {ancestorgenetreesuffix}.mlc\n").format(**vars(wildcards)))
 			with open(input.ctl) as IN:
 				out.write(IN.read())
 
