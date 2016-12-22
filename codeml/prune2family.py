@@ -83,9 +83,11 @@ def save_subtrees(treefile, ancestors, outdir='.'):
         ancestor = ancestor.capitalize()
         for node in search_by_ancestorspecies(tree, ancestor):
             leafnames = node.get_leaf_names()
-            leafspecies = [convert_gene2species(leaf) for leaf in leafnames]
-            if len(node.get_leaves()) > 1 and \
-                    len(leafspecies) > len(set(leafspecies)):
+            #leafspecies = [convert_gene2species(leaf) for leaf in leafnames]
+            #if len(node.get_leaves()) > 1 and \
+            #        len(leafspecies) > len(set(leafspecies)):
+            #        # check that there is at least one duplication
+            if len(leafnames) > 1:
                 outfile = os.path.join(outdir, node.name + '.nwk')
                 node.write(format=1, outfile=outfile)
 
