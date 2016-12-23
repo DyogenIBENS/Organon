@@ -125,14 +125,12 @@ rule reshape_tree:
 	# /!\ Cyclic rule!
 	# nw_topology -bI: remove inner node labels (but keep branch lengths)
 	# nw_clade: remove nodes with one child at the root.
-	input:
-		tree="{genetree}/subtrees/{ancestorgenetreesuffix}.nwk",
-		labels=rules.list_tree_labels.output
+	input:"{genetree}/subtrees/{ancestorgenetreesuffix}.nwk"
+		#tree="{genetree}/subtrees/{ancestorgenetreesuffix}.nwk",
+		#labels=rules.list_tree_labels.output
 	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_codeml.nwk"
 	shell:
-		"nw_topology -bI '{input.tree}'"
-		" | nw_clade - `cat '{input.labels}'`"
-		" > '{output}'"
+		"bash ~glouvel/scripts/codeml/reshape_tree.sh '{input}' > '{output}'"
 
 rule rm_seq_not_in_tree:
 	input:
