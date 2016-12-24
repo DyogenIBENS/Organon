@@ -218,7 +218,7 @@ rule condor_descript_prepare:
 			OUT.write("template\targuments\n")
 			for ctlfile in input:
 				base, _ = os.path.splitext(os.path.basename(ctlfile))
-				tmpl = 'condor_logs/%s' % base
+				tmpl = 'condor_logs/%s/%s' % (wildcards.ancestor, base)
 				OUT.write('%s\t-q %s\n' % (tmpl, ctlfile))
 
 
@@ -234,6 +234,7 @@ rule condor_descript_all:
 		' --fromfile {input}'
 		' -cl \'glouvel:34\''
 		' -m "100M"'
+		' -ni'
 
 rule codeml_condor_all:
 	input: rules.condor_descript_all.output
