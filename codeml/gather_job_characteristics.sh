@@ -2,6 +2,8 @@
 
 set -e
 set -u
+IFS=$'\n\t'
+trap exit INT
 
 echo -e 'name\tseq_bytes\tseq_nb\tseq_len\ttime\tmemory'
 
