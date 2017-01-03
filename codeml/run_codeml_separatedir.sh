@@ -69,7 +69,17 @@ if [ -z "$1" ]; then
 fi
 
 ### Set up command executed in case of error
-trap pwd EXIT
+function verbose_exit {
+	msg="Exit information:
+    current directory: $(pwd -P)
+    current ctl file: ${genetree:-}.${ctlext:-}
+    seqfile: ${seqfile:-}
+    treefile: ${treefile:-}
+    outfile: ${outfile:-}"
+	echo "$msg" >&2
+}
+
+trap verbose_exit EXIT
 
 ### SET UP FILENAMES AND TEMPORARY DIRECTORY ###
 
@@ -114,27 +124,28 @@ function abspath {
     fi
 }
 
-#echo "Linking seqfile and treefile in temporary directory." >&2
 seqfile=$(abspath $seqfile)
 treefile=$(abspath $treefile)
 outbase=$(basename $outfile)
 outdir=$(abspath $(dirname $outfile))
 outfile="$outdir/$outbase"
 
-files="seqfile  = $seqfile
-treefile = $treefile
-outfile  = $outfile"
+# To avoid bad surprises, link the input files in the current dir. That way, 
+# the filename length cannot exceed 128 characters (max size allowed by codeml)
+#echo "Linking seqfile and treefile in temporary directory." >&2
+ln -fs -T "$seqfile" "$genetree/seqfile.phy"
+ln -fs -T "$treefile" "$genetree/treefile.nwk"
 
-echo "$files" >&2
+files="seqfile  = seqfile.phy
+treefile = treefile.nwk
+outfile  = outfile.mlc"
+#echo "$files" >&2
 
 # Create a temporary control file in the temporary directory, containing the 
 # absolute paths to the input and output files
 tmpctl="$genetree/$genetree.$ctlext"
 echo "$files" > "$tmpctl"
 sed -rn '/^\s*(seqfile|treefile|outfile)\s*=/!p' "$genetree.$ctlext" >> "$tmpctl"
-
-#ln -fs -t $genetree/ $seqfile
-#ln -fs -t $genetree/ $treefile
 
 cd "$genetree"
 
@@ -162,6 +173,7 @@ if [ ${PIPESTATUS[0]} -eq 0 ]; then
 	rm "$genetree.$ctlext"
 	# remove symbolic links (to seqfile and treefile)
 	#find -type l -delete
+	rm seqfile.phy treefile.nwk
 	
 	# move the result file if present in the output directory
 	#maybeoutfile=$(basename $outfile)
@@ -170,6 +182,7 @@ if [ ${PIPESTATUS[0]} -eq 0 ]; then
 	#	#if [ -f ../$maybeoutfile ]; then ;fi
 	#	mv $maybeoutfile ../$maybeoutfile
 	#fi
+	mv outfile.mlc "$outfile"
 
 	cd ..
 	rmdir $genetree/ #|| echo >&2 "$!"
