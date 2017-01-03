@@ -234,7 +234,7 @@ rule condor_descript_all:
 		' --fromfile {input}'
 		' -cl \'glouvel:34\''
 		' -m "100M"'
-		' -ni'
+		' -ni True'
 
 rule codeml_condor_all:
 	input: rules.condor_descript_all.output
