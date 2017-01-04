@@ -10,6 +10,7 @@ import sys
 import os.path
 import argparse
 from bz2 import BZ2File
+from multiprocessing import Pool
 
 def myopen(filename, *args, **kwargs):
     if filename.endswith('.bz2'):
@@ -118,7 +119,7 @@ def grep_gene(filename, geneID, cprot=2, cgene=0):
                 return fields[cprot]
 
 
-def convert_prot2gene(protID):
+def convert_prot2gene(protID, gene_info, shorten_species=False):
     sp = convert_prot2species(protID)
     if shorten_species:
         spsplit = sp.split()
@@ -128,7 +129,11 @@ def convert_prot2gene(protID):
     return grep_prot(gene_info % sp2, protID)
 
 
-def rewrite_fastafile(fastafile, outputformat="{0}_genes.fa", cprot=2, cgene=0):
+def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2,
+                      cgene=0, shorten_species=False, force_overwrite=False,
+                      verbose=False):
+    if verbose: 
+        print >>sys.stderr, fastafile
     genetree, ext = os.path.splitext(fastafile)
     if ext == '.bz2': genetree, ext = os.path.splitext(genetree)
     genetreedir, genetreefile = os.path.split(genetree)
@@ -148,7 +153,7 @@ def rewrite_fastafile(fastafile, outputformat="{0}_genes.fa", cprot=2, cgene=0):
         for line in IN:
             if line[0] == '>':
                 protID = line[1:].split('/')[0]
-                geneID = convert_prot2gene(protID)
+                geneID = convert_prot2gene(protID, gene_info, shorten_species)
                 #if not geneID and protID.startswith('ENSCSAP'):
                 #    protID = protID.replace('ENSCSAP', 'ENSCSAVP')
                 #    geneID = convert_prot2gene(protID)
@@ -167,13 +172,22 @@ def rewrite_fastafile(fastafile, outputformat="{0}_genes.fa", cprot=2, cgene=0):
                 OUT.write('>' + geneID + '\n')
             else:
                 OUT.write(line)
-        
+
+def rewrite_fasta_process(arglist):
+    rewrite_fastafile(*arglist)
+
 
 if __name__=='__main__':
+    #fasta_rewriter = FastaRewriter()
+    #fasta_rewriter.run()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("gene_info", type=str, help=('string with wildcard,'
                         'for example ../gene_info/%%s_gene_info.tsv'))
     parser.add_argument("fastafiles", nargs="+")
+    parser.add_argument("--cores", type=int, default=1, 
+                        help="number of cores for parallelization")
+    parser.add_argument("--quiet", action='store_false', dest='verbose',
+                        help="do not print each fasta file name")
     parser.add_argument("-o", "--outputformat", default="{0}_genes.fa",
                         help=("output file: '{0}' will be replaced by the "
                               "basename of the input file. [%(default)r]"))
@@ -187,11 +201,23 @@ if __name__=='__main__':
                         help="column for gene [%(default)s]")
 
     args = parser.parse_args()
-    gene_info = args.gene_info # global variable
-    shorten_species = args.shorten_species # global variable
-    force_overwrite = args.force_overwrite
     #for protID in sys.argv[2:]:
-    for fastafile in args.fastafiles:
-        print >>sys.stderr, fastafile
-        rewrite_fastafile(fastafile, args.outputformat, args.cprot, args.cgene)
+    #for fastafile in args.fastafiles:
+    #    print >>sys.stderr, fastafile
+    #    rewrite_fastafile(fastafile, args.outputformat, args.cprot, args.cgene)
+    pool = Pool(processes=args.cores)
+    fastafiles = args.fastafiles
+
+#def _run_process(self, fastafile):
+#    rewrite_fastafile(fastafile, **self.args)#fastafile, args.gene_infoargs.outputformat, args.cprot, args.cgene, verbose=True)
+
+    generate_args = ((f,
+                        args.gene_info,
+                        args.outputformat,
+                        args.cprot,
+                        args.cgene,
+                        args.shorten_species,
+                        args.force_overwrite,
+                        args.verbose) for f in fastafiles)
+    pool.map(rewrite_fasta_process, generate_args)
 
