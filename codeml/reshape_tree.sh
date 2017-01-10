@@ -1,7 +1,14 @@
 #!/bin/bash
 
 set -euo pipefail
-trap exit EXIT
+
+verbose_exit() {
+	exit_msg="input_tree: ${input_tree:-}\ninput_labels: ${input_labels:-}"
+	echo -e $exit_msg >&2
+	exit 1
+}
+trap verbose_exit EXIT
+
 
 help="USAGE:
     ./reshape_tree.sh [-h] <input_tree>
@@ -30,3 +37,4 @@ input_labels="$(nw_labels -I $input_tree)"
 
 nw_topology -bI "$input_tree" | nw_clade - $input_labels
 
+trap exit EXIT
