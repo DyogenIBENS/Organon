@@ -7,10 +7,13 @@ OPTIONS:
     -h: print this help and exit
 
 DESCRIPTION:
-    produces reshaped newick tree compatible with codeml.
+    produces reshaped newick tree compatible with codeml:
     Reshaping means removing the inner node labels, and removing nodes that
-    start from the root and have only one child (codeml fails on such a tree).
+    have only one child (codeml fails on such a tree).
     Requires the python module 'ete3'.
+NOTE:
+    It is not an equivalent of reshape_tree.sh, since the latter only removes
+    nodes with a single child if they are directly connected to the root.
 """
 
 import sys
@@ -29,8 +32,11 @@ if __name__=='__main__':
 
     tree = ete3.Tree(input_tree, format=1)
     for node in tree.traverse():
-        outtree = node
+        newroot = node
         if len(node.children) > 1:
             break
+    for node in newroot.traverse():
+        if len(node.children) == 1:
+            node.delete(prevent_nondicotomic=False, preserve_branch_length=True)
     # The format compatible with codeml is format=5
-    outtree.write(outfile=output_tree, format=5)
+    newroot.write(outfile=output_tree, format=5)

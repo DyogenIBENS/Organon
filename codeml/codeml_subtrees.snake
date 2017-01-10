@@ -62,8 +62,8 @@ def get_ctl_ancestor_pre(wildcards):
 	#print("Done (%d files)." % len(r), file=sys.stderr)
 	r = []
 	for count, f in enumerate(get_subtrees_ancestor(wildcards), start=1):
-		#if not os.path.isfile(f.replace('.nwk', '.mlc')):
-		r.append(f.replace('.nwk', '.ctl'))
+		if not os.path.isfile(f.replace('.nwk', '.mlc')):
+			r.append(f.replace('.nwk', '.ctl'))
 	todo = len(r)
 	print("To include: %d ; already done: %d files." % (todo, count-todo),
 			file=sys.stderr)
@@ -130,7 +130,7 @@ rule reshape_tree:
 		#labels=rules.list_tree_labels.output
 	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_codeml.nwk"
 	shell:
-		"bash ~glouvel/scripts/codeml/reshape_tree.sh '{input}' > '{output}'"
+		"bash ~glouvel/scripts/codeml/reshape_tree.py '{input}' '{output}'"
 
 rule rm_seq_not_in_tree:
 	input:
@@ -233,7 +233,7 @@ rule condor_descript_all:
 		' /users/ldog/glouvel/scripts/codeml/run_codeml_separatedir.sh'
 		' --fromfile {input}'
 		' -cl \'glouvel:34\''
-		' -m "100M"'
+		' -m "200M"'
 		' -ni True'
 
 rule codeml_condor_all:
