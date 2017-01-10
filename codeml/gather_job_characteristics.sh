@@ -3,7 +3,7 @@
 set -e
 set -u
 IFS=$'\n\t'
-trap exit INT
+trap "exit 1" INT
 
 echo -e 'name\tseq_bytes\tseq_nb\tseq_len\ttime\tmemory'
 
@@ -33,6 +33,8 @@ for ctlfile in *.ctl; do
 				tr '\n' '\t'
 
 			# Memory used (MB)
+			# FIXME: the log file (from condor) is appended at every run.
+			#        therefore you need to grep the last occurrence of 'Memory'
 			grep '^\s\+Memory' "$logfile" | \
 				sed -r 's/^\s+Memory \(MB\)\s+:\s+([0-9]+)\s+[0-9]+\s+[0-9]+$/\1/'
 		else
