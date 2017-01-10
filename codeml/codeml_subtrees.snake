@@ -130,7 +130,7 @@ rule reshape_tree:
 		#labels=rules.list_tree_labels.output
 	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_codeml.nwk"
 	shell:
-		"bash ~glouvel/scripts/codeml/reshape_tree.py '{input}' '{output}'"
+		"~glouvel/scripts/codeml/reshape_tree.py '{input}' '{output}'"
 
 rule rm_seq_not_in_tree:
 	input:
