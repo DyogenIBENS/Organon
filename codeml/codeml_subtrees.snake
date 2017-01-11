@@ -1,4 +1,5 @@
 #configfile: "codeml1-300.snake.config.yaml"
+import sys
 import re
 import os.path
 from glob import iglob
@@ -28,6 +29,13 @@ ANCESTORS = config.setdefault('ancestors',
                                'Xenarthra'])
 # in get_subtrees_ancestor_pre, do you want to include files where a .mlc exists?
 REDO = config.setdefault('redo', False)
+if isinstance(REDO, str) and REDO in ('True', 'False'):
+	REDO = eval(REDO)
+
+if not isinstance(REDO, bool):
+	print("Error: config option 'redo' must be a bool (True/False)",
+			file=sys.stderr)
+	sys.exit(1)
 
 def get_subtrees(wildcards):
 	pattern = '{genetree}/subtrees/{ancestor}{genetree}*.nwk'
