@@ -26,6 +26,8 @@ ANCESTORS = config.setdefault('ancestors',
                                'Simiiformes',
                                'Strepsirrhini',
                                'Xenarthra'])
+# in get_subtrees_ancestor_pre, do you want to include files where a .mlc exists?
+REDO = config.setdefault('redo', False)
 
 def get_subtrees(wildcards):
 	pattern = '{genetree}/subtrees/{ancestor}{genetree}*.nwk'
@@ -62,7 +64,7 @@ def get_ctl_ancestor_pre(wildcards):
 	#print("Done (%d files)." % len(r), file=sys.stderr)
 	r = []
 	for count, f in enumerate(get_subtrees_ancestor(wildcards), start=1):
-		if not os.path.isfile(f.replace('.nwk', '.mlc')):
+		if REDO or not os.path.isfile(f.replace('.nwk', '.mlc')):
 			r.append(f.replace('.nwk', '.ctl'))
 	todo = len(r)
 	print("To include: %d ; already done: %d files." % (todo, count-todo),
@@ -87,8 +89,9 @@ rule prot2gene_in_align:
 	output: "{genetree}/{genetree}_genes.fa"
 	shell:
 		"~glouvel/scripts/prot2gene.py"
+		" --cgene 1 --cprot 2 --force-overwrite"
 		" -o '{{0}}/{{0}}_genes.fa'"
-		" /kingdoms/dyogen/workspace2/workspace2/alouis/GENOMICUS_SVN/data85/genes/gtp/gtp.%s.list.bz2"
+		" ~glouvel/ws2/DUPLI_data85/gene_info/%s_fromtree.tsv"
 		" {input}"
 		# Single quotes are important for shell escaping the braces!
 
