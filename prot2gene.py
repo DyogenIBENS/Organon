@@ -104,6 +104,7 @@ def convert_prot2species(modernID):
 
 
 def grep_prot(filename, protID, cprot=2, cgene=0):
+    #print cprot, cgene
     with myopen(filename) as IN:
         for line in IN:
             fields = line.rstrip('\r\n').split('\t')
@@ -119,21 +120,21 @@ def grep_gene(filename, geneID, cprot=2, cgene=0):
                 return fields[cprot]
 
 
-def convert_prot2gene(protID, gene_info, shorten_species=False):
+def convert_prot2gene(protID, gene_info, cprot=2, cgene=0, shorten_species=False):
     sp = convert_prot2species(protID)
     if shorten_species:
         spsplit = sp.split()
         sp2 = spsplit[0][0].lower() + spsplit[-1]
     else:
         sp2 = sp.replace(' ', '.')
-    return grep_prot(gene_info % sp2, protID)
+    return grep_prot(gene_info % sp2, protID, cprot=cprot, cgene=cgene)
 
 
 def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2,
                       cgene=0, shorten_species=False, force_overwrite=False,
-                      verbose=False):
-    if verbose: 
-        print >>sys.stderr, fastafile
+                      verbose=1, strict=False):
+    if verbose:
+        print fastafile
     genetree, ext = os.path.splitext(fastafile)
     if ext == '.bz2': genetree, ext = os.path.splitext(genetree)
     genetreedir, genetreefile = os.path.split(genetree)
@@ -153,7 +154,8 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
         for line in IN:
             if line[0] == '>':
                 protID = line[1:].split('/')[0]
-                geneID = convert_prot2gene(protID, gene_info, shorten_species)
+                geneID = convert_prot2gene(protID, gene_info, cprot, cgene,
+                                            shorten_species)
                 #if not geneID and protID.startswith('ENSCSAP'):
                 #    protID = protID.replace('ENSCSAP', 'ENSCSAVP')
                 #    geneID = convert_prot2gene(protID)
@@ -162,6 +164,9 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
                 #        # Fit names in tree
                 #        geneID = geneID.replace('ENSCSAVG', 'ENSCSAG')
                 if not geneID:
+                    if strict:
+                        raise RuntimeError("protein ID %s could not be converted"\
+                                            % protID)
                     unknowns += 1
                     geneID = "unknown_gene_%s" % unknowns
                 else:
@@ -169,6 +174,8 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
                     found[geneID] += 1
                     if found[geneID] > 1:
                         geneID += ".%d" % found[geneID]
+                if verbose > 1:
+                    print "%s -> %s" % (protID, geneID)
                 OUT.write('>' + geneID + '\n')
             else:
                 OUT.write(line)
@@ -184,10 +191,17 @@ if __name__=='__main__':
     parser.add_argument("gene_info", type=str, help=('string with wildcard,'
                         'for example ../gene_info/%%s_gene_info.tsv'))
     parser.add_argument("fastafiles", nargs="+")
+    parser.add_argument("--fromfile", action='store_true',
+                        help=("if True, the positional argument <fastafiles> "
+                              "is a file containing one fastafile per line"))
     parser.add_argument("--cores", type=int, default=1, 
                         help="number of cores for parallelization")
-    parser.add_argument("--quiet", action='store_false', dest='verbose',
+    parser.add_argument("-q", "--quiet", action='store_const', const=0,
+                        dest='verbose', default=1,
                         help="do not print each fasta file name")
+    parser.add_argument("-v", "--verbose", action='store_const', const=2,
+                        dest='verbose', default=1,
+                        help="print each conversion")
     parser.add_argument("-o", "--outputformat", default="{0}_genes.fa",
                         help=("output file: '{0}' will be replaced by the "
                               "basename of the input file. [%(default)r]"))
@@ -199,6 +213,9 @@ if __name__=='__main__':
                         help="column for protein [%(default)s]")
     parser.add_argument("--cgene", type=int, default=0, metavar='INT',
                         help="column for gene [%(default)s]")
+    ##TODO: argument to trow error if conversion not found
+    parser.add_argument("--strict", action='store_true',
+                        help="Exit at first failed conversion")
 
     args = parser.parse_args()
     #for protID in sys.argv[2:]:
@@ -206,7 +223,16 @@ if __name__=='__main__':
     #    print >>sys.stderr, fastafile
     #    rewrite_fastafile(fastafile, args.outputformat, args.cprot, args.cgene)
     pool = Pool(processes=args.cores)
-    fastafiles = args.fastafiles
+    if args.fromfile:
+        if len(args.fastafiles) > 1:
+            print >>sys.stderr, "Error: only one 'fastafiles' allowed with "\
+                    "--fromfile. See help"
+            sys.exit(1)
+        else:
+            with open(args.fastafiles[0]) as ff:
+                fastafiles = [line.rstrip() for line in ff]
+    else:
+        fastafiles = args.fastafiles
 
 #def _run_process(self, fastafile):
 #    rewrite_fastafile(fastafile, **self.args)#fastafile, args.gene_infoargs.outputformat, args.cprot, args.cgene, verbose=True)
@@ -218,6 +244,7 @@ if __name__=='__main__':
                         args.cgene,
                         args.shorten_species,
                         args.force_overwrite,
-                        args.verbose) for f in fastafiles)
+                        args.verbose,
+                        args.strict) for f in fastafiles)
     pool.map(rewrite_fasta_process, generate_args)
 
