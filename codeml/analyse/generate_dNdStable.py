@@ -141,7 +141,7 @@ def sum_average_dNdS(dNdS, nb2id, tree_nbs):
 
 def bound_average_dS(dNdS, nb2id, tree_nbs, phyltree):
     """calibrate tree using speciation nodes."""
-    ancgene2sp = re.compile(r'([A-Z][a-z.]+)ENSGT')
+    ancgene2sp = re.compile(r'([A-Z][A-Za-z_.-]+)ENSGT')
     ages = []
     subtree = {}
     for n in tree_nbs.traverse('postorder'):
@@ -154,7 +154,11 @@ def bound_average_dS(dNdS, nb2id, tree_nbs, phyltree):
             #ages[scname] = 0
             print_if_verbose("Leaf")
         else:
-            taxon = ancgene2sp.match(scname).group(1).replace('.', ' ')
+            try:
+                taxon = ancgene2sp.match(scname).group(1).replace('.', ' ')
+            except AttributeError:
+                raise RuntimeError("Can not match species name in %r" % scname)
+
             subtree[node] = {'taxon': taxon}
             # determine if speciation or not
             children_taxa = set(subtree[c.name]['taxon'] for c in n.children)
@@ -257,9 +261,13 @@ if __name__=='__main__':
     with open(outfile, 'a') as out:
         for i, mlcfile in enumerate(mlcfiles, start=1):
             percentage = float(i) / nb_mlc * 100
-            ages = process_mlc(mlcfile, phyltree)
-            save_ages(ages, out)
             print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_mlc, percentage, mlcfile),
                     file=sys.stderr, end=' ')
+            try:
+                ages = process_mlc(mlcfile, phyltree)
+                save_ages(ages, out)
+            except:
+                print()
+                raise
     print()
     

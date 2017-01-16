@@ -31,6 +31,7 @@ def split_species_gene(nodename):
 
 def add_species_nodes_back(tree, phyltree):
     """Add missing species ancestors in gene tree"""
+    # TODO: conserve branch length
     # Iterate from leaves to root
     for node in tree.iter_descendants("postorder"):
         if node.is_leaf():
@@ -76,7 +77,7 @@ def save_subtrees_byspecieslist(tree, specieslist, outdir='.'):
 #def stop_at_duplicates(values):
 #    for values in
 
-def save_subtrees(treefile, ancestors, outdir='.'):
+def save_subtrees(treefile, ancestors, outdir='.', only_dup=False):
     tree = ete3.Tree(treefile, format=1)
     add_species_nodes_back(tree, PHYLTREE)
     for ancestor in ancestors:
@@ -87,9 +88,11 @@ def save_subtrees(treefile, ancestors, outdir='.'):
             #if len(node.get_leaves()) > 1 and \
             #        len(leafspecies) > len(set(leafspecies)):
             #        # check that there is at least one duplication
-            if len(leafnames) > 1:
+            #print node.name
+            #print node.get_ascii()
+            if not only_dup or len(leafnames) > 1:
                 outfile = os.path.join(outdir, node.name + '.nwk')
-                node.write(format=1, outfile=outfile)
+                node.write(format=1, format_root_node=True, outfile=outfile)
 
 
 if __name__ == '__main__':
@@ -97,6 +100,9 @@ if __name__ == '__main__':
     parser.add_argument("treefile")
     parser.add_argument("ancestors", nargs='+')
     parser.add_argument("-o", "--outdir", default='.')
+    parser.add_argument("--only-dup", action="store_true",
+                        help="do not extract trees that don't have at least "\
+                             "one duplication")
     args = parser.parse_args()
     save_subtrees(**vars(args))
 
