@@ -76,23 +76,29 @@ def save_subtrees_byspecieslist(tree, specieslist, outdir='.'):
 
 #def stop_at_duplicates(values):
 #    for values in
+def with_dup(leafnames):
+    leafspecies = [convert_gene2species(leaf) for leaf in leafnames]
+    return (len(leafspecies) > len(set(leafspecies)))
+
 
 def save_subtrees(treefile, ancestors, outdir='.', only_dup=False):
-    tree = ete3.Tree(treefile, format=1)
+    try:
+        tree = ete3.Tree(treefile, format=1)
+    except ete3.parser.newick.NewickError as e:
+        print >>sys.stderr, 'ERROR with treefile %r' % treefile
+        raise
     add_species_nodes_back(tree, PHYLTREE)
     for ancestor in ancestors:
         ancestor = ancestor.capitalize()
         for node in search_by_ancestorspecies(tree, ancestor):
             leafnames = node.get_leaf_names()
-            #leafspecies = [convert_gene2species(leaf) for leaf in leafnames]
-            #if len(node.get_leaves()) > 1 and \
-            #        len(leafspecies) > len(set(leafspecies)):
-            #        # check that there is at least one duplication
             #print node.name
             #print node.get_ascii()
-            if not only_dup or len(leafnames) > 1:
-                outfile = os.path.join(outdir, node.name + '.nwk')
-                node.write(format=1, format_root_node=True, outfile=outfile)
+            if len(leafnames) > 1:
+                if not only_dup or with_dup(leafnames):
+                    # check that there is at least one duplication
+                    outfile = os.path.join(outdir, node.name + '.nwk')
+                    node.write(format=1, format_root_node=True, outfile=outfile)
 
 
 if __name__ == '__main__':
