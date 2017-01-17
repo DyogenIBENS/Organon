@@ -109,7 +109,8 @@ if __name__ == '__main__':
     parser.add_argument("--only-dup", action="store_true",
                         help="do not extract trees that don't have at least "\
                              "one duplication")
+    #parser.add_argument("-e", "--ensembl-version", type=int, default=85)
+    #parser.add_argument("-p", "--phyltree", help="")
     args = parser.parse_args()
     save_subtrees(**vars(args))
-
 
