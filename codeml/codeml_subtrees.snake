@@ -28,6 +28,7 @@ ANCESTORS = config.setdefault('ancestors',
                                'Strepsirrhini',
                                'Xenarthra'])
 # in get_subtrees_ancestor_pre, do you want to include files where a .mlc exists?
+BASE_CTL = config.setdefault('base_ctl', 'base0.ctl')
 REDO = config.setdefault('redo', False)
 if isinstance(REDO, str) and REDO in ('True', 'False'):
 	REDO = eval(REDO)
