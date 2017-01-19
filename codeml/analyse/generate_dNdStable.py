@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 
 """Parse results of codeml (.mlc files) to save dN, dS values in a table"""
 
@@ -15,7 +15,6 @@ from select_leaves_from_specieslist import convert_gene2species
 
 def print_if_verbose(*args, **kwargs):
     pass
-    #print(*args, **kwargs)
 
 def showtree(fulltree, ages):
     pass
