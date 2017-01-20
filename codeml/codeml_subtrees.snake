@@ -7,7 +7,7 @@ from glob import iglob
 ruleorder: codeml_condor > codeml
 
 wildcard_constraints:
-	ancestorgenetreesuffix='[A-Z][a-z]+ENSGT00\d+[.`a-zA-Z]*'
+	ancestorgenetreesuffix='[A-Z][A-Za-z_.-]+ENSGT00\d+[.`a-zA-Z]*'
 #	genetree = 'ENSGT\d+',#,
 #	suffix = '[a-zA-Z.]+'
 #	#bz2_or_not = "|\.bz2"
@@ -51,11 +51,18 @@ def get_subtrees_ancestor(wildcards):
 				for genetree in GENETREES]
 	#discarded = 0
 	#discarded_codeml = 0
-	for pattern in patterns:
+	total_genetrees = len(GENETREES)
+	fmt_progress = '\r[progress: %5d/' + str(total_genetrees) + ' (%.2f)]'
+	
+	for processed_genetrees, pattern in enumerate(patterns, start=1):
+		percentage = float(processed_genetrees) / total_genetrees
+		print(fmt_progress % (processed_genetrees, percentage),
+				end=' ', file=sys.stderr)
 		stricter_pattern = re.compile(pattern.replace('*', '([.`a-zA-Z])*'))
 		for f in iglob(pattern):
 			if stricter_pattern.match(f):
 				yield f
+	print(file=sys.stderr)
 			#else:
 			#	discarded += 1
 			#	if re.search(r'_codeml', f):
@@ -66,15 +73,17 @@ def get_subtrees_ancestor(wildcards):
 	#	  end=' ', file=sys.stderr)
 
 def get_ctl_ancestor_pre(wildcards):
-	print("get_ctl_ancestor_pre...", end=' ', file=sys.stderr)
+	print("get_ctl_ancestor_pre...", file=sys.stderr)
 	# Do not yield if there is a codeml result file already
 	#r = [f.replace('.nwk', '.ctl') for f in get_subtrees_ancestor(wildcards) \
 	#		if not os.path.isfile(f.replace('.nwk', '.mlc'))]
 	#print("Done (%d files)." % len(r), file=sys.stderr)
 	r = []
 	for count, f in enumerate(get_subtrees_ancestor(wildcards), start=1):
-		if REDO or not os.path.isfile(f.replace('.nwk', '.mlc')):
-			r.append(f.replace('.nwk', '.ctl'))
+		expected_mlc = f.replace('.nwk', '_%s.mlc' % wildcards.model)
+		if REDO or not os.path.isfile(expected_mlc):
+			expected_ctl = f.replace('.nwk', '_%s.ctl' % wildcards.model)
+			r.append(expected_ctl)
 	todo = len(r)
 	print("To include: %d ; already done: %d files." % (todo, count-todo),
 			file=sys.stderr)
@@ -162,17 +171,18 @@ rule fasta2phylip:
 
 rule make_ctl:
 	input:
-		ctl="base0.ctl",
+		#ctl="base0.ctl",
+		ctl="{model}.ctl",
 		phy=rules.fasta2phylip.output,
 		tree=rules.reshape_tree.output
-	output: "{genetree}/subtrees/{ancestorgenetreesuffix}.ctl"
+	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_{model}.ctl"
 	run:
 		with open(output[0], 'w') as out:
 			# Write paths relatively to the directory of the .ctl file!
 			out.write(
 				("seqfile  = {ancestorgenetreesuffix}_genes.phy\n"
 				 "treefile = {ancestorgenetreesuffix}_codeml.nwk\n"
-				 "outfile  = {ancestorgenetreesuffix}.mlc\n").format(**vars(wildcards)))
+				 "outfile  = {ancestorgenetreesuffix}_{model}.mlc\n").format(**vars(wildcards)))
 			with open(input.ctl) as IN:
 				out.write(IN.read())
 
@@ -180,18 +190,18 @@ rule codeml:
 	input:
 		ctl =rules.make_ctl.output,
 		seq =rules.fasta2phylip.output,
-		tree="{genetree}/subtrees/{ancestorgenetreesuffix}.nwk"
+		tree="{genetree}/subtrees/{ancestorgenetreesuffix}_codeml.nwk"
 	output:
-		mlc  ="{genetree}/subtrees/{ancestorgenetreesuffix}.mlc",
-		dN   ="{genetree}/subtrees/{ancestorgenetreesuffix}_2NG.dN",
-		dS   ="{genetree}/subtrees/{ancestorgenetreesuffix}_2NG.dS",
-		t    ="{genetree}/subtrees/{ancestorgenetreesuffix}_2NG.t",
-		ffold="{genetree}/subtrees/{ancestorgenetreesuffix}_4fold.nuc",
-		lnf  ="{genetree}/subtrees/{ancestorgenetreesuffix}_lnf",
-		rst  ="{genetree}/subtrees/{ancestorgenetreesuffix}_rst",
-		rst1 ="{genetree}/subtrees/{ancestorgenetreesuffix}_rst1",
-		rub  ="{genetree}/subtrees/{ancestorgenetreesuffix}_rub"
-	log: "{genetree}/subtrees/{ancestorgenetreesuffix}.log"
+		mlc  ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}.mlc",
+		dN   ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_2NG.dN",
+		dS   ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_2NG.dS",
+		t    ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_2NG.t",
+		ffold="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_4fold.nuc",
+		lnf  ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_lnf",
+		rst  ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_rst",
+		rst1 ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_rst1",
+		rub  ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_rub"
+	log: "{genetree}/subtrees/{ancestorgenetreesuffix}_{model}.log"
 	shell:
 		"bash ~glouvel/scripts/codeml/run_codeml_separatedir.sh '{input.ctl}'"
 
@@ -203,15 +213,15 @@ rule codeml:
 		
 rule condor_descript:
 	#input: rules.allocate_codeml_memory.output
-	output: "{genetree}/subtrees/{ancestorgenetreesuffix}.condor.txt"
-	params: ctl="{genetree}/subtrees/{ancestorgenetreesuffix}.ctl"
+	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_{model}.condor.txt"
+	params: ctl="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}.ctl"
 	shell:
 		'/users/ldog/glouvel/scripts/htcondor_descript/condor_descript.py'
 		' {output}'
 		' /users/ldog/glouvel/scripts/codeml/run_codeml_separatedir.sh'
 		' -a {params.ctl}'
 		' -cl \'glouvel:34\''
-		' -m 200M'
+		' -m 1G'
 
 # Check that all the .ctl corresponding to the .nwk have been produced.
 #rule all_ready_for_codeml:
@@ -224,7 +234,7 @@ rule condor_descript_prepare:
 			#expand('{genetree}/subtrees/{{ancestor}}{genetree}*.nwk',
 			#	  genetree=GENETREES)
 	input: get_ctl_ancestor_pre
-	output: "{basename}_{ancestor}.condor.arguments.txt"
+	output: "{basename}_{ancestor}_{model}.condor.arguments.txt"
 	run:
 		with open(output[0], 'w') as OUT:
 			OUT.write("template\targuments\n")
@@ -238,14 +248,14 @@ rule condor_descript_prepare:
 # However in that case don't forget to specify concurrency_limits
 rule condor_descript_all:
 	input: rules.condor_descript_prepare.output
-	output: "{basename}_{ancestor}.condor.txt"
+	output: "{basename}_{ancestor}_{model}.condor.txt"
 	shell:
 		'/users/ldog/glouvel/scripts/htcondor_descript/condor_descript.py'
 		' {output}'
 		' /users/ldog/glouvel/scripts/codeml/run_codeml_separatedir.sh'
 		' --fromfile {input}'
 		' -cl \'glouvel:34\''
-		' -m "200M"'
+		' -m "1G"'
 		' -ni True'
 
 rule codeml_condor_all:
