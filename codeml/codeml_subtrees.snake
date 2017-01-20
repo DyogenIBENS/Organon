@@ -55,7 +55,7 @@ def get_subtrees_ancestor(wildcards):
 	fmt_progress = '\r[progress: %5d/' + str(total_genetrees) + ' (%.2f)]'
 	
 	for processed_genetrees, pattern in enumerate(patterns, start=1):
-		percentage = float(processed_genetrees) / total_genetrees
+		percentage = float(processed_genetrees) / total_genetrees * 100
 		print(fmt_progress % (processed_genetrees, percentage),
 				end=' ', file=sys.stderr)
 		stricter_pattern = re.compile(pattern.replace('*', '([.`a-zA-Z])*'))
