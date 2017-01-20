@@ -35,7 +35,7 @@ def def_showtree(show=False):
     return showtree
 
 
-def branch2nb(mlc):
+def branch2nb(mlc, replace_nwk='.mlc'):
     """mlc: filehandle"""
     print_if_verbose()
     regex = re.compile(r'^(.*);$')
@@ -61,7 +61,7 @@ def branch2nb(mlc):
     nb2id = dict(zip(tree_nbs.get_leaf_names(), tree_ids.get_leaf_names()))
 
     # get internal nodes nb-to-id conversion
-    nwkfile = mlc.name.replace('.mlc', '.nwk')
+    nwkfile = mlc.name.replace(replace_nwk, '.nwk')
     fulltree = ete3.Tree(nwkfile, format=1)
 
     for leafnb, leafid in zip(tree_nbs.get_leaves(), fulltree.get_leaves()):
@@ -224,9 +224,9 @@ def save_ages(ages, opened_outfile):
         opened_outfile.write("\t".join(row) + "\n")
 
 
-def process_mlc(mlcfile, phyltree):
+def process_mlc(mlcfile, phyltree, replace_nwk='.mlc'):
     with open(mlcfile) as mlc:
-        nb2id, tree_nbs, fulltree = branch2nb(mlc)
+        nb2id, tree_nbs, fulltree = branch2nb(mlc, replace_nwk)
         dNdS = get_dNdS(mlc)
 
     #dN, dS = sum_average_dNdS(dNdS, nb2id, tree_nbs)
@@ -243,6 +243,9 @@ if __name__=='__main__':
                         help='print progression along tree')
     parser.add_argument('--show', action='store_true',
                         help='start the interactive ete3 tree browser')
+    parser.add_argument('-r', '--replace-nwk', default='.mlc',
+                        help='string to be replace by .nwk to find the tree '\
+                               ' file [%(default)s]')
     args = parser.parse_args()
     outfile = args.outfile
     mlcfiles = args.mlcfiles
@@ -263,7 +266,7 @@ if __name__=='__main__':
             print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_mlc, percentage, mlcfile),
                     file=sys.stderr, end=' ')
             try:
-                ages = process_mlc(mlcfile, phyltree)
+                ages = process_mlc(mlcfile, phyltree, args.replace_nwk)
                 save_ages(ages, out)
             except:
                 print()
