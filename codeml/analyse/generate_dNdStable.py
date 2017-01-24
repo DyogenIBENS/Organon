@@ -5,6 +5,7 @@
 from __future__ import print_function
 
 import sys
+import os.path
 import re
 import argparse
 import ete3
@@ -62,7 +63,18 @@ def branch2nb(mlc, replace_nwk='.mlc'):
 
     # get internal nodes nb-to-id conversion
     nwkfile = mlc.name.replace(replace_nwk, '.nwk')
-    fulltree = ete3.Tree(nwkfile, format=1)
+    try:
+        fulltree = ete3.Tree(nwkfile, format=1)
+    except ete3.parser.newick.NewickError as e:
+        if os.path.exists(nwkfile):
+            print("\nNewickError: Malformed newick tree structure in %r" \
+                    % nwkfile,
+                    file=sys.stderr)
+        else:
+            print("\nNewickError: Unexisting tree file %r" % nwkfile,
+                    file=sys.stderr)
+        sys.exit(1)
+
 
     for leafnb, leafid in zip(tree_nbs.get_leaves(), fulltree.get_leaves()):
         leafid.add_feature('nb', leafnb.name)
@@ -244,7 +256,7 @@ if __name__=='__main__':
     parser.add_argument('--show', action='store_true',
                         help='start the interactive ete3 tree browser')
     parser.add_argument('-r', '--replace-nwk', default='.mlc',
-                        help='string to be replace by .nwk to find the tree '\
+                        help='string to be replaced by .nwk to find the tree'\
                                ' file [%(default)s]')
     args = parser.parse_args()
     outfile = args.outfile
