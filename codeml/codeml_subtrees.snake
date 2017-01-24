@@ -13,20 +13,20 @@ wildcard_constraints:
 #	#bz2_or_not = "|\.bz2"
 
 GENETREES = config.setdefault('genetrees', ['ENSGT00850000133333'])
-ANCESTORS = config.setdefault('ancestors',
-                              ['Afrotheria',
-                               'Carnivora',
-                               'Cetartiodactyla',
-                               'Chiroptera',
-                               'Euarchontoglires',
-                               'Insectivora',
-                               'Lagomorpha',
-                               'Marsupialia',
-                               'Neognathae',
-                               'Rodentia',
-                               'Simiiformes',
-                               'Strepsirrhini',
-                               'Xenarthra'])
+#ANCESTORS = config.setdefault('ancestors',
+#                              ['Afrotheria',
+#                               'Carnivora',
+#                               'Cetartiodactyla',
+#                               'Chiroptera',
+#                               'Euarchontoglires',
+#                               'Insectivora',
+#                               'Lagomorpha',
+#                               'Marsupialia',
+#                               'Neognathae',
+#                               'Rodentia',
+#                               'Simiiformes',
+#                               'Strepsirrhini',
+#                               'Xenarthra'])
 # in get_subtrees_ancestor_pre, do you want to include files where a .mlc exists?
 BASE_CTL = config.setdefault('base_ctl', 'base0.ctl')
 REDO = config.setdefault('redo', False)
@@ -51,18 +51,18 @@ def get_subtrees_ancestor(wildcards):
 				for genetree in GENETREES]
 	#discarded = 0
 	#discarded_codeml = 0
-	total_genetrees = len(GENETREES)
-	fmt_progress = '\r[progress: %5d/' + str(total_genetrees) + ' (%.2f)]'
+	#total_genetrees = len(GENETREES)
+	#fmt_progress = '\r[progress: %5d/' + str(total_genetrees) + ' (%.2f)]'
 	
 	for processed_genetrees, pattern in enumerate(patterns, start=1):
-		percentage = float(processed_genetrees) / total_genetrees * 100
-		print(fmt_progress % (processed_genetrees, percentage),
-				end=' ', file=sys.stderr)
+		#percentage = float(processed_genetrees) / total_genetrees * 100
+		#print(fmt_progress % (processed_genetrees, percentage),
+		#		end=' ', file=sys.stderr)
 		stricter_pattern = re.compile(pattern.replace('*', '([.`a-zA-Z])*'))
 		for f in iglob(pattern):
 			if stricter_pattern.match(f):
 				yield f
-	print(file=sys.stderr)
+	#print(file=sys.stderr)
 			#else:
 			#	discarded += 1
 			#	if re.search(r'_codeml', f):
@@ -79,6 +79,7 @@ def get_ctl_ancestor_pre(wildcards):
 	#		if not os.path.isfile(f.replace('.nwk', '.mlc'))]
 	#print("Done (%d files)." % len(r), file=sys.stderr)
 	r = []
+	count = 0
 	for count, f in enumerate(get_subtrees_ancestor(wildcards), start=1):
 		expected_mlc = f.replace('.nwk', '_%s.mlc' % wildcards.model)
 		if REDO or not os.path.isfile(expected_mlc):
