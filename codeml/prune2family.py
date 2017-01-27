@@ -12,13 +12,7 @@ from select_leaves_from_specieslist import convert_gene2species
 
 
 ENSEMBL_VERSION = 85
-PHYLTREE = PhylTree.PhylogeneticTree("/users/ldog/alouis/ws2/GENOMICUS_SVN/data{0}/PhylTree.Ensembl.{0}.conf".format(ENSEMBL_VERSION))
-
-
-#def dictify_cnm(commonnamemapper, starting_dict=None):
-#    if not starting_dict: starting_dict = {}
-#    if str(type())
-#    starting_dict.update({k: dictify_cnm(v) for k,v in commonnamemapper.iteritems()})
+PHYLTREE_FMT = "/users/ldog/alouis/ws2/GENOMICUS_SVN/data{0}/PhylTree.Ensembl.{0}.conf"
 
 def split_species_gene(nodename):
     """When genename is the concatenation of the species and gene names"""
@@ -124,18 +118,19 @@ def save_subtrees_process(params):
 
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                            only_dup=False, dry_run=False):
+    phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ENSEMBL_VERSION))
     ancestorlists = {}
     ancestor_regexes = {}
     for anc_lowercase in ancestors:
         ancestor = anc_lowercase.capitalize()
-        ancestorlist = sorted(PHYLTREE.allDescendants[ancestor],
-                              key=lambda anc: -PHYLTREE.ages[anc])
+        ancestorlist = sorted(phyltree.allDescendants[ancestor],
+                              key=lambda anc: -phyltree.ages[anc])
         ancestorlists[anc_lowercase] = ancestorlist
         ancestor_regexes[anc_lowercase] = re.compile('^(%s)(?=ENSGT)' % \
                                     '|'.join(ancestorlist).replace(' ', '.'))
     pool = mp.Pool(ncores)
 
-    diclinks = PHYLTREE.dicLinks.common_names_mapper_2_dict()
+    diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
     generate_args = [(treefile,
                         ancestorlists,
                         ancestor_regexes,
@@ -165,10 +160,18 @@ if __name__ == '__main__':
                              "one duplication")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="only print out the output files it would produce")
-    #parser.add_argument("-e", "--ensembl-version", type=int, default=85)
-    #parser.add_argument("-p", "--phyltree", help="")
+    parser.add_argument("-e", "--ensembl-version", type=int, default=85)
+    parser.add_argument("-p", "--phyltree-fmt", default=PHYLTREE_FMT,
+                        help="Phylogenetic species tree "\
+                        "in LibsDyogen PhylTree format. Can contain the string"\
+                        " '{0}' which will be replaced by the Ensembl version")
+    
     args = parser.parse_args()
     dargs = vars(args)
+
+    PHYLTREE_FMT = dargs.pop("phyltree_fmt")
+    ENSEMBL_VERSION = dargs.pop("ensembl_version")
+
     if dargs.pop("fromfile"):
         treefiles = parse_treefiles(dargs.pop("treefile"))
     else:
