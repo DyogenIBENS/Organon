@@ -13,14 +13,44 @@ from select_leaves_from_specieslist import convert_gene2species
 
 ENSEMBL_VERSION = 85
 PHYLTREE_FMT = "/users/ldog/alouis/ws2/GENOMICUS_SVN/data{0}/PhylTree.Ensembl.{0}.conf"
+NEW_DUP_SUFFIX = re.compile(r'\.[A-Za-z`]+$')
 
 def split_species_gene(nodename):
     """When genename is the concatenation of the species and gene names"""
     idx = nodename.index('ENSGT')
     return nodename[:idx].replace('.', ' '), nodename[idx:]
 
+
+def insert_missing_links(parent_sp, ancestor, genename, parent_node, child,
+                         diclinks):
+    try:
+        ancestor_lineage = diclinks[parent_sp][ancestor] 
+    except KeyError:
+        print >>sys.stderr, "child node : %s (%r)" % (child.name,
+                                                      ancestor)
+        print >>sys.stderr, "parent node: %s (%r)" % (node.name,
+                                                      parent_sp)
+        raise
+    # If doesn't match species tree
+    # same ancestor as child is possible for duplication node
+    # So check for length 1 or 2
+    if len(ancestor_lineage) > 2:
+        # conserve original distance
+        n_new_branches = len(ancestor_lineage) - 1
+        dist_new_branches = float(child.dist) / n_new_branches
+        # Add missing links
+        new_node = parent_node
+        for link in ancestor_lineage[1:-1]:
+            new_node = new_node.add_child(name=(link + genename),
+                                          dist=dist_new_branches)
+        # Move the child on top of the created intermediate links
+        new_node.add_child(child=child.detach(),
+                           dist=dist_new_branches)
+
+
 def add_species_nodes_back(tree, diclinks):
-    """Add missing species ancestors in gene tree"""
+    """WRONG. DO NOT USE.
+    Add missing species ancestors in gene tree"""
     # TODO: conserve branch length
     # Iterate from leaves to root
     for node in tree.iter_descendants("postorder"):
@@ -28,34 +58,99 @@ def add_species_nodes_back(tree, diclinks):
             ancestor = convert_gene2species(node.name)
             genename = node.name
         else:
-            ancestor, _ = split_species_gene(node.name)
+            ancestor, genename = split_species_gene(node.name)
         
         parent_node = node.up
-        parent_ancestor, genename = split_species_gene(parent_node.name)
+        parent_ancestor, _ = split_species_gene(parent_node.name)
 
-        try:
-            ancestor_lineage = diclinks[parent_ancestor][ancestor] 
-        except KeyError:
-            print >>sys.stderr, "node       : %s (%r)" % (node.name, ancestor)
-            print >>sys.stderr, "parent_node: %s (%r)" % (parent_node.name,
-                                                          parent_ancestor)
-            raise
+        insert_missing_links(parent_ancestor, ancestor, genename, parent_node,
+                             node, diclinks)
 
 
-        # If doesn't match species tree
-        # same ancestor as child is possible for duplication node
-        # So check for length 1 or 2
-        if len(ancestor_lineage) > 2:
-            # conserve original distance
-            n_new_branches = len(ancestor_lineage) - 1
-            dist_new_branches = float(node.dist) / n_new_branches
-            # Add missing links
-            for link in ancestor_lineage[1:-1]:
-                parent_node = parent_node.add_child(name=(link + genename),
-                                                    dist=dist_new_branches)
-            # Move the node on top of the created intermediate links
-            parent_node.add_child(child=node.detach(),
-                                  dist=dist_new_branches)
+def suffixes_ok(parent, child, event):
+    """parent: genename
+        child: genename
+        event: 'dup' or 'spe'"""
+    #TODO: what to do with leaves (modern gene names)
+    if event == 'spe':
+        return parent == child
+    elif event =='dup':
+        new_suffix = child[(len(parent):]
+        return child.startswith(parent) and NEW_DUP_SUFFIX.match(new_suffix)
+    else:
+        raise RuntimeError("Invalid argument 'event' (must be 'dup' or 'spe')")
+
+
+def suffix_count(parent, child):
+    """count how many duplication suffixes were added between parent and child
+    gene names. (suffixes like '.a', '.a.a', '.a.b'...)"""
+    if not child.startswith(parent):
+        raise RuntimeError("parent %r and child %r are not in the same lineage")
+
+    difference = child[len(parent):]
+    count = 0
+    while NEW_DUP_SUFFIX.search(difference):
+        difference = NEW_DUP_SUFFIX.sub('', difference)
+        count += 1
+    return count
+
+
+def suffix_list(parent, child):
+    """list duplication suffixes that were added between parent and child
+    gene names. (suffixes like '.a', '.b', '.`b', '.ag'...)"""
+    if not child.startswith(parent):
+        raise RuntimeError("parent %r and child %r are not in the same lineage")
+
+    difference = child[len(parent):]
+    suffixes = []
+    match = NEW_DUP_SUFFIX.search(difference)
+    while match:
+        suffixes.append(match.group())
+        difference = NEW_DUP_SUFFIX.sub('', difference)
+    return suffixes
+
+
+def insert_species_nodes_back(tree, diclinks):
+    for node in tree.iter_descendants():
+        if node.children:
+            parent_sp, parent_gn = split_species_gene(node.name)
+            child_sp = []
+            child_gn = []
+            for child in node.children:
+                if child.is_leaf():
+                    ancestor = convert_gene2species(child.name)
+                    genename = child.name
+                else:
+                    ancestor, genename = split_species_gene(child.name)
+                child_sp.append(ancestor)
+                child_gn.append(genename)
+
+            test_same_species = [parent_sp == sp for sp in child_sp]
+            if all(test_same_species):
+                # duplication.
+                # check suffixes
+                event = 'dup'
+            elif not any(test_same_species):
+                # speciation
+                # check suffixes
+                event = 'spe'
+            else:
+                # there is a dup + a spe. Need to add nodes
+                for child, ancestor, genename in zip(node.children, child_sp,
+                                                     child_gn):
+                    if ancestor != parent_sp:
+                        # Insert back the needed speciation event
+                        spe_node = node.add_child(name=(parent_sp + genename))
+                        spe_node.add_feature('reinserted', True)
+                        spe_node.add_child(child=child.detach())
+                        # Then check the succession of ancestors
+            
+            for child, ancestor, genename in zip(node.children, child_sp, child_gn):
+                if not child.is_leaf()
+                    assert suffixes_ok(parent_gn, genename, event)
+                insert_missing_links(parent_sp, ancestor, genename,
+                                     node, child, diclinks)
+
 
 
 def search_by_ancestorlist(tree, ancestorlist):
@@ -85,7 +180,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
     except ete3.parser.newick.NewickError as e:
         print >>sys.stderr, 'ERROR with treefile %r' % treefile
         raise
-    add_species_nodes_back(tree, diclinks)
+    insert_species_nodes_back(tree, diclinks)
     for ancestor, ancestorlist in ancestorlists.iteritems():
         ancestor_regex = ancestor_regexes[ancestor]
         for node in search_by_ancestorlist(tree, ancestorlist):
