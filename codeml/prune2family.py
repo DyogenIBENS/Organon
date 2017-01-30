@@ -1,5 +1,7 @@
 #!/usr/bin/env python2.7
 
+from __future__ import print_function
+
 import re
 import sys
 import os.path
@@ -15,9 +17,32 @@ ENSEMBL_VERSION = 85
 PHYLTREE_FMT = "/users/ldog/alouis/ws2/GENOMICUS_SVN/data{0}/PhylTree.Ensembl.{0}.conf"
 NEW_DUP_SUFFIX = re.compile(r'\.[A-Za-z`]+$')
 
+#SPLIT_SPECIES_GENE = re.compile()
+
+def print_if_verbose(*args, **kwargs):
+    print(*args, **kwargs)
+
+
 def split_species_gene(nodename):
     """When genename is the concatenation of the species and gene names"""
-    idx = nodename.index('ENSGT')
+    try:
+        idx = nodename.index('ENS')
+    except ValueError:
+        try:
+            idx = nodename.index('FBgn') # Drosophila
+        except ValueError:
+            try:
+                idx = nodename.index('WBGene') # Caenorhabditis
+            except ValueError:
+                try:
+                    idx = nodename.index('Y')
+                except ValueError:
+                    try:
+                        idx = nodename.index('Q0')
+                    except ValueError:
+                        print("ERROR: Invalid nodename %r" % nodename,
+                                file=sys.stderr)
+                        raise
     return nodename[:idx].replace('.', ' '), nodename[idx:]
 
 
@@ -26,10 +51,8 @@ def insert_missing_links(parent_sp, ancestor, genename, parent_node, child,
     try:
         ancestor_lineage = diclinks[parent_sp][ancestor] 
     except KeyError:
-        print >>sys.stderr, "child node : %s (%r)" % (child.name,
-                                                      ancestor)
-        print >>sys.stderr, "parent node: %s (%r)" % (node.name,
-                                                      parent_sp)
+        print("child node : %s (%r)" % (child.name, ancestor), file=sys.stderr)
+        print("parent node: %s (%r)" % (node.name, parent_sp), file=sys.stderr)
         raise
     # If doesn't match species tree
     # same ancestor as child is possible for duplication node
@@ -40,12 +63,20 @@ def insert_missing_links(parent_sp, ancestor, genename, parent_node, child,
         dist_new_branches = float(child.dist) / n_new_branches
         # Add missing links
         new_node = parent_node
+        print_if_verbose("Inserted nodes: ", end=" ")
         for link in ancestor_lineage[1:-1]:
             new_node = new_node.add_child(name=(link + genename),
                                           dist=dist_new_branches)
+            new_node.add_feature('reinserted', True)
+            print_if_verbose(link+genename, end=" ")
+        print_if_verbose()
         # Move the child on top of the created intermediate links
         new_node.add_child(child=child.detach(),
                            dist=dist_new_branches)
+        #return True
+    
+    # return false if no node was added
+    #return False
 
 
 def add_species_nodes_back(tree, diclinks):
@@ -75,7 +106,7 @@ def suffixes_ok(parent, child, event):
     if event == 'spe':
         return parent == child
     elif event =='dup':
-        new_suffix = child[(len(parent):]
+        new_suffix = child[len(parent):]
         return child.startswith(parent) and NEW_DUP_SUFFIX.match(new_suffix)
     else:
         raise RuntimeError("Invalid argument 'event' (must be 'dup' or 'spe')")
@@ -99,7 +130,8 @@ def suffix_list(parent, child):
     """list duplication suffixes that were added between parent and child
     gene names. (suffixes like '.a', '.b', '.`b', '.ag'...)"""
     if not child.startswith(parent):
-        raise RuntimeError("parent %r and child %r are not in the same lineage")
+        #raise RuntimeError("parent %r and child %r are not in the same lineage")
+        return None
 
     difference = child[len(parent):]
     suffixes = []
@@ -107,16 +139,20 @@ def suffix_list(parent, child):
     while match:
         suffixes.append(match.group())
         difference = NEW_DUP_SUFFIX.sub('', difference)
+        match = NEW_DUP_SUFFIX.search(difference)
     return suffixes
 
 
 def insert_species_nodes_back(tree, diclinks):
-    for node in tree.iter_descendants():
+    print_if_verbose("* Insert missing nodes:")
+    for node in tree.traverse():
+        print_if_verbose(" " + node.name)
         if node.children:
             parent_sp, parent_gn = split_species_gene(node.name)
             child_sp = []
             child_gn = []
             for child in node.children:
+                print_if_verbose("  - child %r" % child.name)
                 if child.is_leaf():
                     ancestor = convert_gene2species(child.name)
                     genename = child.name
@@ -135,22 +171,50 @@ def insert_species_nodes_back(tree, diclinks):
                 # check suffixes
                 event = 'spe'
             else:
+                print_if_verbose("implicit dup+spe")
                 # there is a dup + a spe. Need to add nodes
-                for child, ancestor, genename in zip(node.children, child_sp,
-                                                     child_gn):
+                added_suffixes = [suffix_list(parent_gn, gn) for gn in child_gn]
+                added_suffixes = [suf[0].lstrip('.') if suf else None for suf in added_suffixes]
+                suff_count = len(set((suf for suf in added_suffixes if suf)))
+                for i, (child, ancestor, genename, suf) in \
+                        enumerate(zip(node.children, child_sp, child_gn,
+                                        added_suffixes)):
                     if ancestor != parent_sp:
+                        # append proper suffix if there isn't one.
+                        if not suf:
+                            suff_count += 1
+                            genename = parent_gn + '.' + chr(96 + suff_count)
+                            child_gn[i] = genename
                         # Insert back the needed speciation event
                         spe_node = node.add_child(name=(parent_sp + genename))
+                        print_if_verbose("Inserted node (spe-dup):",
+                                         parent_sp+genename)
                         spe_node.add_feature('reinserted', True)
                         spe_node.add_child(child=child.detach())
                         # Then check the succession of ancestors
+                        insert_missing_links(parent_sp, ancestor,
+                                                       genename, spe_node,
+                                                       child, diclinks)
+                        child_sp[i] = parent_sp
+                event = 'dup'
             
             for child, ancestor, genename in zip(node.children, child_sp, child_gn):
-                if not child.is_leaf()
-                    assert suffixes_ok(parent_gn, genename, event)
-                insert_missing_links(parent_sp, ancestor, genename,
-                                     node, child, diclinks)
+                if not child.is_leaf():
+                    try:
+                        assert suffixes_ok(parent_gn, genename, event)
+                    except AssertionError:
+                        print("WARNING: inconsistent suffixes:\n",
+                              "  - node            %r\n" % node.name,
+                              "  - children        %s\n" % (node.children,),
+                              "  - parent sp       %r\n" % parent_sp,
+                              "  - species         %r\n" % ancestor,
+                              "  - parent genename %r\n" % parent_gn,
+                              "  - genename        %r\n" % genename,
+                              "  - event           %r" % event, file=sys.stderr)
+                        #raise
 
+                insert_missing_links(parent_sp, ancestor, genename, node,
+                                     child, diclinks)
 
 
 def search_by_ancestorlist(tree, ancestorlist):
@@ -174,19 +238,23 @@ def with_dup(leafnames):
 
 def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
                   outdir='.', only_dup=False, dry_run=False):
+    #print_if_verbose("* treefile: " + treefile)
+    print("* treefile: " + treefile)
     outfiles_set = set() # check whether I write twice to the same outfile
     try:
         tree = ete3.Tree(treefile, format=1)
     except ete3.parser.newick.NewickError as e:
-        print >>sys.stderr, 'ERROR with treefile %r' % treefile
+        print('ERROR with treefile %r' % treefile, file=sys.stderr)
         raise
     insert_species_nodes_back(tree, diclinks)
+    print_if_verbose("* Searching for ancestors:")
     for ancestor, ancestorlist in ancestorlists.iteritems():
+        print_if_verbose(ancestor)
         ancestor_regex = ancestor_regexes[ancestor]
         for node in search_by_ancestorlist(tree, ancestorlist):
             leafnames = node.get_leaf_names()
-            #print node.name
-            #print node.get_ascii()
+            #print(node.name)
+            #print(node.get_ascii())
             if len(leafnames) > 1:
                 # check that there is at least one duplication
                 if not only_dup or with_dup(leafnames):
@@ -194,15 +262,16 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
                     outfile = os.path.join(outdir, node.name + '.nwk')
                     if outfile in outfiles_set:
                         # Not sure this case can happen, but better prevent it
-                        print >>sys.stderr, \
-                                "ERROR: Cannot output twice to %r" % outfile
+                        print("ERROR: Cannot output twice to %r" % outfile,
+                              file=sys.stderr)
                         sys.exit(1)
                     else:
                         outfiles_set.add(outfile)
 
                     if dry_run:
-                        print outfile
+                        print(outfile)
                     else:
+                        print_if_verbose("Writing to %r." % outfile)
                         node.write(format=1,
                                    format_root_node=True,
                                    outfile=outfile)
@@ -223,18 +292,22 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
         ancestorlists[anc_lowercase] = ancestorlist
         ancestor_regexes[anc_lowercase] = re.compile('^(%s)(?=ENSGT)' % \
                                     '|'.join(ancestorlist).replace(' ', '.'))
-    pool = mp.Pool(ncores)
 
     diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
     generate_args = [(treefile,
-                        ancestorlists,
-                        ancestor_regexes,
-                        diclinks,
-                        outdir,
-                        only_dup,
-                        dry_run) for treefile in treefiles]
+                      ancestorlists,
+                      ancestor_regexes,
+                      diclinks,
+                      outdir.format(os.path.splitext(os.path.basename(treefile))[0]),
+                      only_dup,
+                      dry_run) for treefile in treefiles]
 
-    pool.map(save_subtrees_process, generate_args)
+    if ncores > 1:
+        pool = mp.Pool(ncores)
+        pool.map(save_subtrees_process, generate_args)
+    else:
+        for args in generate_args:
+            save_subtrees_process(args)
 
 
 def parse_treefiles(treefiles_file):
@@ -248,24 +321,30 @@ if __name__ == '__main__':
     parser.add_argument("ancestors", nargs='+')
     parser.add_argument("--fromfile", action="store_true", help="read treefile"\
                         " names from the first argument")
-    parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
-    parser.add_argument("-o", "--outdir", default='.')
+    parser.add_argument("-o", "--outdir", default='./{0}')
     parser.add_argument("--only-dup", action="store_true",
                         help="do not extract trees that don't have at least "\
                              "one duplication")
-    parser.add_argument("-n", "--dry-run", action="store_true",
-                        help="only print out the output files it would produce")
     parser.add_argument("-e", "--ensembl-version", type=int, default=85)
     parser.add_argument("-p", "--phyltree-fmt", default=PHYLTREE_FMT,
                         help="Phylogenetic species tree "\
                         "in LibsDyogen PhylTree format. Can contain the string"\
                         " '{0}' which will be replaced by the Ensembl version")
+    parser.add_argument("-n", "--dry-run", action="store_true",
+                        help="only print out the output files it would produce")
+    parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
+    parser.add_argument("-v", "--verbose", action="store_true")
     
     args = parser.parse_args()
     dargs = vars(args)
 
     PHYLTREE_FMT = dargs.pop("phyltree_fmt")
     ENSEMBL_VERSION = dargs.pop("ensembl_version")
+
+    if not dargs.pop("verbose"):
+        # mute the custom print function
+        def print_if_verbose(*args, **kwargs):
+            pass
 
     if dargs.pop("fromfile"):
         treefiles = parse_treefiles(dargs.pop("treefile"))
