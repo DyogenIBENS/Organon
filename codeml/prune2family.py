@@ -290,7 +290,8 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
                         print_if_verbose("Writing to %r." % outfile)
                         node.write(format=1,
                                    format_root_node=True,
-                                   outfile=outfile)
+                                   outfile=outfile,
+                                   features=["reinserted"])
 
 def save_subtrees_process(params):
     save_subtrees(*params)
