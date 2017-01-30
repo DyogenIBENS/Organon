@@ -46,35 +46,49 @@ def split_species_gene(nodename):
     return nodename[:idx].replace('.', ' '), nodename[idx:]
 
 
-def insert_missing_links(parent_sp, ancestor, genename, parent_node, child,
-                         diclinks):
+def name_missing_links(parent_sp, ancestor, genename, parent_node_name,
+                       child_name, diclinks):
     try:
-        ancestor_lineage = diclinks[parent_sp][ancestor] 
+        ancestor_lineage = diclinks[parent_sp][ancestor]
     except KeyError:
-        print("child node : %s (%r)" % (child.name, ancestor), file=sys.stderr)
-        print("parent node: %s (%r)" % (node.name, parent_sp), file=sys.stderr)
+        print("child node : %s (%r)" % (child_name, ancestor), file=sys.stderr)
+        print("parent node: %s (%r)" % (parent_node_name, parent_sp), file=sys.stderr)
         raise
     # If doesn't match species tree
     # same ancestor as child is possible for duplication node
     # So check for length 1 or 2
+    new_node_names = []
     if len(ancestor_lineage) > 2:
-        # conserve original distance
-        n_new_branches = len(ancestor_lineage) - 1
-        dist_new_branches = float(child.dist) / n_new_branches
-        # Add missing links
-        new_node = parent_node
-        print_if_verbose("Inserted nodes: ", end=" ")
-        for link in ancestor_lineage[1:-1]:
-            new_node = new_node.add_child(name=(link + genename),
-                                          dist=dist_new_branches)
-            new_node.add_feature('reinserted', True)
-            print_if_verbose(link+genename, end=" ")
-        print_if_verbose()
-        # Move the child on top of the created intermediate links
-        new_node.add_child(child=child.detach(),
-                           dist=dist_new_branches)
+        new_node_names = [link + genename for link in ancestor_lineage[1:-1]]
+
+    return new_node_names
+
+
+def insert_nodes(new_node_names, parent, child):
+    # conserve original distance
+    n_new_branches = len(new_node_names) + 1
+    dist_new_branches = float(child.dist) / n_new_branches
+
+    new_node = parent
+    print_if_verbose("Inserted nodes: ", end=" ")
+    for new_name in new_node_names:
+        new_node = new_node.add_child(name=new_name,
+                                      dist=dist_new_branches)
+        new_node.add_feature('reinserted', True)
+        print_if_verbose(new_name, end=" ")
+    print_if_verbose()
+    # Move the child on top of the created intermediate links
+    new_node.add_child(child=child.detach(),
+                       dist=dist_new_branches)
+
+
+def insert_missing_links(parent_sp, ancestor, genename, parent_node, child,
+                         diclinks):
+    new_node_names = name_missing_links(parent_sp, ancestor, genename,
+                                        parent_node.name, child.name, diclinks)
+    if new_node_names:
+        insert_nodes(new_node_names, parent_node, child)
         #return True
-    
     # return false if no node was added
     #return False
 
@@ -186,15 +200,18 @@ def insert_species_nodes_back(tree, diclinks):
                             genename = parent_gn + '.' + chr(96 + suff_count)
                             child_gn[i] = genename
                         # Insert back the needed speciation event
-                        spe_node = node.add_child(name=(parent_sp + genename))
+                        spe_node_name = parent_sp + genename
                         print_if_verbose("Inserted node (spe-dup):",
-                                         parent_sp+genename)
-                        spe_node.add_feature('reinserted', True)
-                        spe_node.add_child(child=child.detach())
+                                         spe_node_name)
                         # Then check the succession of ancestors
-                        insert_missing_links(parent_sp, ancestor,
-                                                       genename, spe_node,
-                                                       child, diclinks)
+                        new_node_names = name_missing_links(parent_sp,
+                                                            ancestor,
+                                                            genename,
+                                                            spe_node_name,
+                                                            child.name,
+                                                            diclinks)
+                        new_node_names.insert(0, spe_node_name)
+                        insert_nodes(new_node_names, node, child)
                         child_sp[i] = parent_sp
                 event = 'dup'
             
@@ -229,8 +246,7 @@ def save_subtrees_byspecieslist(tree, specieslist, outdir='.'):
         outfile = os.path.join(outdir, node.name + '.nwk')
         node.write(format=1, outfile=outfile)
 
-#def stop_at_duplicates(values):
-#    for values in
+
 def with_dup(leafnames):
     leafspecies = [convert_gene2species(leaf) for leaf in leafnames]
     return (len(leafspecies) > len(set(leafspecies)))
