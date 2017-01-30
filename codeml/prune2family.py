@@ -17,6 +17,9 @@ ENSEMBL_VERSION = 85
 PHYLTREE_FMT = "/users/ldog/alouis/ws2/GENOMICUS_SVN/data{0}/PhylTree.Ensembl.{0}.conf"
 NEW_DUP_SUFFIX = re.compile(r'\.[A-Za-z`]+$')
 
+PROGRESS = 0
+"""number of input trees having been processed"""
+
 #SPLIT_SPECIES_GENE = re.compile()
 
 def print_if_verbose(*args, **kwargs):
@@ -255,7 +258,6 @@ def with_dup(leafnames):
 def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
                   outdir='.', only_dup=False, dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
-    print("* treefile: " + treefile)
     outfiles_set = set() # check whether I write twice to the same outfile
     try:
         tree = ete3.Tree(treefile, format=1)
@@ -294,7 +296,9 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
                                    features=["reinserted"])
 
 def save_subtrees_process(params):
+    print("* Input tree: %r" % params[0])
     save_subtrees(*params)
+    return 1 # return a value to let Pool.map count the number of results.
 
 
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
@@ -319,12 +323,18 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       only_dup,
                       dry_run) for treefile in treefiles]
 
+    n_input = len(treefiles)
+    print("To process: %d input trees" % n_input)
     if ncores > 1:
         pool = mp.Pool(ncores)
-        pool.map(save_subtrees_process, generate_args)
+        return_values = pool.map(save_subtrees_process, generate_args)
+        progress = len(return_values)
     else:
+        progress = 0
         for args in generate_args:
+            progress += 1
             save_subtrees_process(args)
+    print("Finished processing %d/%d input trees" % (progress, n_input))
 
 
 def parse_treefiles(treefiles_file):
