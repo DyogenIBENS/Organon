@@ -28,6 +28,7 @@ GENETREES = config.setdefault('genetrees', ['ENSGT00850000133333'])
 #                               'Strepsirrhini',
 #                               'Xenarthra'])
 # in get_subtrees_ancestor_pre, do you want to include files where a .mlc exists?
+SUBTREEDIR = config.setdefault('subtreedir', 'subtrees')
 BASE_CTL = config.setdefault('base_ctl', 'base0.ctl')
 REDO = config.setdefault('redo', False)
 if isinstance(REDO, str) and REDO in ('True', 'False'):
@@ -39,15 +40,15 @@ if not isinstance(REDO, bool):
 	sys.exit(1)
 
 def get_subtrees(wildcards):
-	pattern = '{genetree}/subtrees/{ancestor}{genetree}*.nwk'
+	pattern = '{genetree}/%s/{ancestor}{genetree}*.nwk' % SUBTREEDIR
 	return iglob(pattern.format(**vars(wildcards)))
 
 def get_ctl_pre(wildcards):
 	return [f.replace('.nwk', '.ctl') for f in get_subtrees(wildcards)]
 
 def get_subtrees_ancestor(wildcards):
-	patterns = ['{0}/subtrees/{ancestor}{0}*.nwk'.format(genetree, \
-														 **vars(wildcards)) \
+	patterns = ['{0}/{1}/{ancestor}{0}*.nwk'.format(genetree, SUBTREEDIR, \
+													**vars(wildcards)) \
 				for genetree in GENETREES]
 	#discarded = 0
 	#discarded_codeml = 0
@@ -91,8 +92,8 @@ def get_ctl_ancestor_pre(wildcards):
 	return r
 
 def get_ctl_ancestor(wildcards):
-	patterns = ['{0}/subtrees/{ancestor}{0}*.ctl'.format(genetree, \
-														 **vars(wildcards)) \
+	patterns = ['{0}/{1}/{ancestor}{0}*.ctl'.format(genetree, SUBTREEDIR, \
+													**vars(wildcards)) \
 				for genetree in GENETREES]
 	found = []
 	for pattern in patterns:
@@ -130,15 +131,15 @@ rule get_tree:
 
 #rule prune2family:
 #	input: rules.get_tree.output
-#	output: expand("{{genetree}}/subtrees/")
+#	output: expand("{{genetree}}/%s/" % SUBTREEDIR)
 #	shell:
 #		"~glouvel/scripts/codeml/prune2family.py -o #TODO"
 
 
 # The actual starting rule
 rule list_tree_labels:
-	input: "{genetree}/subtrees/{ancestorgenetreesuffix}.nwk"
-	output: temp("{genetree}/subtrees/{ancestorgenetreesuffix}_labels.txt")
+	input: "{genetree}/%s/{ancestorgenetreesuffix}.nwk" % SUBTREEDIR
+	output: temp("{genetree}/%s/{ancestorgenetreesuffix}_labels.txt" % SUBTREEDIR)
 	# the perl part removes the last newline of stdin. (Otherwise
 	# evosite3d/extract_sequences.py fails if there are no labels)
 	shell: "nw_labels -I '{input}' | perl -pe 'chomp if eof' > '{output}'"
@@ -147,10 +148,10 @@ rule reshape_tree:
 	# /!\ Cyclic rule!
 	# nw_topology -bI: remove inner node labels (but keep branch lengths)
 	# nw_clade: remove nodes with one child at the root.
-	input:"{genetree}/subtrees/{ancestorgenetreesuffix}.nwk"
-		#tree="{genetree}/subtrees/{ancestorgenetreesuffix}.nwk",
+	input:"{genetree}/%s/{ancestorgenetreesuffix}.nwk" % SUBTREEDIR
+		#tree="{genetree}/%s/{ancestorgenetreesuffix}.nwk" % SUBTREEDIR,
 		#labels=rules.list_tree_labels.output
-	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_codeml.nwk"
+	output: "{genetree}/%s/{ancestorgenetreesuffix}_codeml.nwk" % SUBTREEDIR
 	shell:
 		"~glouvel/scripts/codeml/reshape_tree.py '{input}' '{output}'"
 
@@ -158,14 +159,14 @@ rule rm_seq_not_in_tree:
 	input:
 		labels=rules.list_tree_labels.output,  #"{genetree}_labels.txt",
 		al    =rules.prot2gene_in_align.output #"{genetree}_genes.fa"
-	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_genes.fa"
+	output: "{genetree}/%s/{ancestorgenetreesuffix}_genes.fa" % SUBTREEDIR
 	shell:
 		"~glouvel/scripts/evosite3d/extract_sequences.py '{input.labels}' "\
 		"'{input.al}' > '{output}'"
 
 rule fasta2phylip:
 	input:  rules.rm_seq_not_in_tree.output #"{ancestorgenetreesuffix}_genes.fa"
-	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_genes.phy"
+	output: "{genetree}/%s/{ancestorgenetreesuffix}_genes.phy" % SUBTREEDIR
 	shell:
 		"/users/ldog/glouvel/scripts/evosite3d/convert_fasta2phylip.py "\
 		"'{input}' '{output}'"
@@ -176,7 +177,7 @@ rule make_ctl:
 		ctl="{model}.ctl",
 		phy=rules.fasta2phylip.output,
 		tree=rules.reshape_tree.output
-	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_{model}.ctl"
+	output: "{genetree}/%s/{ancestorgenetreesuffix}_{model}.ctl" % SUBTREEDIR
 	run:
 		with open(output[0], 'w') as out:
 			# Write paths relatively to the directory of the .ctl file!
@@ -191,31 +192,31 @@ rule codeml:
 	input:
 		ctl =rules.make_ctl.output,
 		seq =rules.fasta2phylip.output,
-		tree="{genetree}/subtrees/{ancestorgenetreesuffix}_codeml.nwk"
+		tree="{genetree}/%s/{ancestorgenetreesuffix}_codeml.nwk" % SUBTREEDIR
 	output:
-		mlc  ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}.mlc",
-		dN   ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_2NG.dN",
-		dS   ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_2NG.dS",
-		t    ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_2NG.t",
-		ffold="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_4fold.nuc",
-		lnf  ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_lnf",
-		rst  ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_rst",
-		rst1 ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_rst1",
-		rub  ="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}_rub"
-	log: "{genetree}/subtrees/{ancestorgenetreesuffix}_{model}.log"
+		mlc  ="{genetree}/%s/{ancestorgenetreesuffix}_{model}.mlc" % SUBTREEDIR,
+		dN   ="{genetree}/%s/{ancestorgenetreesuffix}_{model}_2NG.dN" % SUBTREEDIR,
+		dS   ="{genetree}/%s/{ancestorgenetreesuffix}_{model}_2NG.dS" % SUBTREEDIR,
+		t    ="{genetree}/%s/{ancestorgenetreesuffix}_{model}_2NG.t" % SUBTREEDIR,
+		ffold="{genetree}/%s/{ancestorgenetreesuffix}_{model}_4fold.nuc" % SUBTREEDIR,
+		lnf  ="{genetree}/%s/{ancestorgenetreesuffix}_{model}_lnf" % SUBTREEDIR,
+		rst  ="{genetree}/%s/{ancestorgenetreesuffix}_{model}_rst" % SUBTREEDIR,
+		rst1 ="{genetree}/%s/{ancestorgenetreesuffix}_{model}_rst1" % SUBTREEDIR,
+		rub  ="{genetree}/%s/{ancestorgenetreesuffix}_{model}_rub" % SUBTREEDIR
+	log: "{genetree}/%s/{ancestorgenetreesuffix}_{model}.log" % SUBTREEDIR
 	shell:
 		"bash ~glouvel/scripts/codeml/run_codeml_separatedir.sh '{input.ctl}'"
 
 #rule allocate_codeml_memory:
 #	input: rules.fasta2phylip.output
-#	output: "{genetree}/subtrees/{ancestor}{genetree}.condor.memory.txt"
+#	output: "{genetree}/%s/{ancestor}{genetree}.condor.memory.txt" % SUBTREEDIR
 #		#temp("{genetree}/{genetree}.condor.memory.txt")
 #	shell: "~glouvel/scripts/codeml/allocate_codeml_memory.py {input} > {output}"
 		
 rule condor_descript:
 	#input: rules.allocate_codeml_memory.output
-	output: "{genetree}/subtrees/{ancestorgenetreesuffix}_{model}.condor.txt"
-	params: ctl="{genetree}/subtrees/{ancestorgenetreesuffix}_{model}.ctl"
+	output: "{genetree}/%s/{ancestorgenetreesuffix}_{model}.condor.txt" % SUBTREEDIR
+	params: ctl="{genetree}/%s/{ancestorgenetreesuffix}_{model}.ctl" % SUBTREEDIR
 	shell:
 		'/users/ldog/glouvel/scripts/htcondor_descript/condor_descript.py'
 		' {output}'
@@ -229,10 +230,10 @@ rule condor_descript:
 	
 
 rule condor_descript_prepare:
-	#input: expand('{genetree}/subtrees/all_ready_for_codeml', genetree=GENETREES)
+	#input: expand('{genetree}/%s/all_ready_for_codeml' % SUBTREEDIR, genetree=GENETREES)
 	#params: get_ctl_ancestor # _pre required otherwise it won't compute
 							# the .ctl if they don't exist yet.
-			#expand('{genetree}/subtrees/{{ancestor}}{genetree}*.nwk',
+			#expand('{genetree}/%s/{{ancestor}}{genetree}*.nwk' % SUBTREEDIR,
 			#	  genetree=GENETREES)
 	input: get_ctl_ancestor_pre
 	output: "{basename}_{ancestor}_{model}.condor.arguments.txt"
@@ -269,7 +270,7 @@ rule codeml_condor:
 		desc=rules.condor_descript.output,
 		ctl =rules.make_ctl.output,
 		seq =rules.fasta2phylip.output,
-		tree="{genetree}/subtrees/{ancestorgenetreesuffix}.nwk"
+		tree="{genetree}/%s/{ancestorgenetreesuffix}.nwk" % SUBTREEDIR
 	output: "{genetree}/{genetree}.condor.jobsubmitted.txt"
 	shell:
 		"condor_submit {input.desc} | tee {output}"
