@@ -53,6 +53,7 @@ def branch2nb(mlc, replace_nwk='.mlc'):
     while not regex.match(line):
         line = mlc.next().rstrip()
     tree_nbs = ete3.Tree(line)
+
     line = mlc.next().rstrip()
     while not regex.match(line):
         line = mlc.next().rstrip()
@@ -61,7 +62,8 @@ def branch2nb(mlc, replace_nwk='.mlc'):
     id2nb = dict(zip(tree_ids.get_leaf_names(), tree_nbs.get_leaf_names()))
     nb2id = dict(zip(tree_nbs.get_leaf_names(), tree_ids.get_leaf_names()))
 
-    # get internal nodes nb-to-id conversion
+    # get internal nodes nb-to-id conversion (need the tree with internal node
+    # annotations)
     nwkfile = mlc.name.replace(replace_nwk, '.nwk')
     try:
         fulltree = ete3.Tree(nwkfile, format=1)
@@ -85,21 +87,24 @@ def branch2nb(mlc, replace_nwk='.mlc'):
         print_if_verbose("%-8s" % (base + '..' + tip), end=' ')
         try:
             tip_id = nb2id[tip]
-            tip_id_anc = fulltree.search_nodes(name=tip_id)[0].get_ancestors()
             try:
-                base_id = tip_id_anc[0].name
+                base_node = fulltree.search_nodes(name=tip_id)[0].up
+                while len(base_node.children) == 1:
+                    base_node = base_node.up
+                base_id = base_node.name
                 nb2id[base] = base_id
                 # Add number in the fulltree:
-                tip_id_anc[0].add_feature('nb', base)
+                base_node.add_feature('nb', base)
                 # Also update the tree_nbs
-                base_nb_node = tree_nbs.search_nodes(name=tip)[0].get_ancestors()[0]
+                base_nb_node = tree_nbs.search_nodes(name=tip)[0].up
                 base_nb_node.name = base
                 print_if_verbose('ok')
-            except IndexError:
+            except AttributeError:
                 print('root (%r: %r) cannot have ancestors' % (tip, tip_id))
                 pass
         except KeyError as e:
-            branches = [base, tip] + branches
+            # Not found now, put it back in the queue for later
+            branches.insert(0, (base, tip))
             print_if_verbose('KeyError')
 
     print_if_verbose(tree_nbs.get_ascii())
@@ -107,7 +112,10 @@ def branch2nb(mlc, replace_nwk='.mlc'):
 
 
 def get_dNdS(mlc):
-    """mlc: filehandle"""
+    """Parse table of dN/dS from codeml output file.
+    
+    mlc: filehandle
+    """
     #reg_dNdS = re.compile(r'dN & dS for each branch')
     reg_dNdS = re.compile(r'\s+branch\s+t\s+N\s+S\s+dN/dS\s+dN\s+dS\s+N\*dN\s+S\*dS')
     line = mlc.next().rstrip()
@@ -135,8 +143,11 @@ def sum_average_dNdS(dNdS, nb2id, tree_nbs):
             dS[node] = 0
             dN[node] = 0
         else:
-            dS_children = [dS[nb2id[c.name]] + dNdS[node + '..' + c.name][5] for c in n.children]
-            dN_children = [dN[nb2id[c.name]] + dNdS[node + '..' + c.name][4] for c in n.children]
+
+            dS_branch = dNdS[node + '..' + c.name][5]
+            dN_branch = dNdS[node + '..' + c.name][4]
+            dS_children = [dS[nb2id[c.name]] + dS_branch for c in n.children]
+            dN_children = [dN[nb2id[c.name]] + dN_branch for c in n.children]
             #dS_children = [dS[c.name]] for c in n.children]
             #dN_children = [dN[c.name]] for c in n.children]
             average_dS_ch = sum(dS_children) / len(dS_children)
@@ -193,14 +204,16 @@ def bound_average_dS(dNdS, nb2id, tree_nbs, phyltree):
                 ages.append([scname, str(node_age), "spe"])
                 # compute average dS to each next speciation.
                 # update age of each posterior dup
+                if len(n.children) > 1:
+                    pass
                 for c in n.children:
                     # walk descendants until speciation.
                     # need to get the age of next speciation and compute the time
                     # between the two speciation.
                     # NOTE: could actually have used the phyltree.branches
                     branch_length = node_age - subtree[c.name]['age']
-                    scaling_dS = subtree[c.name]['dS'] + \
-                                    dNdS[node + '..' + c.name][5]
+                    dS_genebranch = dNdS[node + '..' + c.name][5]
+                    scaling_dS = subtree[c.name]['dS'] + dS_genebranch
                     print_if_verbose("    climb up to next speciation: " \
                                       "scaling_dS=%s; br_len=%s" % \
                                         (scaling_dS, branch_length))
