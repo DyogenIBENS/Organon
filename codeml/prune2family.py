@@ -42,9 +42,9 @@ def split_species_gene(nodename):
                 except ValueError:
                     try:
                         idx = nodename.index('Q0')
-                    except ValueError:
-                        print("ERROR: Invalid nodename %r" % nodename,
-                                file=sys.stderr)
+                    except ValueError as err:
+                        err.args = list(err.args) + \
+                                    ["ERROR: Invalid nodename %r" % nodename]
                         raise
     return nodename[:idx].replace('.', ' '), nodename[idx:]
 
@@ -55,10 +55,11 @@ def name_missing_links(parent_sp, ancestor, genename, parent_node_name,
     inbetween."""
     try:
         ancestor_lineage = diclinks[parent_sp][ancestor]
-    except KeyError:
-        print("child node : %s (%r)" % (child_name, ancestor), file=sys.stderr)
-        print("parent node: %s (%r)" % (parent_node_name, parent_sp), file=sys.stderr)
-        raise
+    except KeyError as err:
+        err.args = list(err.args) + \
+                        ["child node : %s (%r)" % (child_name, ancestor),
+                         "parent node: %s (%r)" % (parent_node_name, parent_sp)]
+        raise err
     # Links from diclinks must be corrected: unnecessary nodes removed, i.e
     # nodes with a single child and age 0. (introducing potential errors)
     if ages:
@@ -298,8 +299,8 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
     outfiles_set = set() # check whether I write twice to the same outfile
     try:
         tree = ete3.Tree(treefile, format=1)
-    except ete3.parser.newick.NewickError as e:
-        print('ERROR with treefile %r' % treefile, file=sys.stderr)
+    except ete3.parser.newick.NewickError as err:
+        err.args = list(err.args) + ['ERROR with treefile %r' % treefile]
         raise
     insert_species_nodes_back(tree, diclinks, ages)
     print_if_verbose("* Searching for ancestors:")
@@ -334,12 +335,20 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
 
 def save_subtrees_process(params):
     print("* Input tree: %r" % params[0])
-    save_subtrees(*params)
+    ignore_errors = params.pop()
+    try:
+        save_subtrees(*params)
+    except BaseException as err:
+        if ignore_errors:
+            print("Ignore %r: %r" % (params[0], err), file=sys.stderr)
+            return 0
+        else:
+            raise
     return 1 # return a value to let Pool.map count the number of results.
 
 
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
-                           only_dup=False, dry_run=False):
+                           only_dup=False, dry_run=False, ignore_errors=False):
     phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ENSEMBL_VERSION))
     ancestorlists = {}
     ancestor_regexes = {}
@@ -353,21 +362,22 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
 
     diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
     ages = phyltree.ages.common_names_mapper_2_dict()
-    generate_args = [(treefile,
+    generate_args = [[treefile,
                       ancestorlists,
                       ancestor_regexes,
                       diclinks,
                       ages,
                       outdir.format(os.path.splitext(os.path.basename(treefile))[0]),
                       only_dup,
-                      dry_run) for treefile in treefiles]
+                      dry_run,
+                      ignore_errors] for treefile in treefiles]
 
     n_input = len(treefiles)
     print("To process: %d input trees" % n_input)
     if ncores > 1:
         pool = mp.Pool(ncores)
         return_values = pool.map(save_subtrees_process, generate_args)
-        progress = len(return_values)
+        progress = sum(return_values)
     else:
         progress = 0
         for args in generate_args:
@@ -400,6 +410,8 @@ if __name__ == '__main__':
                         help="only print out the output files it would produce")
     parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-i", "--ignore-errors", action="store_true", 
+                        help="On error, print the error and continue the loop.")
     
     args = parser.parse_args()
     dargs = vars(args)
