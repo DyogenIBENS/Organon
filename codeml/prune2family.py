@@ -59,6 +59,11 @@ def name_missing_links(parent_sp, ancestor, genename, parent_node_name,
         print("child node : %s (%r)" % (child_name, ancestor), file=sys.stderr)
         print("parent node: %s (%r)" % (parent_node_name, parent_sp), file=sys.stderr)
         raise
+    # Links from diclinks must be corrected: unnecessary nodes removed, i.e
+    # nodes with a single child and age 0. (introducing potential errors)
+    if ages:
+        ancestor_lineage = [link for link in ancestor_lineage if ages[link] > 0]
+
     # If doesn't match species tree
     # same ancestor as child is possible for duplication node
     # So check for length 1 or 2
