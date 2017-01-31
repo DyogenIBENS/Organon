@@ -347,9 +347,9 @@ def bound_average_dS(dNdS, id2nb, fulltree, phyltree):
                         nextnode = nextnodes.pop(0)
                         try:
                             nextnode_dS = subtree[nextnode.name]['tmp_dS']
-                        except KeyError:
-                            print("Error: Node exists twice in the tree.",
-                                    file=sys.stderr)
+                        except KeyError as err:
+                            err.args = list(err.args) + \
+                                    ["Error: Node exists twice in the tree."]
                             raise
                         print_if_verbose("    - %2s. %s: dS=%s" % \
                                             (id2nb.get(nextnode.name),
@@ -487,6 +487,8 @@ if __name__=='__main__':
     parser.add_argument('-r', '--replace-nwk', default='.mlc',
                         help='string to be replaced by .nwk to find the tree'\
                                ' file [%(default)s]')
+    parser.add_argument("-i", "--ignore-errors", action="store_true", 
+                        help="On error, print the error and continue the loop.")
     args = parser.parse_args()
     outfile = args.outfile
     mlcfiles = args.mlcfiles
@@ -507,12 +509,15 @@ if __name__=='__main__':
         for i, mlcfile in enumerate(mlcfiles, start=1):
             percentage = float(i) / nb_mlc * 100
             print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_mlc, percentage, mlcfile),
-                    file=sys.stderr, end=' ')
+                  end=' ')
             try:
                 ages = process_mlc(mlcfile, phyltree, args.replace_nwk)
                 save_ages(ages, out)
-            except:
+            except BaseException as err:
                 print()
-                raise
+                if args.ignore_errors:
+                    print("Skip %r: %r" % (mlcfile, err), file=sys.stderr)
+                else:
+                    raise
     print()
     
