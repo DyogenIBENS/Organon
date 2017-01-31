@@ -14,7 +14,7 @@ import LibsDyogen.utils.myPhylTree as PhylTree
 from select_leaves_from_specieslist import convert_gene2species
 
 
-ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENSGT')
+ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS')
 
 
 def print_if_verbose(*args, **kwargs):
@@ -155,6 +155,12 @@ def set_dS_fulltree(fulltree, id2nb, dNdS):
             if intermediates: # this if is not necessary, but maybe for efficiency
                 dist_tot = sum(n.dist for n in intermediates + [node])
 
+                if dist_tot == 0:
+                    print("WARNING: dS = 0 between %r and %r" % (parent.name,
+                            node.name),
+                            file=sys.stderr)
+                    dist_tot = 1. # should set to NaN to be sure.
+
                 for inter_node in intermediates + [node]:
                     inter_node.add_feature('dS', dS_tot * inter_node.dist / dist_tot)
             else:
@@ -285,6 +291,10 @@ def bound_average_dS(dNdS, nb2id, tree_nbs, phyltree):
 def bound_average_dS(dNdS, id2nb, fulltree, phyltree):
     ages = []
     subtree = {}
+    #for node in fulltree.traverse('postorder'):
+    #    print(id2nb.get(node.name), end=' ')
+    #print()
+    #fulltree.show()
     for node in fulltree.traverse('postorder'):
         scname = node.name
         print_if_verbose("* %3s. %s:" % (id2nb.get(scname), scname), end=' ')
@@ -300,9 +310,6 @@ def bound_average_dS(dNdS, id2nb, fulltree, phyltree):
                 raise RuntimeError("Can not match species name in %r" % scname)
 
             subtree[scname] = {'taxon': taxon}
-            #for child in node.children:
-            #    child_name = child.name
-            #    child_taxon = subtree[child_name]
             children_taxa = set((subtree[ch.name]['taxon'] for ch in node.children))
 
             if len(children_taxa & set((taxon,))) == 1:
@@ -338,16 +345,23 @@ def bound_average_dS(dNdS, id2nb, fulltree, phyltree):
                     nextnodes = [ch]
                     while nextnodes:
                         nextnode = nextnodes.pop(0)
-                        nextnode_dS = subtree[nextnode.name]['tmp_dS']
+                        try:
+                            nextnode_dS = subtree[nextnode.name]['tmp_dS']
+                        except KeyError:
+                            print("Error: Node exists twice in the tree.",
+                                    file=sys.stderr)
+                            raise
                         print_if_verbose("    - %2s. %s: dS=%s" % \
                                             (id2nb.get(nextnode.name),
                                              nextnode.name,
                                              nextnode_dS))
                         if nextnode_dS > 0:
                             age = node_age - (1 - nextnode_dS / scaling_dS) * branch_length
-                            #ages[nextnode.name] = age
                             ages.append([nextnode.name, str(age), "dup"])
                             nextnodes.extend(nextnode.children)
+                        #print("    Pop: %s" % nextnode.name)
+                        #print("    nextnodes: ", nextnodes)
+                        #print("    next children: ", nextnode.children)
                         subtree.pop(nextnode.name)
 
                 # then reset dS to zero

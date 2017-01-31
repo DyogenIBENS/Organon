@@ -218,15 +218,19 @@ def insert_species_nodes_back(tree, diclinks, ages=None):
                 # there is a dup + a spe. Need to add nodes
                 added_suffixes = [suffix_list(parent_gn, gn) for gn in child_gn]
                 added_suffixes = [suf[0].lstrip('.') if suf else None for suf in added_suffixes]
-                suff_count = len(set((suf for suf in added_suffixes if suf)))
+                suff_count = 1 #len(set((suf for suf in added_suffixes if suf)))
                 for i, (child, ancestor, genename, suf) in \
                         enumerate(zip(node.children, child_sp, child_gn,
                                         added_suffixes)):
                     if ancestor != parent_sp:
                         # append proper suffix if there isn't one.
                         if not suf:
-                            suff_count += 1
-                            genename = parent_gn + '.' + chr(96 + suff_count)
+                            suf = chr(96+suff_count)
+                            while suf in added_suffixes:
+                                suff_count += 1
+                                suf = chr(96+suff_count)
+                            added_suffixes.append(suf)
+                            genename = parent_gn + '.' + suf
                             child_gn[i] = genename
                         # Insert back the needed speciation event
                         spe_node_name = parent_sp + genename
