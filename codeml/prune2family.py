@@ -27,7 +27,7 @@ def print_if_verbose(*args, **kwargs):
 
 
 def split_species_gene(nodename):
-    """When genename is the concatenation of the species and gene names"""
+    """Split a node name into its two parts (taxon + ancestral gene name)."""
     try:
         idx = nodename.index('ENS')
     except ValueError:
@@ -50,7 +50,9 @@ def split_species_gene(nodename):
 
 
 def name_missing_links(parent_sp, ancestor, genename, parent_node_name,
-                       child_name, diclinks):
+                       child_name, diclinks, ages=None):
+    """given two taxa and the child gene name, return each missing node
+    inbetween."""
     try:
         ancestor_lineage = diclinks[parent_sp][ancestor]
     except KeyError:
@@ -61,42 +63,61 @@ def name_missing_links(parent_sp, ancestor, genename, parent_node_name,
     # same ancestor as child is possible for duplication node
     # So check for length 1 or 2
     new_node_names = []
+    new_branch_dists = []
     if len(ancestor_lineage) > 2:
         new_node_names = [link + genename for link in ancestor_lineage[1:-1]]
 
-    return new_node_names
+        if ages:
+            total_len = ages[ancestor_lineage[-1]] - ages[ancestor_lineage[0]]
+            for link_parent, link in zip(ancestor_lineage[:-1],
+                                         ancestor_lineage[ 1:]):
+                new_dist = float(ages[link] - ages[link_parent])
+                new_branch_dists.append(new_dist / total_len)
 
 
-def insert_nodes(new_node_names, parent, child):
+
+
+    return new_node_names, new_branch_dists
+    # TODO: compute intermediate distances proportionally to the age of each
+    # intermediate taxon. Will however be incorrect if one node is a duplication.
+
+
+def insert_nodes(new_node_names, parent, child, new_dist_ratios=None):
     # conserve original distance
-    n_new_branches = len(new_node_names) + 1
-    dist_new_branches = float(child.dist) / n_new_branches
+    if not new_dist_ratios:
+        # split equally
+        n_new_branches = len(new_node_names) + 1
+        new_branch_dists = [float(child.dist) / n_new_branches] * n_new_branches
+    else:
+        new_branch_dists = [float(child.dist) * r for r in new_dist_ratios]
 
     new_node = parent
     print_if_verbose("Inserted nodes: ", end=" ")
-    for new_name in new_node_names:
-        new_node = new_node.add_child(name=new_name,
-                                      dist=dist_new_branches)
+    for new_name, new_dist in zip(new_node_names, new_branch_dists[:-1]):
+        new_node = new_node.add_child(name=new_name, dist=new_dist)
         new_node.add_feature('reinserted', True)
         print_if_verbose(new_name, end=" ")
     print_if_verbose()
     # Move the child on top of the created intermediate links
-    new_node.add_child(child=child.detach(),
-                       dist=dist_new_branches)
+    new_node.add_child(child=child.detach(), dist=new_branch_dists[-1])
 
 
 def insert_missing_links(parent_sp, ancestor, genename, parent_node, child,
-                         diclinks):
-    new_node_names = name_missing_links(parent_sp, ancestor, genename,
-                                        parent_node.name, child.name, diclinks)
+                         diclinks, ages=None):
+    new_node_names, new_branch_dists = name_missing_links(parent_sp, ancestor,
+                                                            genename,
+                                                            parent_node.name,
+                                                            child.name,
+                                                            diclinks,
+                                                            ages)
     if new_node_names:
-        insert_nodes(new_node_names, parent_node, child)
+        insert_nodes(new_node_names, parent_node, child, new_branch_dists)
         #return True
     # return false if no node was added
     #return False
 
 
-def add_species_nodes_back(tree, diclinks):
+def add_species_nodes_back(tree, diclinks, ages=None):
     """WRONG. DO NOT USE.
     Add missing species ancestors in gene tree"""
     # TODO: conserve branch length
@@ -112,7 +133,7 @@ def add_species_nodes_back(tree, diclinks):
         parent_ancestor, _ = split_species_gene(parent_node.name)
 
         insert_missing_links(parent_ancestor, ancestor, genename, parent_node,
-                             node, diclinks)
+                             node, diclinks, ages)
 
 
 def suffixes_ok(parent, child, event):
@@ -160,7 +181,7 @@ def suffix_list(parent, child):
     return suffixes
 
 
-def insert_species_nodes_back(tree, diclinks):
+def insert_species_nodes_back(tree, diclinks, ages=None):
     print_if_verbose("* Insert missing nodes:")
     for node in tree.traverse():
         print_if_verbose(" " + node.name)
@@ -207,14 +228,21 @@ def insert_species_nodes_back(tree, diclinks):
                         print_if_verbose("Inserted node (spe-dup):",
                                          spe_node_name)
                         # Then check the succession of ancestors
-                        new_node_names = name_missing_links(parent_sp,
-                                                            ancestor,
-                                                            genename,
-                                                            spe_node_name,
-                                                            child.name,
-                                                            diclinks)
+                        new_node_names, new_branch_dists = name_missing_links(
+                                                                parent_sp,
+                                                                ancestor,
+                                                                genename,
+                                                                spe_node_name,
+                                                                child.name,
+                                                                diclinks,
+                                                                ages)
                         new_node_names.insert(0, spe_node_name)
-                        insert_nodes(new_node_names, node, child)
+                        # adjust the length of this dup-spe branch
+                        n_new_nodes = len(new_node_names)
+                        new_branch_dists = [1./(n_new_nodes+1)] + \
+                                            [r * n_new_nodes/(n_new_nodes+1) \
+                                                for r in new_branch_dists]
+                        insert_nodes(new_node_names, node, child, new_branch_dists)
                         child_sp[i] = parent_sp
                 event = 'dup'
             
@@ -234,7 +262,7 @@ def insert_species_nodes_back(tree, diclinks):
                         #raise
 
                 insert_missing_links(parent_sp, ancestor, genename, node,
-                                     child, diclinks)
+                                     child, diclinks, ages)
 
 
 def search_by_ancestorlist(tree, ancestorlist):
@@ -256,7 +284,7 @@ def with_dup(leafnames):
 
 
 def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
-                  outdir='.', only_dup=False, dry_run=False):
+                  ages=None, outdir='.', only_dup=False, dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
     outfiles_set = set() # check whether I write twice to the same outfile
     try:
@@ -264,7 +292,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
     except ete3.parser.newick.NewickError as e:
         print('ERROR with treefile %r' % treefile, file=sys.stderr)
         raise
-    insert_species_nodes_back(tree, diclinks)
+    insert_species_nodes_back(tree, diclinks, ages)
     print_if_verbose("* Searching for ancestors:")
     for ancestor, ancestorlist in ancestorlists.iteritems():
         print_if_verbose(ancestor)
@@ -315,10 +343,12 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                                     '|'.join(ancestorlist).replace(' ', '.'))
 
     diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
+    ages = phyltree.ages.common_names_mapper_2_dict()
     generate_args = [(treefile,
                       ancestorlists,
                       ancestor_regexes,
                       diclinks,
+                      ages,
                       outdir.format(os.path.splitext(os.path.basename(treefile))[0]),
                       only_dup,
                       dry_run) for treefile in treefiles]
