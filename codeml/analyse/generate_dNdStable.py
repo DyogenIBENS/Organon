@@ -14,6 +14,9 @@ import LibsDyogen.utils.myPhylTree as PhylTree
 from select_leaves_from_specieslist import convert_gene2species
 
 
+ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENSGT')
+
+
 def print_if_verbose(*args, **kwargs):
     pass
 
@@ -92,7 +95,9 @@ def branch2nb(mlc, replace_nwk='.mlc'):
                 while len(base_node.children) == 1:
                     base_node = base_node.up
                 base_id = base_node.name
+                print_if_verbose("%s -> %s  " % (base_id, tip_id), end=" ")
                 nb2id[base] = base_id
+                id2nb[base_id] = base
                 # Add number in the fulltree:
                 base_node.add_feature('nb', base)
                 # Also update the tree_nbs
@@ -108,7 +113,7 @@ def branch2nb(mlc, replace_nwk='.mlc'):
             print_if_verbose('KeyError')
 
     print_if_verbose(tree_nbs.get_ascii())
-    return nb2id, tree_nbs, fulltree
+    return id2nb, nb2id, tree_nbs, fulltree
 
 
 def get_dNdS(mlc):
@@ -132,8 +137,49 @@ def get_dNdS(mlc):
     return dNdS
     
 
+def set_dS_fulltree(fulltree, id2nb, dNdS):
+    for node in fulltree.get_descendants('postorder'): # exclude root
+        if len(node.children) != 1:
+            parent = node.up
+            intermediates = []
+            while parent.up and len(parent.children) == 1: # under root, up is None
+                intermediates.append(parent)
+                parent = parent.up
+
+            if parent.is_root():
+                # then this is a root with a single children: cannot have dS
+                dS_tot = 0
+            else:
+                dS_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][5]
+    
+            if intermediates: # this if is not necessary, but maybe for efficiency
+                dist_tot = sum(n.dist for n in intermediates + [node])
+
+                for inter_node in intermediates + [node]:
+                    inter_node.add_feature('dS', dS_tot * inter_node.dist / dist_tot)
+            else:
+                node.add_feature('dS', dS_tot)
+
+
+def rm_erroneous_ancestors(fulltree, phyltree):
+    """Some ancestors with only one child are present in the species phylogeny.
+    They must be remomved when they have an age of zero"""
+    for node in fulltree.iter_descendants():
+        if not node.is_leaf():
+            try:
+                taxon = ANCGENE2SP.match(node.name).group(1).replace('.', ' ')
+            except AttributeError:
+                raise RuntimeError("Can not match species name in %r" % node.name)
+            if phyltree.ages[taxon] == 0 and hasattr(node, 'reinserted'):
+                node.delete(prevent_nondicotomic=False, preserve_branch_length=True)
+
+
+
 def sum_average_dNdS(dNdS, nb2id, tree_nbs):
-    """Compute the average dS depth of each node. (between this node and leaves)"""
+    """Compute the average dS depth of each node (between this node and
+    leaves).
+    
+    Probably the roughest method. Use rather `bound_average_dS`"""
     dS, dN = {}, {}
     for n in tree_nbs.traverse('postorder'):
         node = n.name
@@ -163,7 +209,6 @@ def sum_average_dNdS(dNdS, nb2id, tree_nbs):
 
 def bound_average_dS(dNdS, nb2id, tree_nbs, phyltree):
     """calibrate tree using speciation nodes."""
-    ancgene2sp = re.compile(r'([A-Z][A-Za-z_.-]+)ENSGT')
     ages = []
     subtree = {}
     for n in tree_nbs.traverse('postorder'):
@@ -177,7 +222,7 @@ def bound_average_dS(dNdS, nb2id, tree_nbs, phyltree):
             print_if_verbose("Leaf")
         else:
             try:
-                taxon = ancgene2sp.match(scname).group(1).replace('.', ' ')
+                taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
             except AttributeError:
                 raise RuntimeError("Can not match species name in %r" % scname)
 
@@ -237,6 +282,79 @@ def bound_average_dS(dNdS, nb2id, tree_nbs, phyltree):
     return ages
 
 
+def bound_average_dS(dNdS, id2nb, fulltree, phyltree):
+    ages = []
+    subtree = {}
+    for node in fulltree.traverse('postorder'):
+        scname = node.name
+        print_if_verbose("* %3s. %s:" % (id2nb.get(scname), scname), end=' ')
+        if node.is_leaf():
+            taxon = convert_gene2species(scname)
+            subtree[scname] = {'taxon': taxon, 'tmp_dS': 0, 'age': 0} #, 'next_age': 0}
+            #ages[scname] = 0
+            print_if_verbose("Leaf")
+        else:
+            try:
+                taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
+            except AttributeError:
+                raise RuntimeError("Can not match species name in %r" % scname)
+
+            subtree[scname] = {'taxon': taxon}
+            #for child in node.children:
+            #    child_name = child.name
+            #    child_taxon = subtree[child_name]
+            children_taxa = set((subtree[ch.name]['taxon'] for ch in node.children))
+
+            if len(children_taxa & set((taxon,))) == 1:
+                # it is a duplication:
+                children_dS = [ch.dS + subtree[ch.name]['tmp_dS'] for ch in node.children]
+                subtree[scname]['tmp_dS'] = sum(children_dS) / len(children_dS)
+
+                print_if_verbose("Dupl; dS=%s" % subtree[scname]['tmp_dS'])
+                # store the age of the next speciation event.
+                # Since it is a duplication, this should be the same for
+                # children[0] and children[1].
+                # This 'age' will later be modified (rescaled according to dS)
+                subtree[scname]['age'] = subtree[node.children[0].name]['age']
+
+            else:
+                # it is a speciation.
+                print_if_verbose("Spe")
+                # store the age of this taxon
+                node_age = subtree[scname]['age'] = phyltree.ages[taxon]
+                ages.append([scname, str(node_age), "spe"])
+                # climb up tree and assign an age to each duplication
+                for ch in node.children:
+                    # walk descendants until speciation.
+                    # need to get the age of next speciation and compute the time
+                    # between the two speciation.
+                    # NOTE: could actually have used the phyltree.branches
+                    branch_length = node_age - subtree[ch.name]['age']
+                    dS_genebranch = ch.dS
+                    scaling_dS = subtree[ch.name]['tmp_dS'] + dS_genebranch
+                    print_if_verbose("    climb up to next speciation: " \
+                                      "scaling_dS=%s; br_len=%s" % \
+                                        (scaling_dS, branch_length))
+                    nextnodes = [ch]
+                    while nextnodes:
+                        nextnode = nextnodes.pop(0)
+                        nextnode_dS = subtree[nextnode.name]['tmp_dS']
+                        print_if_verbose("    - %2s. %s: dS=%s" % \
+                                            (id2nb.get(nextnode.name),
+                                             nextnode.name,
+                                             nextnode_dS))
+                        if nextnode_dS > 0:
+                            age = node_age - (1 - nextnode_dS / scaling_dS) * branch_length
+                            #ages[nextnode.name] = age
+                            ages.append([nextnode.name, str(age), "dup"])
+                            nextnodes.extend(nextnode.children)
+                        subtree.pop(nextnode.name)
+
+                # then reset dS to zero
+                subtree[scname]['tmp_dS'] = 0
+    return ages
+
+
 def bound_average_dS_2(dNdS, nb2id, tree_nbs, phyltree):
     """each dS of a duplication is normalized by the D' + dS, where:
         - dS: average of branch length leading to next speciation, in dS
@@ -251,11 +369,13 @@ def save_ages(ages, opened_outfile):
 
 def process_mlc(mlcfile, phyltree, replace_nwk='.mlc'):
     with open(mlcfile) as mlc:
-        nb2id, tree_nbs, fulltree = branch2nb(mlc, replace_nwk)
+        id2nb, nb2id, tree_nbs, fulltree = branch2nb(mlc, replace_nwk)
         dNdS = get_dNdS(mlc)
 
     #dN, dS = sum_average_dNdS(dNdS, nb2id, tree_nbs)
-    ages = bound_average_dS(dNdS, nb2id, tree_nbs, phyltree)
+    rm_erroneous_ancestors(fulltree, phyltree)
+    set_dS_fulltree(fulltree, id2nb, dNdS)
+    ages = bound_average_dS(dNdS, id2nb, fulltree, phyltree)
     showtree(fulltree, ages)
     return ages
 
