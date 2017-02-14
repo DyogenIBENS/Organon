@@ -1,4 +1,7 @@
 *.pyc
 *~
+test*
+figs
+*.svg
 htcondor_descript/*
 evosite3d/*
