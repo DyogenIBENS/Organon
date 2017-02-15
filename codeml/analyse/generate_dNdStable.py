@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """Parse results of codeml (.mlc files) to save dN, dS values in a table"""
 
@@ -9,7 +9,7 @@ import os.path
 import re
 import argparse
 import ete3
-import LibsDyogen.utils.myPhylTree as PhylTree
+import LibsDyogen.myPhylTree as PhylTree # my custom python3 version
 
 from select_leaves_from_specieslist import convert_gene2species
 
@@ -18,58 +18,65 @@ ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS')
 
 
 def print_if_verbose(*args, **kwargs):
+    """Default print function. Assume that --verbose is False, so print nothing."""
     pass
 
 def showtree(fulltree, ages):
+    """Default `showtree` function: do nothing. This function can be
+    redefined using `def_showtree`"""
     pass
 
 def def_showtree(show=False):
-#    fulltree.show()
+    """Depending on the boolean argument 'show', return the function `showtree`:
+        if show=False, this function does nothing;
+        else, showtree display an interactive tree using ete3."""
     if show:
         def showtree(fulltree, ages):
             ages_dict = {row[0]: row[1:] for row in ages}
+
+            # define duplication node style:
+            ns_dup = ete3.NodeStyle()
+            ns_dup['fgcolor'] = 'red'
+            
             for n in fulltree.traverse():
-                info = ages_dict.get(n.name, [0, 'leaf'])
+                info = ages_dict.get(n.name, [0.0, 'leaf'])
                 n.add_feature('age', info[0])
                 n.add_feature('type', info[1])
-            fulltree.show()
+                if info[1] == 'dup':
+                    n.set_style(ns_dup)
+                # Add elements to be rendered
+                #if not n.is_leaf():
+                #    n.add_face(ete3.TextFace(n.name), column=0)
+                n.add_face(ete3.AttrFace('age',
+                                         text_prefix='age: ',
+                                         fgcolor='grey',
+                                         formatter='%.4g'),
+                           column=0,
+                           position='branch-bottom')
+                if hasattr(n, 'dS'):
+                    n.add_face(ete3.AttrFace('dS',
+                                             text_prefix='dS = ',
+                                             fgcolor='grey',
+                                             formatter='%.4g'),
+                               column=0,
+                               position='branch-bottom')
+            # define a tree style:
+            ts = ete3.TreeStyle()
+            ts.show_branch_length = True
+
+            fulltree.show(tree_style=ts)
     else:
         def showtree(fulltree, ages):
             pass
     return showtree
 
 
-def branch2nb(mlc, replace_nwk='.mlc'):
-    """mlc: filehandle"""
-    print_if_verbose()
-    regex = re.compile(r'^(.*);$')
-    regex_lnL = re.compile(r'^lnL\(')
-    # get the line listing all branches
-    line = mlc.next().rstrip()
-    while not regex_lnL.match(line):
-        line = mlc.next().rstrip()
-    branches_line = mlc.next().rstrip()
-    branches = [b.split('..') for b in branches_line.split()]
-    # get translation by looking at the newick tree lines.
-    # I could also get it by the lines #1: ENS...
-    line = mlc.next().rstrip()
-    while not regex.match(line):
-        line = mlc.next().rstrip()
-    tree_nbs = ete3.Tree(line)
-
-    line = mlc.next().rstrip()
-    while not regex.match(line):
-        line = mlc.next().rstrip()
-    tree_ids = ete3.Tree(line)
-
-    id2nb = dict(zip(tree_ids.get_leaf_names(), tree_nbs.get_leaf_names()))
-    nb2id = dict(zip(tree_nbs.get_leaf_names(), tree_ids.get_leaf_names()))
-
-    # get internal nodes nb-to-id conversion (need the tree with internal node
-    # annotations)
-    nwkfile = mlc.name.replace(replace_nwk, '.nwk')
+def load_fulltree(mlcfile, replace_nwk='.mlc'):
+    """return the ete3.Tree object corresponding to a given .mlc file.
+    Catch errors (file does not exist / wrong format)"""
+    nwkfile = mlcfile.replace(replace_nwk, '.nwk')
     try:
-        fulltree = ete3.Tree(nwkfile, format=1)
+        return ete3.Tree(nwkfile, format=1)
     except ete3.parser.newick.NewickError as e:
         if os.path.exists(nwkfile):
             print("\nNewickError: Malformed newick tree structure in %r" \
@@ -80,6 +87,43 @@ def branch2nb(mlc, replace_nwk='.mlc'):
                     file=sys.stderr)
         sys.exit(1)
 
+
+def branch2nb(mlc, replace_nwk='.mlc'):
+    """Parse the codeml result file (.mlc) to return 2 trees:
+    tree_nbs: the tree with node labelled as numbers.
+    tree_ids: the tree with original node labels (including inner nodes).
+    
+    Also return the dictionaries to convert nb -> id and conversely.
+
+    Arguments:
+        - mlc: an opened file"""
+    print_if_verbose()
+    regex = re.compile(r'^(.*);$')
+    regex_lnL = re.compile(r'^lnL\(')
+    # get the line listing all branches
+    line = mlc.readline().rstrip()
+    while not regex_lnL.match(line):
+        line = mlc.readline().rstrip()
+    branches_line = mlc.readline().rstrip()
+    branches = [b.split('..') for b in branches_line.split()]
+    # get translation by looking at the newick tree lines.
+    # I could also get it by the lines #1: ENS...
+    line = mlc.readline().rstrip()
+    while not regex.match(line):
+        line = mlc.readline().rstrip()
+    tree_nbs = ete3.Tree(line)
+
+    line = mlc.readline().rstrip()
+    while not regex.match(line):
+        line = mlc.readline().rstrip()
+    tree_ids = ete3.Tree(line)
+
+    id2nb = dict(zip(tree_ids.get_leaf_names(), tree_nbs.get_leaf_names()))
+    nb2id = dict(zip(tree_nbs.get_leaf_names(), tree_ids.get_leaf_names()))
+
+    # get internal nodes nb-to-id conversion (need the tree with internal node
+    # annotations)
+    fulltree = load_fulltree(mlc.name, replace_nwk)
 
     for leafnb, leafid in zip(tree_nbs.get_leaves(), fulltree.get_leaves()):
         leafid.add_feature('nb', leafnb.name)
@@ -123,21 +167,25 @@ def get_dNdS(mlc):
     """
     #reg_dNdS = re.compile(r'dN & dS for each branch')
     reg_dNdS = re.compile(r'\s+branch\s+t\s+N\s+S\s+dN/dS\s+dN\s+dS\s+N\*dN\s+S\*dS')
-    line = mlc.next().rstrip()
+    line = mlc.readline().rstrip()
     while not reg_dNdS.match(line):
-        line = mlc.next().rstrip()
-    assert mlc.next().rstrip() == ''  # skip blank line
+        line = mlc.readline().rstrip()
+    assert mlc.readline().rstrip() == ''  # skip blank line
     dNdS = {}
-    line = mlc.next().rstrip()
+    line = mlc.readline().rstrip()
     while line != '':
         #print line
         fields = line.split()
         dNdS[fields[0]] = [float(x) for x in fields[1:]]
-        line = mlc.next().rstrip()
+        line = mlc.readline().rstrip()
     return dNdS
     
 
 def set_dS_fulltree(fulltree, id2nb, dNdS):
+    """Add codeml dS on each branch of the complete tree (with missing species
+    nodes).
+    When a node has a single child: take the branch dS on which it is, 
+    and divide proportionnally to each segment dist."""
     for node in fulltree.get_descendants('postorder'): # exclude root
         if len(node.children) != 1:
             parent = node.up
@@ -252,7 +300,7 @@ def bound_average_dS(dNdS, nb2id, tree_nbs, phyltree):
                 print_if_verbose("Spe")
                 # speciation: store the age of this taxon
                 node_age = subtree[node]['age'] = phyltree.ages[taxon]
-                ages.append([scname, str(node_age), "spe"])
+                ages.append([scname, node_age, "spe"])
                 # compute average dS to each next speciation.
                 # update age of each posterior dup
                 if len(n.children) > 1:
@@ -279,7 +327,7 @@ def bound_average_dS(dNdS, nb2id, tree_nbs, phyltree):
                         if nextnode_dS > 0:
                             age = node_age - (1 - nextnode_dS / scaling_dS) * branch_length
                             #ages[nextnode.name] = age
-                            ages.append([nb2id[nextnode.name], str(age), "dup"])
+                            ages.append([nb2id[nextnode.name], age, "dup"])
                             nextnodes.extend(nextnode.children)
                         subtree.pop(nextnode.name)
 
@@ -329,7 +377,7 @@ def bound_average_dS(dNdS, id2nb, fulltree, phyltree):
                 print_if_verbose("Spe")
                 # store the age of this taxon
                 node_age = subtree[scname]['age'] = phyltree.ages[taxon]
-                ages.append([scname, str(node_age), "spe"])
+                ages.append([scname, node_age, "spe"])
                 # climb up tree and assign an age to each duplication
                 for ch in node.children:
                     # walk descendants until speciation.
@@ -357,7 +405,7 @@ def bound_average_dS(dNdS, id2nb, fulltree, phyltree):
                                              nextnode_dS))
                         if nextnode_dS > 0:
                             age = node_age - (1 - nextnode_dS / scaling_dS) * branch_length
-                            ages.append([nextnode.name, str(age), "dup"])
+                            ages.append([nextnode.name, age, "dup"])
                             nextnodes.extend(nextnode.children)
                         #print("    Pop: %s" % nextnode.name)
                         #print("    nextnodes: ", nextnodes)
@@ -412,7 +460,7 @@ def bound_average_dS_2(dNdS, id2nb, fulltree, phyltree):
                 print_if_verbose("Spe")
                 # store the age of this taxon
                 node_age = subtree[scname]['age'] = phyltree.ages[taxon]
-                ages.append([scname, str(node_age), "spe"])
+                ages.append([scname, node_age, "spe"])
                 # climb up tree and assign an age to each duplication
                 for ch in node.children:
                     ### This is where version _2 is different
@@ -435,7 +483,7 @@ def bound_average_dS_2(dNdS, id2nb, fulltree, phyltree):
                             scaling_dS = next_path_dS + nextnode_dS
                             age = node_age - (1 - nextnode_dS / scaling_dS) * branch_length
                             #ages[nextnode.name] = age
-                            ages.append([nextnode.name, str(age), "dup"])
+                            ages.append([nextnode.name, age, "dup"])
                             nextnodes.extend((nch, nch.dS + next_path_dS) \
                                                 for nch in nextnode.children)
                         subtree.pop(nextnode.name)
@@ -445,12 +493,95 @@ def bound_average_dS_2(dNdS, id2nb, fulltree, phyltree):
     return ages
 
 
+def bound_average_2(fulltree, phyltree, measure='dS'):
+    """normalize duplication node position between speciation nodes.
+     scaling: d / (D' + d)
+        - d: average of branch length leading to next speciation, in 'measure'.
+             'measure' must be an attribute present in fulltree ('dS', 'dist').
+        - D': branch length from the previous speciation to this duplication"""
+    ages = []
+    subtree = {} # temporary subtree while traversing from one speciation to another
+    for node in fulltree.traverse('postorder'):
+        scname = node.name
+        print_if_verbose("* %s:" % scname, end=' ')
+        if node.is_leaf():
+            taxon = convert_gene2species(scname)
+            subtree[scname] = {'taxon': taxon, 'tmp_m': 0, 'age': 0} #, 'next_age': 0}
+            #ages[scname] = 0
+            print_if_verbose("Leaf")
+        else:
+            try:
+                taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
+            except AttributeError:
+                raise RuntimeError("Can not match species name in %r" % scname)
+
+            subtree[scname] = {'taxon': taxon}
+            children_taxa = set((subtree[ch.name]['taxon'] for ch in node.children))
+
+            if len(children_taxa & set((taxon,))) == 1:
+                # it is a duplication:
+                children_m = [ch.__getattribute__(measure) +
+                              subtree[ch.name]['tmp_m']
+                                  for ch in node.children]
+                subtree[scname]['tmp_m'] = sum(children_m) / len(children_m)
+
+                print_if_verbose("Dupl; m=%s" % subtree[scname]['tmp_m'])
+                # store the age of the next speciation event.
+                # Since it is a duplication, this should be the same for
+                # children[0] and children[1].
+                # This 'age' will later be modified (rescaled according to dS)
+                subtree[scname]['age'] = subtree[node.children[0].name]['age']
+
+            else:
+                # it is a speciation.
+                print_if_verbose("Spe")
+                # store the age of this taxon
+                node_age = subtree[scname]['age'] = phyltree.ages[taxon]
+                ages.append([scname, node_age, "spe"])
+                # climb up tree and assign an age to each duplication
+                for ch in node.children:
+                    ### This is where version _2 is different
+                    # walk descendants until speciation.
+                    # need to get the age of next speciation and compute the time
+                    # between the two speciation.
+                    branch_length = node_age - subtree[ch.name]['age']
+                    print_if_verbose("    climb up to next speciation: " \
+                                      "br_len=%s" % branch_length)
+                    nextnodes = [(ch, ch.__getattribute__(measure))]
+                    while nextnodes:
+                        nextnode, next_path_m = nextnodes.pop(0)
+                        try:
+                            nextnode_m = subtree[nextnode.name]['tmp_m']
+                        except KeyError as err:
+                            err.args += ("You may need to rerun `prune2family.py`",)
+                            raise
+                        print_if_verbose("    - %s: measure(to speciation)=%s"\
+                                         "; measure(from speciation)=%s" % \
+                                            (nextnode.name,
+                                             nextnode_m, next_path_m))
+                        if nextnode_m > 0:
+                            scaling_m = next_path_m + nextnode_m
+                            age = node_age - (1 - nextnode_m / scaling_m) * branch_length
+                            #ages[nextnode.name] = age
+                            ages.append([nextnode.name, age, "dup"])
+                            nextnodes.extend((nch,
+                                              nch.__getattribute__(measure) + next_path_m) \
+                                                for nch in nextnode.children)
+                        subtree.pop(nextnode.name)
+
+                # then reset dS to zero
+                subtree[scname]['tmp_m'] = 0
+    return ages
+
+
 def save_ages(ages, opened_outfile):
     for row in ages:
+        row[1] = str(row[1])
         opened_outfile.write("\t".join(row) + "\n")
 
 
 def process_mlc(mlcfile, phyltree, replace_nwk='.mlc'):
+    """main command: scale ages based on *dS* (method1)"""
     with open(mlcfile) as mlc:
         id2nb, nb2id, tree_nbs, fulltree = branch2nb(mlc, replace_nwk)
         dNdS = get_dNdS(mlc)
@@ -463,6 +594,7 @@ def process_mlc(mlcfile, phyltree, replace_nwk='.mlc'):
     return ages
 
 def process_mlc2(mlcfile, phyltree, replace_nwk='.mlc'):
+    """main command: scale ages based on *dS* (method2)"""
     with open(mlcfile) as mlc:
         id2nb, nb2id, tree_nbs, fulltree = branch2nb(mlc, replace_nwk)
         dNdS = get_dNdS(mlc)
@@ -470,9 +602,42 @@ def process_mlc2(mlcfile, phyltree, replace_nwk='.mlc'):
     #dN, dS = sum_average_dNdS(dNdS, nb2id, tree_nbs)
     rm_erroneous_ancestors(fulltree, phyltree)
     set_dS_fulltree(fulltree, id2nb, dNdS)
-    ages = bound_average_dS_2(dNdS, id2nb, fulltree, phyltree)
+    #ages = bound_average_dS_2(dNdS, id2nb, fulltree, phyltree)
+    ages = bound_average_2(fulltree, phyltree, measure='dS')
     showtree(fulltree, ages)
     return ages
+
+
+def process_nwk(mlcfile, phyltree, replace_nwk='.mlc'):
+    """main command: scale ages based on *dist* (method1)"""
+    raise NotImplementedError
+
+
+def process_nwk2(mlcfile, phyltree, replace_nwk='.mlc'):
+    """main command: scale ages based on *dist* (method1)"""
+    fulltree = load_fulltree(mlcfile, replace_nwk)
+    rm_erroneous_ancestors(fulltree, phyltree)
+    ages = bound_average_2(fulltree, phyltree, measure='dist')
+    showtree(fulltree, ages)
+    return ages
+
+
+class Out(object):
+    """Context Manager class (for use with `with` statement). Do the exact
+    same as `open()`, but if filename is '-', open stdout for writing."""
+    def __init__(self, filename, *args, **kwargs):
+        self.filename = filename
+        if filename == '-':
+            self.file_obj = sys.stdout
+        else:
+            self.file_obj = open(filename, *args, **kwargs)
+
+    def __enter__(self):
+        return self.file_obj
+
+    def __exit__(self, type, value, traceback):
+        if self.filename != '-':
+            self.file_obj.close()
 
 
 if __name__=='__main__':
@@ -480,6 +645,9 @@ if __name__=='__main__':
     parser.add_argument('outfile')
     parser.add_argument('mlcfiles', nargs='+')
     parser.add_argument('--method2', action='store_true')
+    parser.add_argument('--measure', default='dS', choices=['dS', 'dist'],
+                        help='which distance measure: dS (from codeml) or ' \
+                             'dist (from PhyML)')
     parser.add_argument('-v', '--verbose', action='store_true', 
                         help='print progression along tree')
     parser.add_argument('--show', action='store_true',
@@ -498,20 +666,25 @@ if __name__=='__main__':
     if args.verbose:
         def print_if_verbose(*args, **kwargs):
             print(*args, **kwargs)
-    if args.method2:
-        process_mlc = process_mlc2
+
+    if args.measure == 'dS':
+        process = process_mlc2 if args.method2 else process_mlc
+    elif args.measure == 'dist':
+        process = process_nwk2 if args.method2 else process_nwk
+    else:
+        raise RuntimeError("Unknown measure %r" % args.measure)
 
     showtree = def_showtree(args.show)
 
     phyltree = PhylTree.PhylogeneticTree("/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data85/PhylTree.Ensembl.85.conf")
     
-    with open(outfile, 'a') as out:
+    with Out(outfile, 'w') as out:
         for i, mlcfile in enumerate(mlcfiles, start=1):
             percentage = float(i) / nb_mlc * 100
             print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_mlc, percentage, mlcfile),
                   end=' ')
             try:
-                ages = process_mlc(mlcfile, phyltree, args.replace_nwk)
+                ages = process(mlcfile, phyltree, args.replace_nwk)
                 save_ages(ages, out)
             except BaseException as err:
                 print()
