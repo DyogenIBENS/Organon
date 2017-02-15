@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 
 from __future__ import print_function
 
@@ -9,16 +9,13 @@ import argparse
 import multiprocessing as mp
 
 import ete3
-import LibsDyogen.utils.myPhylTree as PhylTree
+import LibsDyogen.myPhylTree as PhylTree
 from select_leaves_from_specieslist import convert_gene2species
 
 
 ENSEMBL_VERSION = 85
 PHYLTREE_FMT = "/users/ldog/alouis/ws2/GENOMICUS_SVN/data{0}/PhylTree.Ensembl.{0}.conf"
 NEW_DUP_SUFFIX = re.compile(r'\.[A-Za-z`]+$')
-
-PROGRESS = 0
-"""number of input trees having been processed"""
 
 #SPLIT_SPECIES_GENE = re.compile()
 
@@ -304,7 +301,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
         raise
     insert_species_nodes_back(tree, diclinks, ages)
     print_if_verbose("* Searching for ancestors:")
-    for ancestor, ancestorlist in ancestorlists.iteritems():
+    for ancestor, ancestorlist in ancestorlists.items():
         print_if_verbose(ancestor)
         ancestor_regex = ancestor_regexes[ancestor]
         for node in search_by_ancestorlist(tree, ancestorlist):
