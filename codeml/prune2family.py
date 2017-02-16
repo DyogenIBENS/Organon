@@ -40,8 +40,7 @@ def split_species_gene(nodename):
                     try:
                         idx = nodename.index('Q0')
                     except ValueError as err:
-                        err.args = list(err.args) + \
-                                    ["ERROR: Invalid nodename %r" % nodename]
+                        err.args += ("ERROR: Invalid nodename %r" % nodename,)
                         raise
     return nodename[:idx].replace('.', ' '), nodename[idx:]
 
@@ -53,9 +52,8 @@ def name_missing_links(parent_sp, ancestor, genename, parent_node_name,
     try:
         ancestor_lineage = diclinks[parent_sp][ancestor]
     except KeyError as err:
-        err.args = list(err.args) + \
-                        ["child node : %s (%r)" % (child_name, ancestor),
-                         "parent node: %s (%r)" % (parent_node_name, parent_sp)]
+        err.args += ("child node : %s (%r)" % (child_name, ancestor),
+                     "parent node: %s (%r)" % (parent_node_name, parent_sp))
         raise err
     # Links from diclinks must be corrected: unnecessary nodes removed, i.e
     # nodes with a single child and age 0. (introducing potential errors)
@@ -297,7 +295,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
     try:
         tree = ete3.Tree(treefile, format=1)
     except ete3.parser.newick.NewickError as err:
-        err.args = list(err.args) + ['ERROR with treefile %r' % treefile]
+        err.args += ('ERROR with treefile %r' % treefile,)
         raise
     insert_species_nodes_back(tree, diclinks, ages)
     print_if_verbose("* Searching for ancestors:")

@@ -396,8 +396,7 @@ def bound_average_dS(dNdS, id2nb, fulltree, phyltree):
                         try:
                             nextnode_dS = subtree[nextnode.name]['tmp_dS']
                         except KeyError as err:
-                            err.args = list(err.args) + \
-                                    ["Error: Node exists twice in the tree."]
+                            err.args += ("Error: Node exists twice in the tree.",)
                             raise
                         print_if_verbose("    - %2s. %s: dS=%s" % \
                                             (id2nb.get(nextnode.name),
