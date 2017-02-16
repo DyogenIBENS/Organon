@@ -396,7 +396,8 @@ def bound_average_dS(dNdS, id2nb, fulltree, phyltree):
                         try:
                             nextnode_dS = subtree[nextnode.name]['tmp_dS']
                         except KeyError as err:
-                            err.args += ("Error: Node exists twice in the tree.",)
+                            err.args += ("Error: Node exists twice in the tree.",
+                                         "You may need to rerun `prune2family.py`",)
                             raise
                         print_if_verbose("    - %2s. %s: dS=%s" % \
                                             (id2nb.get(nextnode.name),
@@ -552,7 +553,8 @@ def bound_average_2(fulltree, phyltree, measure='dS'):
                         try:
                             nextnode_m = subtree[nextnode.name]['tmp_m']
                         except KeyError as err:
-                            err.args += ("You may need to rerun `prune2family.py`",)
+                            err.args += ("Error: Node exists twice in the tree.",
+                                         "You may need to rerun `prune2family.py`",)
                             raise
                         print_if_verbose("    - %s: measure(to speciation)=%s"\
                                          "; measure(from speciation)=%s" % \
@@ -624,10 +626,16 @@ def process_nwk2(mlcfile, phyltree, replace_nwk='.mlc'):
 class Out(object):
     """Context Manager class (for use with `with` statement). Do the exact
     same as `open()`, but if filename is '-', open stdout for writing."""
+    write_modes = ('w', 'x', 'a')
+
     def __init__(self, filename, *args, **kwargs):
         self.filename = filename
         if filename == '-':
-            self.file_obj = sys.stdout
+            mode = args[0] if args else kwargs.get('mode', 'r')
+            if any(letter in mode for letter in write_modes):
+                self.file_obj = sys.stdout
+            else:
+                self.file_obj = sys.stdin
         else:
             self.file_obj = open(filename, *args, **kwargs)
 
