@@ -18,8 +18,10 @@ CMD_ARGS = {'lineage': [(('-l', '--lineage'),)],
 
 
 import sys
+import os.path
 import re
 import bz2
+import pickle
 import argparse
 import matplotlib as mpl
 mpl.use('TkAgg') # for figures to show up when the script is called from the shell
@@ -61,12 +63,14 @@ PAT_TAXON = r'^([A-Z][A-Za-z_.-]+)(ENSGT[0-9]+)(.*)$'
 DEFAULT_NBINS = 50
 DEFAULT_AGE_KEY = 'age_dS'
 
-def bin_data(data, bins, binvar='age', outvar=None):
+def bin_data(data, bins, binvar=DEFAULT_AGE_KEY, outvar=None):
     """given some data and some bins, return groups by bins."""
     #bins = data_bins[lab.replace('.', ' ')]
     if not outvar:
         outvar = data.keys() # select all columns.
     bin_positions = np.digitize(data[binvar], bins)
+    # include values that are equal to the right-most edge.
+    bin_positions[bin_positions == 51] = 50
     return data[outvar].groupby(bin_positions)
 
 
@@ -83,15 +87,27 @@ class DataVisualizor(object):
     default_nbins = DEFAULT_NBINS
 
     def load_edited_set(self, treeforest):
-        regex = re.compile("'family_name': '(ENSGT[0-9]+[A-Za-z`.]*)',.*'taxon_name': '([A-Z][A-Za-z _.-]+)'")
-        edited_list = []
-        with bz2.BZ2File(treeforest) as stream:
-            for line in stream:
-                line = line.decode()
-                if "'Duplication': 3" in line:
-                    fam_name, tax_name = regex.search(line).groups()
-                    edited_list.append(tax_name.replace(' ','.') + fam_name)
-        self.edited_set = set(edited_list)
+        print('Loading the set of edited nodes:', end=' ')
+        pickled_file = os.path.basename(os.path.splitext(treeforest)[0]) + \
+                        '.editedset.pickle'
+        if os.path.exists(pickled_file):
+            print('from pickle...')
+            with open(pickled_file, 'rb') as pickle_in:
+                self.edited_set = pickle.load(pickle_in)
+        else:
+            print('searching tree...')
+            regex = re.compile("'family_name': '(ENSGT[0-9]+[A-Za-z`.]*)',.*'taxon_name': '([A-Z][A-Za-z _.-]+)'")
+            edited_list = []
+            with bz2.BZ2File(treeforest) as stream:
+                for line in stream:
+                    line = line.decode()
+                    if "'Duplication': 3" in line:
+                        fam_name, tax_name = regex.search(line).groups()
+                        edited_list.append(tax_name.replace(' ','.') + fam_name)
+            self.edited_set = set(edited_list)
+            # save for later
+            with open(pickled_file, 'wb') as pickle_out:
+                pickle.dump(self.edited_set, pickle_out)
 
     def __init__(self, ages_file, no_edited=None, age_key=DEFAULT_AGE_KEY):
         """Load and format data"""
@@ -119,6 +135,7 @@ class DataVisualizor(object):
         splitted_names = self.dup_ages.name.str.extract(PAT_TAXON, expand=True)
         splitted_names.columns = ['taxon', 'genetree', 'suffix']
         self.dup_ages = pd.concat([self.dup_ages, splitted_names], axis=1)
+        self.dup_ages.reset_index(drop=True, inplace=True)
         self.taxa_ages = self.dup_ages.groupby(['taxon'], sort=False)
         self.dottaxa = self.taxa_ages.groups.keys()
         """A dot is used to separate words (genre.species)"""
@@ -164,7 +181,7 @@ class DataVisualizor(object):
                               alpha=self.taxonalpha, label=taxon)
 
         self.ax.legend()
-        self.save_or_show(outfile)
+        #self.save_or_show(outfile)
         return self.ax
 
 
@@ -182,7 +199,7 @@ class DataVisualizor(object):
         return data, colors, labs_legend
 
 
-    def lineage_hist(self, outfile, lineage=None, nbins=None):
+    def lineage_hist(self, lineage=None, nbins=None):
         """lineage: species name"""
         nbins = nbins if nbins else self.default_nbins
         
@@ -192,6 +209,9 @@ class DataVisualizor(object):
             full_lineage = set(link.replace(' ', '.') for link in 
                                self.phyltree.dicLinks[self.phyltree.root][lineage])
             taxa &= full_lineage 
+
+        # set up hist_coords, in case `add_edited_prop` is used.
+        self.hist_coords = {tax: (None, 0) for tax in taxa} # age not needed.
 
         data, colors, labels = self.make_hist_data(taxa)
 
@@ -209,7 +229,7 @@ class DataVisualizor(object):
         self.ax.set_xlabel(self.age_key)
         self.ax.set_ylabel("Number of duplications")
         #plt.gca().set_xlim(0,2)
-        self.save_or_show(outfile)
+        return self.ax
 
 
     def walk_phylsubtree(self):
@@ -313,7 +333,7 @@ class DataVisualizor(object):
         print("executed onpick action")
 
 
-    def tree_hist(self, outfile=None, nbins=None, vertical=False):
+    def tree_hist(self, nbins=None, vertical=False):
         # labels, newdata, self.taxa_ages, hist_coords, subs_labels, treeforks, 
         """Draw histograms on top of a given tree structure.
         
@@ -359,10 +379,9 @@ class DataVisualizor(object):
             label_ageaxis = lambda axes, axislabel: axes[-1].set_xlabel(axislabel)
 
         # oldest_age needed to scale all subplots identically (range=(0, oldest_age))
+        # warning: return the index **name**, not the row number.
         age_argmax = self.dup_ages[self.age_key].argmax()
-
-        oldest_lab, oldest_age = self.dup_ages[['taxon', self.age_key]].iloc[age_argmax]
-
+        oldest_lab, oldest_age = self.dup_ages[['taxon', self.age_key]].loc[age_argmax]
         print("Oldest: %s (%s)" % (oldest_age, oldest_lab))
 
         fig, axes = plt.subplots(nrows, ncols, sharex=sharex, sharey=sharey,
@@ -423,7 +442,7 @@ class DataVisualizor(object):
 
         self.fig = fig
         self.axes = axes
-        self.save_or_show(outfile)
+        return self.axes
 
 
     def score_bins(self, score_name='score', scoring=None,
@@ -436,33 +455,38 @@ class DataVisualizor(object):
         self.scored_data = {}
         
         for lab, data in self.taxa_ages:
-            binned_groups = bin_data(data, self.data_bins[lab],
-                                     bin_var=self.age_key, outvar='name')
+            data = data.dropna(subset=[self.age_key])
+            #print("Nb of NA values:", data[self.age_key].isnull().sum())
+            #print("min:", data[self.age_key].min())
+            #print("max:", data[self.age_key].max())
+            bins = self.data_bins[lab]
+            binned_groups = bin_data(data, bins, binvar=self.age_key,
+                                     outvar='name')
+            #print("bin indices found:", binned_groups.groups.keys())
             scored_serie = binned_groups.aggregate(scoring, *scoring_args)
             scored_serie.name = score_name
-            bin_serie = pd.Series([bins[x-1] for x in scored_serie.index],
+            bin_serie = pd.Series([(bins[x-1] + bins[x])/2 for x in scored_serie.index],
                                   index=scored_serie.index, name='bin_x')
             scored_taxon = pd.concat([scored_serie, bin_serie], axis=1)
-            scored_data[lab] = scored_taxon
+            self.scored_data[lab] = scored_taxon
             yield lab, scored_taxon
 
 
-    def add_edited_prop(self, treeforest, outfile=None):
+    def add_edited_prop(self, treeforest):
         """Add a point for the proportion of edited nodes in each histogram bar"""
         score_name = 'prop_edited'
         self.load_edited_set(treeforest)
 
         for taxon, data in self.score_bins(score_name, intersect_size,
                                            self.edited_set):
-            ax = axes[hist_coords[taxon][1]]
+            ax = self.axes[self.hist_coords[taxon][1]]
             ax_2 = ax.twinx()
             ax_2.set_ylim(0,1) # TODO: what if score not in [0,1] ?
-            ax_2.plot(data.bin_x, data[score_name], 'bo', alpha=0.7)
+            ax_2.plot(data.bin_x, data, 'b_', alpha=0.7)
             ax_2.spines['bottom'].set_visible(False)
+            ax_2.spines['right'].set_visible(True)
             #ax_2.spines['left'].set_visible(False)
             #ax_2.spines['top'].set_visible(False)
-
-        self.save_or_show(outfile)
 
 
 ### Script commands ###
@@ -477,16 +501,19 @@ def run(command, ages_file, outfile=None, lineage=None, show_edited=None,
         dv.colorize_taxa(alpha=1)
         dv.load_phyltree()
         if command == 'lineage':
-            dv.lineage_hist(outfile, lineage, nbins)
+            dv.lineage_hist(lineage, nbins)
         elif command == 'tree':
             dv.assign_subplots()
-            dv.tree_hist(outfile, nbins, vertical)
+            dv.tree_hist(nbins, vertical)
             print("finished drawing tree & hist.")
+        if show_edited:
+            dv.add_edited_prop(show_edited)
     elif command == 'scatter':
         dv.colorize_taxa(alpha=0.5)
         dv.scatter(x, y, outfile)
 
-    #dv.save_or_show(outfile)
+    dv.save_or_show(outfile)
+
 
 # TODO: delete
 def cmd_lineage(command, ages_file, outfile=None, lineage=None, show_edited=None,
