@@ -193,7 +193,7 @@ class DataVisualizor(object):
 
         taxa = taxa if taxa else self.dottaxa
 
-        data = [self.taxa_ages.get_group(lab)[self.age_key] for lab in taxa]
+        data = [self.taxa_ages.get_group(lab)[self.age_key].dropna() for lab in taxa]
         colors      = [self.dottaxon2color[lab] for lab in taxa]
         labs_legend = [label_fmt % lab          for lab in taxa]
         return data, colors, labs_legend
@@ -218,12 +218,12 @@ class DataVisualizor(object):
         print("plotting histogram")
         
         self.fig, self.ax = plt.subplots()
-        self.fig.hist(data, bins=nbins,
-                      histtype='barstacked',
-                      rwidth=1,
-                      color=colors,
-                      edgecolor='none',
-                      label=labels)
+        self.ax.hist(data, bins=nbins,
+                     histtype='barstacked',
+                     rwidth=1,
+                     color=colors,
+                     edgecolor='none',
+                     label=labels)
         self.ax.legend(fontsize='x-small')
         self.ax.set_title("Distribution of the age of duplications")
         self.ax.set_xlabel(self.age_key)
@@ -416,7 +416,7 @@ class DataVisualizor(object):
                 ax.spines[spine].set_visible(False)
             #invert_axis(ax)
             if vertical: ax.invert_yaxis()
-        label_ageaxis(axes, self.age_key.capitalize() + ' (My)')
+        label_ageaxis(axes, self.age_key + ' (My)')
 
         # draw tree branches
         print("n_subs =", n_subs)
@@ -570,8 +570,10 @@ if __name__=='__main__':
     process_edited_parser = parser.add_mutually_exclusive_group()
     # these two options must be given the treeforest file.
     process_edited_parser.add_argument('--show-edited',
+                                       metavar='TREEFOREST',
                                        help='plot the proportion of edited nodes')
-    process_edited_parser.add_argument('--no-edited', 
+    process_edited_parser.add_argument('--no-edited',
+                                       metavar='TREEFOREST',
                                        help='delete edited gene trees from data')
     
 
