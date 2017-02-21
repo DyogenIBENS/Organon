@@ -57,8 +57,11 @@ def name_missing_links(parent_sp, ancestor, genename, parent_node_name,
         raise err
     # Links from diclinks must be corrected: unnecessary nodes removed, i.e
     # nodes with a single child and age 0. (introducing potential errors)
+    # BUT: do not remove species (age = 0) !
     if ages:
-        ancestor_lineage = [link for link in ancestor_lineage if ages[link] > 0]
+        ancestor_lineage = [link for link in ancestor_lineage[:-1]
+                            if ages[link] > 0] + \
+                           [ancestor_lineage[-1]]
 
     # If doesn't match species tree
     # same ancestor as child is possible for duplication node
@@ -74,9 +77,6 @@ def name_missing_links(parent_sp, ancestor, genename, parent_node_name,
                                          ancestor_lineage[ 1:]):
                 new_dist = float(ages[link] - ages[link_parent])
                 new_branch_dists.append(new_dist / total_len)
-
-
-
 
     return new_node_names, new_branch_dists
     # TODO: compute intermediate distances proportionally to the age of each
@@ -106,12 +106,13 @@ def insert_nodes(new_node_names, parent, child, new_dist_ratios=None):
 def insert_missing_links(parent_sp, ancestor, genename, parent_node, child,
                          diclinks, ages=None):
     new_node_names, new_branch_dists = name_missing_links(parent_sp, ancestor,
-                                                            genename,
-                                                            parent_node.name,
-                                                            child.name,
-                                                            diclinks,
-                                                            ages)
+                                                          genename,
+                                                          parent_node.name,
+                                                          child.name,
+                                                          diclinks,
+                                                          ages)
     if new_node_names:
+        print_if_verbose("Nodes to insert: %s" % new_node_names)
         insert_nodes(new_node_names, parent_node, child, new_branch_dists)
         #return True
     # return false if no node was added
@@ -119,7 +120,7 @@ def insert_missing_links(parent_sp, ancestor, genename, parent_node, child,
 
 
 def add_species_nodes_back(tree, diclinks, ages=None):
-    """WRONG. DO NOT USE.
+    """WRONG. DO NOT USE. Use `insert_species_nodes_back`
     Add missing species ancestors in gene tree"""
     # TODO: conserve branch length
     # Iterate from leaves to root
