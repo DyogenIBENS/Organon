@@ -1,8 +1,23 @@
 #!/usr/bin/env python3
 
+
+"""
+Draw a gene tree inside a species tree.
+
+USAGE:
+
+./genetree_drawer.py <genetreefile>.
+
+ARGUMENTS:
+  - genetreefile: must be a genetree (nwk format with internal nodes labelling)
+                  reconciled with species tree.
+"""
+
 import re
 import numpy as np
 import matplotlib as mpl
+#mpl.use('TkAgg')
+mpl.use('Qt4Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import ete3
@@ -10,16 +25,15 @@ import ete3
 import LibsDyogen.myPhylTree as PhylTree
 import LibsDyogen.myProteinTree as ProteinTree
 
-from glou_duphist import bfw_descendants_generalized, ladderize
+from glou_duphist import dfw_descendants_generalized, ladderize
 from codeml.select_leaves_from_specieslist import convert_gene2species
 
 
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS')
 
-TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00810000125388/subtrees2/RodentiaENSGT00810000125388.A.a.a.c.a.b.nwk"
-
 ### Matplotlib graphical parameters ###
 grey10 = '#1a1a1a'
+mpl.rcParams['figure.figsize'] = [11.7, 8.27] # a4
 mpl.rcParams['text.color'] = grey10
 mpl.rcParams['axes.edgecolor'] = grey10
 mpl.rcParams['axes.labelcolor'] = grey10
@@ -63,24 +77,22 @@ def get_taxa_set(etegenetree):
     return taxa_set
 
 
-def bfw_phylsubtree(phyltree, taxa):
+def walk_phylsubtree(phyltree, taxa):
     """Return an iterator that will progress on the tree from leaves to root.
     
     It also rotates forks such that the displayed tree will show branches
     that are most distant from the root (in number of nodes) on one side.
 
     Taxa returned by the iterator are space-separated.
-
-    Use breadth-first iteration.
     """
     root, subtree = phyltree.getSubTree(taxa)
 
     # reorder branches in a visually nice manner:
     ladderize(subtree, root)
     get_children = lambda tree, node: tree.get(node, [])
-    bfw = bfw_descendants_generalized(subtree, get_children,
+    dfw = dfw_descendants_generalized(subtree, get_children,
                                       include_leaves=False, queue=[root])
-    return reversed(list(bfw))
+    return reversed(list(dfw))
 
 
 def iter_species_coords(phyltree, taxa):
@@ -91,7 +103,7 @@ def iter_species_coords(phyltree, taxa):
     """
     coords = {}
     y0 = 0
-    for parent, children in bfw_phylsubtree(phyltree, taxa):
+    for parent, children in walk_phylsubtree(phyltree, taxa):
         children_xs = []
         children_ys = []
         for child in children:
@@ -156,7 +168,7 @@ class GenetreeDrawer(object):
         self.species_coords   = {}
         self.species_branches = {} 
 
-        self.fig, ax0 = plt.subplots(frameon=False) # set figsize later
+        self.fig, ax0 = plt.subplots(figsize=(8,8)) #frameon=False) # set figsize later
         #ax0 = self.fig.add_axes([0.1,0.1,0.9,0.9]) #, adjustable='box-forced')
         #ax0 = self.fig.add_axes([0.1, 0.1, 0.9, 0.9])
         ax0.axis('off')
@@ -176,11 +188,14 @@ class GenetreeDrawer(object):
             ax0.add_patch(patches.Polygon(coords, 
                                           facecolor='#e5e5e5',
                                           edgecolor='#e5e5e5'))
-            ax0.text(cx, cy, child, ha='center', fontsize=10,
+            ha = 'center' if cx < 0 else 'left'
+            va = 'bottom' if cx < 0 else 'top'
+            ax0.text(cx, cy, child, ha=ha, va=va, fontsize=10,
                      fontstyle='italic', family='serif')
 
+        # include root.
         self.species_coords[parent] = (px, py)
-        ax0.text(px, py, parent, ha='center', fontsize=10, fontstyle='italic',
+        ax0.text(px, py, parent, ha='right', fontsize=10, fontstyle='italic',
                  family='serif')
         
         ax0.set_xlim(px, 1)
@@ -205,10 +220,12 @@ class GenetreeDrawer(object):
 
             if node.is_leaf():
                 taxon_gene_coords.append(node.name)
+                node_y = len(taxon_gene_coords) - 1
                 interspecies_trees[node.name] = {'taxon': taxon,
                                                  'ndup': 0,
                                                  'x': 1,
-                                                 'y': len(taxon_gene_coords) - 1}
+                                                 'y': node_y}
+                self.branchings[node.name] = [taxon, 0, node_y, 'leaf', []]
             else:
                 children_taxa = set(interspecies_trees[ch.name]['taxon'] for ch
                                     in node.children)
@@ -230,6 +247,10 @@ class GenetreeDrawer(object):
                             'y': node_y}
                 else:
                     # It is a speciation
+                    if taxon in children_taxa:
+                        print("WARNING: the node %r -> %s is a duplication + "
+                              "a speciation. Not truly reconciled tree." % 
+                              (node.name, [ch.name for ch in node.children]))
                     taxon_gene_coords.append(node.name)
 
                     node_y = len(taxon_gene_coords) - 1
@@ -271,67 +292,100 @@ class GenetreeDrawer(object):
 
                                                                 
     def draw_gene_tree(self, branch_width=0.8):
+        print(' --- Drawing genetree ---')
         self.real_gene_coords = {}
 
+        cmap = plt.get_cmap('Dark2', 10) # TODO: as many as duplications
+
+        color_index = 0
+
+        #seen_genenames = set()
         for node in self.genetree.traverse('postorder'):
             genename = node.name
-            print(genename)
+            #if genename in seen_genenames:
+            #    print('WARNING: %r already seen' % genename)
+            #else:
+            #    seen_genenames.add(genename)
             
-            if node.is_leaf():
-                species = convert_gene2species(genename)
-                real_x, real_y = self.species_coords[species]
-                pos_list = self.gene_coords[species]
-                pos = pos_list.index(genename) + 1
-                real_y -= branch_width * pos/(len(pos_list) + 1)
-            else:
-                species, rel_x, rel_y, event, children = self.branchings[genename]
+            species, rel_x, rel_y, event, children = self.branchings[genename]
+            pos_list = self.gene_coords[species]
+            nranks = len(pos_list) + 1
+            children_real_coords = [self.real_gene_coords[ch] for ch in children]
+            
+            print(genename, event, species, children)
+            if event == 'dup':
 
-                children_ys = [self.real_gene_coords[ch][1] for ch in children]
+                children_rel_ys = [(self.branchings[ch][2]) for ch in children]
+                #print(children_rel_ys)
 
-                if event == 'dup':
-                    parent_sp, Dx, Dy = self.species_branches[species]
-                    parent_x, parent_y = self.species_coords[parent_sp]
-                    real_x = parent_x + Dx * rel_x
-                    real_y = parent_y + Dy * rel_x - branch_width * rel_y
-                    nodecolor = 'red'
+                parent_sp, Dx, Dy = self.species_branches[species]
+                parent_x, parent_y = self.species_coords[parent_sp]
+                real_x = parent_x + Dx * rel_x
+                real_y = parent_y + Dy * rel_x - branch_width * (rel_y+1)/nranks
+                nodecolor = 'red'
 
-                    delta_y = (children_ys[0] - children_ys[-1]) / 2
+                branches_color = cmap(color_index)
+                color_index = (color_index + 1) % cmap.N
 
-                    for ch, delta in zip(children, [1, -1]):
-                        ch_real_x, ch_real_y = self.real_gene_coords[ch]
-                        self.ax0.plot((real_x, ch_real_x),
-                                      (real_y + delta * delta_y, ch_real_y),
-                                      color=grey10)
-                    
-                    self.ax0.plot((real_x, real_x),
-                                  (real_y - delta_y, real_y + delta_y),
-                                  color=grey10)
+                delta_ys = []
+                for ch, ch_rel_y, (ch_real_x, ch_real_y) in \
+                    zip(children, children_rel_ys, children_real_coords):
+                    delta_y = (rel_y - ch_rel_y)/nranks * branch_width
+                    delta_ys.append(delta_y)
 
-                else:
-                    real_x, real_y = self.species_coords[species]
-                    pos_list = self.gene_coords[species]
-                    pos = pos_list.index(genename) + 1
-                    real_y -= branch_width * pos/(len(pos_list) + 1)
-                    nodecolor = 'blue'
-                    children_xs = [self.real_gene_coords[ch][0] for ch in children]
-
-                    for ch_real_x, ch_real_y in zip(children_xs, children_ys):
-                        self.ax0.plot((real_x, ch_real_x), (real_y, ch_real_y),
-                                      color=grey10)
+                    self.ax0.plot((ch_real_x, real_x),
+                                  (ch_real_y, real_y + delta_y),
+                                  color=branches_color)
                 
+                # plot the vertical line of the fork.
+                self.ax0.plot((real_x, real_x),
+                              (real_y + min(delta_ys), real_y + max(delta_ys)),
+                              color=branches_color)
+
+            else:
+                real_x, real_y = self.species_coords[species]
+                pos = pos_list.index(genename) + 1
+                real_y -= branch_width * pos/nranks
+                nodecolor = 'blue'
+
+                for ch_real_x, ch_real_y in children_real_coords:
+                    self.ax0.plot((real_x, ch_real_x), (real_y, ch_real_y),
+                                  color=grey10)
+            
+            if event != 'leaf':
                 self.ax0.plot((real_x,), (real_y,), 'o', color=nodecolor)
-                self.ax0.text(real_x, real_y, species, fontsize='xx-small',
-                                color=nodecolor)
+                #self.ax0.text(real_x, real_y, species, fontsize='xx-small',
+                #              color=nodecolor)
 
             self.real_gene_coords[genename] = (real_x, real_y)
+            #self.fig.draw(self.fig.canvas.get_renderer())
+            #plt.show()
+            #input('Press Enter to continue.')
 
 
+#TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00810000125388/subtrees2/RodentiaENSGT00810000125388.A.a.a.c.a.b.nwk"
+TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.a.a.a.b.nwk"
+#TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.b.a.b.b.a.b.c.a.a.a.nwk"
 
-if __name__ == '__main__':
+
+def run(testtree):
     gd = GenetreeDrawer()
     gd.load_phyltree()
-    gd.load_reconciled_genetree(TESTTREE)
+    gd.load_reconciled_genetree(testtree)
     gd.draw_species_tree()
     gd.set_gene_coords()
     gd.draw_gene_tree()
+    plt.show()
+    return gd
+
+
+if __name__ == '__main__':
+    #run()
+    if len(sys.argv) == 2:
+        genetreefile = sys.argv[1]
+    else:
+        print(__doc__)
+        sys.exit()
+
+    gd = run(genetreefile)
 
