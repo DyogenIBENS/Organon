@@ -59,24 +59,30 @@ def name_missing_links(parent_sp, ancestor, genename, parent_node_name,
     # nodes with a single child and age 0. (introducing potential errors)
     # BUT: do not remove species (age = 0) !
     if ages:
-        ancestor_lineage = [link for link in ancestor_lineage[:-1]
-                            if ages[link] > 0] + \
-                           [ancestor_lineage[-1]]
+        links = [link for link in ancestor_lineage[1:-1] if ages[link] > 0]
 
     # If doesn't match species tree
     # same ancestor as child is possible for duplication node
     # So check for length 1 or 2
     new_node_names = []
-    new_branch_dists = []
-    if len(ancestor_lineage) > 2:
-        new_node_names = [link + genename for link in ancestor_lineage[1:-1]]
+    if links:
+        new_node_names = [link + genename for link in links]
 
-        if ages:
-            total_len = ages[ancestor_lineage[-1]] - ages[ancestor_lineage[0]]
-            for link_parent, link in zip(ancestor_lineage[:-1],
-                                         ancestor_lineage[ 1:]):
-                new_dist = float(ages[link] - ages[link_parent])
+    if ages:
+        new_branch_dists = []
+        total_len = ages[ancestor_lineage[-1]] - ages[ancestor_lineage[0]]
+        for link_parent, link in zip(ancestor_lineage[:-1],
+                                     ancestor_lineage[ 1:]):
+            new_dist = float(ages[link] - ages[link_parent])
+            try:
                 new_branch_dists.append(new_dist / total_len)
+            except ZeroDivisionError as err:
+                err.args += (parent_sp, ancestor, "please check ages.")
+                print("WARNING:", err, file=sys.stderr)
+                new_branch_dists.append(0)
+    else:
+        total_len = len(ancestor_lineage) - 1
+        new_branch_dists = [1./total_len] * total_len
 
     return new_node_names, new_branch_dists
     # TODO: compute intermediate distances proportionally to the age of each
@@ -185,7 +191,10 @@ def suffix_list(parent, child):
 
 def insert_species_nodes_back(tree, diclinks, ages=None):
     print_if_verbose("* Insert missing nodes:")
-    for node in tree.traverse():
+    ### Insert childs *while* iterating.
+    ### Beware not to iterate on these new nodes:
+    ### iterate from leaves to root ('postorder') and insert between node and child
+    for node in tree.traverse('postorder'):
         print_if_verbose(" " + node.name)
         if node.children:
             parent_sp, parent_gn = split_species_gene(node.name)
