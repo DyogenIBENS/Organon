@@ -6,7 +6,7 @@ Draw a gene tree inside a species tree.
 
 USAGE:
 
-./genetree_drawer.py <genetreefile>.
+./genetree_drawer.py <genetreefile>
 
 ARGUMENTS:
   - genetreefile: must be a genetree (nwk format with internal nodes labelling)
@@ -96,7 +96,7 @@ def walk_phylsubtree(phyltree, taxa):
     return reversed(list(dfw))
 
 
-def iter_species_coords(phyltree, taxa):
+def iter_species_coords(phyltree, taxa, equal_angles=False):
     """Assign a pair x,y of coordinates for each node in the tree.
     Yield (parent name, parent_xy, child name, child_xy).
     
@@ -119,10 +119,17 @@ def iter_species_coords(phyltree, taxa):
             children_xs.append(x)
             children_ys.append(y)
 
-        # Along the X axis: move one step to the left
-        # Along the Y axis: take the middle of the children Y coordinates.
-        parent_x = min(children_xs) - 1
-        parent_y = (min(children_ys) + max(children_ys)) / 2
+        if equal_angles:
+            # TODO: dx < 0 ?
+            step = ((max(children_ys) - min(children_ys)) -
+                    (max(children_xs) - min(children_xs))) / 2
+            parent_x = min(children_xs) - step
+            parent_y = max(children_ys) - step
+        else:
+            # Along the X axis: move one step to the left
+            # Along the Y axis: take the middle of the children Y coordinates.
+            parent_x = min(children_xs) - 1
+            parent_y = (min(children_ys) + max(children_ys)) / 2
         coords[parent] = (parent_x, parent_y)
 
         for child in children:
@@ -161,7 +168,7 @@ class GenetreeDrawer(object):
                 self.taxa.add(taxon)
 
 
-    def draw_species_tree(self, equal_angles=False, branch_width=0.8):
+    def draw_species_tree(self, equal_angles=True, branch_width=0.8):
         """Init figure + draw branches of the species tree.
         
         branch_width: proportion of vertical space between two branches taken
@@ -177,7 +184,8 @@ class GenetreeDrawer(object):
 
         ymin = 0
         for parent, (px, py), child, (cx, cy) in iter_species_coords(self.phyltree,
-                                                                     self.taxa):
+                                                                     self.taxa,
+                                                                     equal_angles):
             self.species_branches[child] = (parent, cx - px, cy - py)
 
             self.species_coords[child] = (cx, cy)
