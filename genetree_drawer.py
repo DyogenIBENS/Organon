@@ -13,6 +13,7 @@ ARGUMENTS:
                   reconciled with species tree.
 """
 
+import sys
 import re
 import numpy as np
 import matplotlib as mpl
@@ -150,6 +151,7 @@ class GenetreeDrawer(object):
         """Load gene tree with all species nodes present.
         newick format with internal node labelling"""
         self.genetree = ete3.Tree(filename, format=format)
+        self.genetree.ladderize()
         # add only the meaningful taxa (not those with one child and age = 0)
         alldescendants = self.phyltree.allDescendants[get_taxon(self.genetree)]
         self.taxa = set()
@@ -364,8 +366,8 @@ class GenetreeDrawer(object):
 
 
 #TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00810000125388/subtrees2/RodentiaENSGT00810000125388.A.a.a.c.a.b.nwk"
-TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.a.a.a.b.nwk"
-#TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.b.a.b.b.a.b.c.a.a.a.nwk"
+#TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.a.a.a.b.nwk"
+TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.b.a.b.b.a.b.c.a.a.a.nwk"
 
 
 def run(testtree):
@@ -383,6 +385,8 @@ if __name__ == '__main__':
     #run()
     if len(sys.argv) == 2:
         genetreefile = sys.argv[1]
+        if genetreefile == 'TEST':
+            genetreefile = TESTTREE
     else:
         print(__doc__)
         sys.exit()
