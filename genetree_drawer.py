@@ -9,11 +9,13 @@ USAGE:
 ./genetree_drawer.py <genetreefile>
 
 ARGUMENTS:
+  - outputfile:   pdf file, or '-'. If '-', will use Qt to display the figure.
   - genetreefile: must be a genetree (nwk format with internal nodes labelling)
                   reconciled with species tree.
 """
 
 import sys
+import os.path
 import re
 import numpy as np
 import matplotlib as mpl
@@ -21,6 +23,7 @@ import matplotlib as mpl
 mpl.use('Qt4Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.backends.backend_pdf import PdfPages, FigureCanvas
 import ete3
 
 import LibsDyogen.myPhylTree as PhylTree
@@ -35,6 +38,8 @@ ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS')
 ### Matplotlib graphical parameters ###
 grey10 = '#1a1a1a'
 mpl.rcParams['figure.figsize'] = [11.7, 8.27] # a4
+mpl.rcParams['lines.linewidth'] = 0.8
+mpl.rcParams['lines.markersize'] = 3
 mpl.rcParams['text.color'] = grey10
 mpl.rcParams['axes.edgecolor'] = grey10
 mpl.rcParams['axes.labelcolor'] = grey10
@@ -87,6 +92,10 @@ def walk_phylsubtree(phyltree, taxa):
     Taxa returned by the iterator are space-separated.
     """
     root, subtree = phyltree.getSubTree(taxa)
+    #if lower_root and phyltree.parent.get(root):
+    #    newroot = phyltree.parent[root].name
+    #    subtree[newroot] = [root]
+    #    root = newroot
 
     # reorder branches in a visually nice manner:
     ladderize(subtree, root)
@@ -101,6 +110,8 @@ def iter_species_coords(phyltree, taxa, equal_angles=False):
     Yield (parent name, parent_xy, child name, child_xy).
     
     Just the topology. Branch lengths are ignored.
+
+    lower_root: add the ancestor of the actual root to the figure.
     """
     coords = {}
     y0 = 0
@@ -121,8 +132,11 @@ def iter_species_coords(phyltree, taxa, equal_angles=False):
 
         if equal_angles:
             # TODO: dx < 0 ?
-            step = ((max(children_ys) - min(children_ys)) -
-                    (max(children_xs) - min(children_xs))) / 2
+            dy = max(children_ys) - min(children_ys)
+            if dy == 0: dy = 1 # when only one child
+            dx = max(children_xs) - min(children_xs)
+            
+            step = (dy - dx) / 2
             parent_x = min(children_xs) - step
             parent_y = max(children_ys) - step
         else:
@@ -154,18 +168,38 @@ class GenetreeDrawer(object):
         self.phyltree = PhylTree.PhylogeneticTree(phyltreefile.format(
                                                             ensembl_version))
 
-    def load_reconciled_genetree(self, filename, format=1):
+    def load_reconciled_genetree(self, filename, format=1, genetreename=None):
         """Load gene tree with all species nodes present.
         newick format with internal node labelling"""
+
+        if genetreename:
+            self.genetreename = genetreename
+        else:
+            self.genetreename = os.path.splitext(os.path.basename(filename))[0]
         self.genetree = ete3.Tree(filename, format=format)
         self.genetree.ladderize()
         # add only the meaningful taxa (not those with one child and age = 0)
-        alldescendants = self.phyltree.allDescendants[get_taxon(self.genetree)]
+        root = get_taxon(self.genetree)
+        alldescendants = self.phyltree.allDescendants[root]
         self.taxa = set()
         for taxon in alldescendants:
             if not (len(self.phyltree.items.get(taxon, [])) == 1 and
                     self.phyltree.ages[taxon] == 0):
                 self.taxa.add(taxon)
+        # Add the branch leading to the current root (if duplications in this branch)
+        lower_root = self.phyltree.parent[root].name
+        # This check is not especially necessary.
+        while len(self.phyltree.items.get(lower_root, [])) == 1 \
+                and self.phyltree.ages[lower_root] == 0:
+            lower_root = self.phyltree.parent[lower_root].name
+
+        self.taxa.add(lower_root)
+
+        rerooted_genetree = ete3.TreeNode(name=self.genetree.name.replace(root,
+                                                                lower_root))
+        rerooted_genetree.add_child(child=self.genetree)
+        self.genetree = rerooted_genetree
+
 
 
     def draw_species_tree(self, equal_angles=True, branch_width=0.8):
@@ -173,9 +207,8 @@ class GenetreeDrawer(object):
         
         branch_width: proportion of vertical space between two branches taken
                       by the branch polygon."""
-        # TODO: implement equal_angles
         self.species_coords   = {}
-        self.species_branches = {} 
+        self.species_branches = {}
 
         self.fig, ax0 = plt.subplots(figsize=(8,8)) #frameon=False) # set figsize later
         #ax0 = self.fig.add_axes([0.1,0.1,0.9,0.9]) #, adjustable='box-forced')
@@ -200,13 +233,13 @@ class GenetreeDrawer(object):
                                           edgecolor='#e5e5e5'))
             ha = 'center' if cx < 0 else 'left'
             va = 'bottom' if cx < 0 else 'top'
-            ax0.text(cx, cy, child, ha=ha, va=va, fontsize=10,
+            ax0.text(cx, cy, child, ha=ha, va=va, fontsize='x-small',
                      fontstyle='italic', family='serif')
 
         # include root.
         self.species_coords[parent] = (px, py)
-        ax0.text(px, py, parent, ha='right', fontsize=10, fontstyle='italic',
-                 family='serif')
+        ax0.text(px, py, parent, ha='right', fontsize='x-small',
+                 fontstyle='italic', family='serif')
         
         ax0.set_xlim(px, 1)
         ax0.set_ylim(ymin - 1, 1)
@@ -214,6 +247,10 @@ class GenetreeDrawer(object):
 
 
     def set_gene_coords(self):
+        ### TODO: enable repeted calls to set multiple gene trees
+        ### TODO: propagate deleted lineage : draw invisible lines, just to
+        ###       consume vertical space.
+        
         self.gene_coords = {} # {species: [gene list]}
         #self.dup_branchings = [] # (genename, x, x_child1, x_child2, y_child1, y_child2)
         #self.spe_branchings = []
@@ -303,6 +340,15 @@ class GenetreeDrawer(object):
                                                                 
     def draw_gene_tree(self, branch_width=0.8):
         print(' --- Drawing genetree ---')
+        # Duplicate the species tree axis to separate the plotting
+        #if hasattr(self, 'ax1'):
+        #    self.ax1.clear()
+        #else:
+        self.ax1 = self.ax0.twinx()
+        self.ax1.set_ylim(self.ax0.get_ylim())
+        self.ax1.axis('off')
+        self.ax1.set_title(self.genetreename)
+        
         self.real_gene_coords = {}
 
         cmap = plt.get_cmap('Dark2', 10) # TODO: as many as duplications
@@ -343,14 +389,14 @@ class GenetreeDrawer(object):
                     delta_y = (rel_y - ch_rel_y)/nranks * branch_width
                     delta_ys.append(delta_y)
 
-                    self.ax0.plot((ch_real_x, real_x),
+                    self.ax1.plot((ch_real_x, real_x),
                                   (ch_real_y, real_y + delta_y),
-                                  color=branches_color)
+                                  color=branches_color, alpha=0.5)
                 
                 # plot the vertical line of the fork.
-                self.ax0.plot((real_x, real_x),
+                self.ax1.plot((real_x, real_x),
                               (real_y + min(delta_ys), real_y + max(delta_ys)),
-                              color=branches_color)
+                              color=branches_color, alpha=0.5)
 
             else:
                 real_x, real_y = self.species_coords[species]
@@ -359,18 +405,19 @@ class GenetreeDrawer(object):
                 nodecolor = 'blue'
 
                 for ch_real_x, ch_real_y in children_real_coords:
-                    self.ax0.plot((real_x, ch_real_x), (real_y, ch_real_y),
-                                  color=grey10)
+                    self.ax1.plot((real_x, ch_real_x), (real_y, ch_real_y),
+                                  color='black', alpha=0.5)
             
             if event != 'leaf':
-                self.ax0.plot((real_x,), (real_y,), 'o', color=nodecolor)
-                #self.ax0.text(real_x, real_y, species, fontsize='xx-small',
+                self.ax1.plot((real_x,), (real_y,), '.', color=nodecolor, alpha=0.5)
+                #self.ax1.text(real_x, real_y, species, fontsize='xxx-small',
                 #              color=nodecolor)
 
             self.real_gene_coords[genename] = (real_x, real_y)
             #self.fig.draw(self.fig.canvas.get_renderer())
             #plt.show()
             #input('Press Enter to continue.')
+            ### TODO: add onpick action: display node name
 
 
 #TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00810000125388/subtrees2/RodentiaENSGT00810000125388.A.a.a.c.a.b.nwk"
@@ -378,26 +425,38 @@ class GenetreeDrawer(object):
 TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.b.a.b.b.a.b.c.a.a.a.nwk"
 
 
-def run(testtree):
+def run(outfile, genetrees):
     gd = GenetreeDrawer()
     gd.load_phyltree()
-    gd.load_reconciled_genetree(testtree)
-    gd.draw_species_tree()
-    gd.set_gene_coords()
-    gd.draw_gene_tree()
-    plt.show()
+    if outfile != '-':
+        pdf = PdfPages(outfile)
+    for genetree in genetrees:
+        print('INPUT FILE:', genetree)
+        gd.load_reconciled_genetree(genetree)
+        gd.draw_species_tree() # Currently, must be called after load_reconciled
+        gd.set_gene_coords()
+        gd.draw_gene_tree()
+        if outfile == '-':
+            plt.show()
+        else:
+            pdf.savefig(bbox_inches='tight', papertype='a4')
+            plt.close()
+    if outfile != '-':
+        pdf.close()
+    #plt.show()
     return gd
 
 
 if __name__ == '__main__':
     #run()
-    if len(sys.argv) == 2:
-        genetreefile = sys.argv[1]
-        if genetreefile == 'TEST':
-            genetreefile = TESTTREE
-    else:
+    if len(sys.argv) == 1:
         print(__doc__)
         sys.exit()
+    else:
+        outfile = sys.argv[1]
+        genetreefiles = sys.argv[2:]
+        if genetreefiles == ['TEST']:
+            genetreefiles = [TESTTREE]
 
-    gd = run(genetreefile)
+    gd = run(outfile, genetreefiles)
 
