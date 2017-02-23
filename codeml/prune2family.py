@@ -402,15 +402,17 @@ if __name__ == '__main__':
     parser.add_argument("ancestors", nargs='+')
     parser.add_argument("--fromfile", action="store_true", help="read treefile"\
                         " names from the first argument")
-    parser.add_argument("-o", "--outdir", default='./{0}')
+    parser.add_argument("-o", "--outdir", default='./{0}', help="[%(default)s]")
     parser.add_argument("--only-dup", action="store_true",
                         help="do not extract trees that don't have at least "\
                              "one duplication")
-    parser.add_argument("-e", "--ensembl-version", type=int, default=85)
+    parser.add_argument("-e", "--ensembl-version", type=int, default=85,
+                        help="[%(default)s]")
     parser.add_argument("-p", "--phyltree-fmt", default=PHYLTREE_FMT,
                         help="Phylogenetic species tree "\
                         "in LibsDyogen PhylTree format. Can contain the string"\
-                        " '{0}' which will be replaced by the Ensembl version")
+                        " '{0}' which will be replaced by the Ensembl version"\
+                        " [%(default)s]")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="only print out the output files it would produce")
     parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
