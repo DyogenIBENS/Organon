@@ -202,7 +202,7 @@ class GenetreeDrawer(object):
 
 
 
-    def draw_species_tree(self, equal_angles=True, branch_width=0.8):
+    def draw_species_tree(self, figsize=None, equal_angles=False, branch_width=0.8):
         """Init figure + draw branches of the species tree.
         
         branch_width: proportion of vertical space between two branches taken
@@ -210,7 +210,8 @@ class GenetreeDrawer(object):
         self.species_coords   = {}
         self.species_branches = {}
 
-        self.fig, ax0 = plt.subplots(figsize=(8,8)) #frameon=False) # set figsize later
+        if figsize is None: figsize = (8, 8) # 20x20cm
+        self.fig, ax0 = plt.subplots(figsize=figsize) #frameon=False) # set figsize later
         #ax0 = self.fig.add_axes([0.1,0.1,0.9,0.9]) #, adjustable='box-forced')
         #ax0 = self.fig.add_axes([0.1, 0.1, 0.9, 0.9])
         ax0.axis('off')
@@ -250,6 +251,8 @@ class GenetreeDrawer(object):
         ### TODO: enable repeted calls to set multiple gene trees
         ### TODO: propagate deleted lineage : draw invisible lines, just to
         ###       consume vertical space.
+        ### TODO: genes whose children got deleted in one lineage should be
+        ###       placed away from this lineage (avoid line crossing)
         
         self.gene_coords = {} # {species: [gene list]}
         #self.dup_branchings = [] # (genename, x, x_child1, x_child2, y_child1, y_child2)
@@ -426,18 +429,21 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 
 
 def run(outfile, genetrees):
+    figsize = None
     gd = GenetreeDrawer()
     gd.load_phyltree()
     if outfile != '-':
         pdf = PdfPages(outfile)
+        figsize = (8.2, 11.7)
     for genetree in genetrees:
         print('INPUT FILE:', genetree)
         gd.load_reconciled_genetree(genetree)
-        gd.draw_species_tree() # Currently, must be called after load_reconciled
+        gd.draw_species_tree(figsize=figsize) # Currently, must be called after load_reconciled
         gd.set_gene_coords()
         gd.draw_gene_tree()
         if outfile == '-':
             plt.show()
+            figsize = gd.fig.get_size_inches()
         else:
             pdf.savefig(bbox_inches='tight', papertype='a4')
             plt.close()
