@@ -334,8 +334,17 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
             if len(leafnames) > 1 or one_leaf:
                 # check that there is at least one duplication
                 if not only_dup or with_dup(leafnames):
-                    outname = ancestor_regex.sub(node.name, ancestor)
-                    outfile = os.path.join(outdir, node.name + '.nwk')
+                    outname = ancestor_regex.sub(ancestor, node.name)
+                    #outname = re.sub('^[A-Za-z_.-]+(?=ENSGT)', node.name, ancestor)
+                    #print_if_verbose(('generate outname:\n'
+                    #                  'regex: %r\n'
+                    #                  'node:  %r\n'
+                    #                  'anc:   %r\n'
+                    #                  'outname: %r') % (ancestor_regex.pattern,
+                    #                                  node.name,
+                    #                                  ancestor,
+                    #                                  outname))
+                    outfile = os.path.join(outdir, outname + '.nwk')
                     if outfile in outfiles_set:
                         # Not sure this case can happen, but better prevent it
                         print("ERROR: Cannot output twice to %r" % outfile,
