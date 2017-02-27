@@ -27,7 +27,7 @@ from matplotlib.backends.backend_pdf import PdfPages, FigureCanvas
 import ete3
 
 import LibsDyogen.myPhylTree as PhylTree
-import LibsDyogen.myProteinTree as ProteinTree
+#import LibsDyogen.myProteinTree as ProteinTree
 
 from glou_duphist import dfw_descendants_generalized, ladderize
 from codeml.select_leaves_from_specieslist import convert_gene2species
@@ -141,9 +141,9 @@ def iter_species_coords(phyltree, taxa, equal_angles=False):
             parent_y = max(children_ys) - step
         else:
             # Along the X axis: move one step to the left
-            # Along the Y axis: take the middle of the children Y coordinates.
+            # Along the Y axis: take the average of the children Y coordinates.
             parent_x = min(children_xs) - 1
-            parent_y = (min(children_ys) + max(children_ys)) / 2
+            parent_y = sum(children_ys) / len(children_ys)
         coords[parent] = (parent_x, parent_y)
 
         for child in children:
@@ -341,7 +341,7 @@ class GenetreeDrawer(object):
         print(interspecies_trees)
 
                                                                 
-    def draw_gene_tree(self, branch_width=0.8):
+    def draw_gene_tree(self, extratitle='', branch_width=0.8):
         print(' --- Drawing genetree ---')
         # Duplicate the species tree axis to separate the plotting
         #if hasattr(self, 'ax1'):
@@ -350,7 +350,9 @@ class GenetreeDrawer(object):
         self.ax1 = self.ax0.twinx()
         self.ax1.set_ylim(self.ax0.get_ylim())
         self.ax1.axis('off')
-        self.ax1.set_title(self.genetreename)
+        title = self.genetreename
+        if extratitle: title += ' -- %s' % extratitle
+        self.ax1.set_title(title)
         
         self.real_gene_coords = {}
 
@@ -436,11 +438,13 @@ def run(outfile, genetrees):
         pdf = PdfPages(outfile)
         figsize = (8.2, 11.7)
     for genetree in genetrees:
+        genetree, *extratitles = genetree.split(',')
+        extratitle = ', '.join(extratitles)
         print('INPUT FILE:', genetree)
         gd.load_reconciled_genetree(genetree)
         gd.draw_species_tree(figsize=figsize) # Currently, must be called after load_reconciled
         gd.set_gene_coords()
-        gd.draw_gene_tree()
+        gd.draw_gene_tree(extratitle)
         if outfile == '-':
             plt.show()
             figsize = gd.fig.get_size_inches()
