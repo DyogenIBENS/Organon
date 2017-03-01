@@ -193,7 +193,8 @@ def suffix_list(parent, child):
     return suffixes
 
 
-def insert_species_nodes_back(tree, diclinks, ages=None):
+def insert_species_nodes_back(tree, diclinks, ages=None,
+                              ensembl_version=ENSEMBL_VERSION):
     print_if_verbose("* Insert missing nodes:")
     ### Insert childs *while* iterating.
     ### Beware not to iterate on these new nodes:
@@ -210,7 +211,7 @@ def insert_species_nodes_back(tree, diclinks, ages=None):
             for child in node_children:
                 print_if_verbose("  - child %r" % child.name)
                 if child.is_leaf():
-                    ancestor = convert_gene2species(child.name)
+                    ancestor = convert_gene2species(child.name, ensembl_version)
                     genename = child.name
                 else:
                     ancestor, genename = split_species_gene(child.name)
@@ -313,8 +314,8 @@ def with_dup(leafnames):
 
 
 def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
-                  ages=None, outdir='.', only_dup=False, one_leaf=False,
-                  dry_run=False):
+                  ages=None, ensembl_version=ENSEMBL_VERSION, outdir='.',
+                  only_dup=False, one_leaf=False, dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
     outfiles_set = set() # check whether I write twice to the same outfile
     try:
@@ -322,7 +323,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
     except ete3.parser.newick.NewickError as err:
         err.args += ('ERROR with treefile %r' % treefile,)
         raise
-    insert_species_nodes_back(tree, diclinks, ages)
+    insert_species_nodes_back(tree, diclinks, ages, ensembl_version)
     print_if_verbose("* Searching for ancestors:")
     for ancestor, ancestorlist in ancestorlists.items():
         print_if_verbose(ancestor)
@@ -379,6 +380,7 @@ def save_subtrees_process(params):
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                            only_dup=False, one_leaf=False, dry_run=False,
                            ignore_errors=False):
+    ### WARNING: uses global variables here, that are changed by command line
     phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ENSEMBL_VERSION))
     ancestorlists = {}
     ancestor_regexes = {}
@@ -397,6 +399,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       ancestor_regexes,
                       diclinks,
                       ages,
+                      ENSEMBL_VERSION,
                       outdir.format(os.path.splitext(os.path.basename(treefile))[0]),
                       only_dup,
                       one_leaf,
