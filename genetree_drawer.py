@@ -17,6 +17,7 @@ ARGUMENTS:
 import sys
 import os.path
 import re
+import argparse
 import numpy as np
 import matplotlib as mpl
 #mpl.use('TkAgg')
@@ -33,6 +34,7 @@ from glou_duphist import dfw_descendants_generalized, ladderize
 from codeml.select_leaves_from_specieslist import convert_gene2species
 
 
+ENSEMBL_VERSION = 85
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS')
 
 ### Matplotlib graphical parameters ###
@@ -60,13 +62,13 @@ mpl.rcParams['savefig.frameon'] = False  #background frame transparent
                                             # (including ggplot2 style)
 #mpl.style.use('ggplot')
 
-def get_taxon(node):
+def get_taxon(node, ensembl_version=ENSEMBL_VERSION):
     """from a gene name in my newick gene trees, find the taxon:
         either:
             - node is a leaf (e.g ENSMUSG00...)
             - node is internal (e.g Mus.musculusENSGT...)"""
     if node.is_leaf():
-        taxon = convert_gene2species(node.name)
+        taxon = convert_gene2species(node.name, ensembl_version)
     else:
         try:
             taxon = ANCGENE2SP.match(node.name).group(1).replace('.', ' ')
@@ -75,10 +77,11 @@ def get_taxon(node):
     return taxon
 
 
-def get_taxa_set(etegenetree):
+### Unused function
+def get_taxa_set(etegenetree, ensembl_version=ENSEMBL_VERSION):
     taxa_set = set()
     for node in etegenetree.traverse():
-        taxon = get_taxon(node)
+        taxon = get_taxon(node, ensembl_version)
         taxa_set.add(taxon)
     return taxa_set
 
@@ -105,7 +108,7 @@ def walk_phylsubtree(phyltree, taxa):
     return reversed(list(dfw))
 
 
-def iter_species_coords(phyltree, taxa, equal_angles=False):
+def iter_species_coords(phyltree, taxa, angle_style=0):
     """Assign a pair x,y of coordinates for each node in the tree.
     Yield (parent name, parent_xy, child name, child_xy).
     
@@ -130,20 +133,29 @@ def iter_species_coords(phyltree, taxa, equal_angles=False):
             children_xs.append(x)
             children_ys.append(y)
 
-        if equal_angles:
-            # TODO: dx < 0 ?
-            dy = max(children_ys) - min(children_ys)
-            if dy == 0: dy = 1 # when only one child
-            dx = max(children_xs) - min(children_xs)
-            
-            step = (dy - dx) / 2
-            parent_x = min(children_xs) - step
-            parent_y = max(children_ys) - step
-        else:
+        if angle_style == 0:
             # Along the X axis: move one step to the left
             # Along the Y axis: take the average of the children Y coordinates.
             parent_x = min(children_xs) - 1
             parent_y = sum(children_ys) / len(children_ys)
+        else:
+            # TODO: dx < 0 ?
+            dy = max(children_ys) - min(children_ys)
+            if dy == 0: dy = 1 # when only one child
+            dx = max(children_xs) - min(children_xs)
+
+            if angle_style == 1:
+                # branches are all at 45 degrees
+                step = (dy - dx) / 2
+                parent_x = min(children_xs) - step
+                parent_y = max(children_ys) - step
+            elif angle_style == 2:
+                step = dy / (2+dx)
+                parent_x = min(children_xs) - 1
+                parent_y = max(children_ys) - step
+            else:
+                raise RuntimeError("Invalid angle_style value: %r" % angle_style)
+
         coords[parent] = (parent_x, parent_y)
 
         for child in children:
@@ -153,13 +165,13 @@ def iter_species_coords(phyltree, taxa, equal_angles=False):
 class GenetreeDrawer(object):
     """Draw a gene tree inside a species tree"""
 
-    ensembl_version = 85
+    ensembl_version = ENSEMBL_VERSION
     phyltreefile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
                    "PhylTree.Ensembl.{0}.conf"
     
-    def __init__(self):
+    def __init__(self, ensembl_version=None):
         self.phyltree = None
-        pass
+        if ensembl_version: self.ensembl_version = ensembl_version
 
     def load_phyltree(self, phyltreefile=None, ensembl_version=None):
         phyltreefile = phyltreefile if phyltreefile else self.phyltreefile
@@ -179,7 +191,7 @@ class GenetreeDrawer(object):
         self.genetree = ete3.Tree(filename, format=format)
         self.genetree.ladderize()
         # add only the meaningful taxa (not those with one child and age = 0)
-        root = get_taxon(self.genetree)
+        root = get_taxon(self.genetree, self.ensembl_version)
         alldescendants = self.phyltree.allDescendants[root]
         self.taxa = set()
         for taxon in alldescendants:
@@ -202,11 +214,14 @@ class GenetreeDrawer(object):
 
 
 
-    def draw_species_tree(self, figsize=None, equal_angles=False, branch_width=0.8):
+    def draw_species_tree(self, figsize=None, angle_style=0, branch_width=0.8):
         """Init figure + draw branches of the species tree.
         
         branch_width: proportion of vertical space between two branches taken
-                      by the branch polygon."""
+                      by the branch polygon.
+        angle_style: - 0: parent node y = mean of children nodes y
+                     - 1: branches always at 45 degrees
+                     - 2: parent node positioned at x-1 but branch angles are equal"""
         self.species_coords   = {}
         self.species_branches = {}
 
@@ -219,7 +234,7 @@ class GenetreeDrawer(object):
         ymin = 0
         for parent, (px, py), child, (cx, cy) in iter_species_coords(self.phyltree,
                                                                      self.taxa,
-                                                                     equal_angles):
+                                                                     angle_style):
             self.species_branches[child] = (parent, cx - px, cy - py)
 
             self.species_coords[child] = (cx, cy)
@@ -265,7 +280,7 @@ class GenetreeDrawer(object):
         # x and y are relative to the branch considered. (between 0 and 1)
 
         for node in self.genetree.traverse('postorder'):
-            taxon = get_taxon(node)
+            taxon = get_taxon(node, self.ensembl_version)
             taxon_gene_coords = self.gene_coords.setdefault(taxon, [])
 
             if node.is_leaf():
@@ -430,9 +445,9 @@ class GenetreeDrawer(object):
 TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.b.a.b.b.a.b.c.a.a.a.nwk"
 
 
-def run(outfile, genetrees):
+def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION):
     figsize = None
-    gd = GenetreeDrawer()
+    gd = GenetreeDrawer(ensembl_version=ensembl_version)
     gd.load_phyltree()
     if outfile != '-':
         pdf = PdfPages(outfile)
@@ -442,7 +457,7 @@ def run(outfile, genetrees):
         extratitle = ', '.join(extratitles)
         print('INPUT FILE:', genetree)
         gd.load_reconciled_genetree(genetree)
-        gd.draw_species_tree(figsize=figsize) # Currently, must be called after load_reconciled
+        gd.draw_species_tree(figsize=figsize, angle_style=angle_style) # Currently, must be called after load_reconciled
         gd.set_gene_coords()
         gd.draw_gene_tree(extratitle)
         if outfile == '-':
@@ -458,15 +473,22 @@ def run(outfile, genetrees):
 
 
 if __name__ == '__main__':
-    #run()
-    if len(sys.argv) == 1:
-        print(__doc__)
-        sys.exit()
-    else:
-        outfile = sys.argv[1]
-        genetreefiles = sys.argv[2:]
-        if genetreefiles == ['TEST']:
-            genetreefiles = [TESTTREE]
+    parser = argparse.ArgumentParser(description=__doc__,
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('outfile')
+    parser.add_argument('genetrees', nargs='*')
+    parser.add_argument('-e', '--ensembl-version', type=int,
+                        default=ENSEMBL_VERSION)
+    parser.add_argument('-a', '--angle-style', type=int, choices=[0,1,2],
+                        default=0,
+                        help=("0: parent node y = mean of children nodes y\n"
+                              "1: branches always at 45 degrees\n"
+                              "2: parent node positioned at x-1 but branch "
+                              "angles are equal"))
+    args = parser.parse_args()
+    dictargs = vars(args)
+    if not dictargs.get('genetrees'):
+        dictargs['genetrees'] = [TESTTREE]
 
-    gd = run(outfile, genetreefiles)
+    gd = run(**dictargs)
 
