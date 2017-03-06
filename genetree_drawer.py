@@ -509,10 +509,16 @@ if __name__ == '__main__':
                               "1: branches always at 45 degrees\n"
                               "2: parent node positioned at x-1 but branch "
                               "angles are equal"))
+    parser.add_argument('-r', '--ancgene-regex', default='ENS', help='start ' \
+                        'pattern of the ancgene name in the node name.')
     args = parser.parse_args()
     dictargs = vars(args)
     if not dictargs.get('genetrees'):
         dictargs['genetrees'] = [TESTTREE]
+
+    # TODO: add into run()
+    ancgene_regex = dictargs.pop('ancgene_regex')
+    ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)%s' % ancgene_regex)
 
     gd = run(**dictargs)
 
