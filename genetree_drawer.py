@@ -21,7 +21,7 @@ import argparse
 import numpy as np
 import matplotlib as mpl
 #mpl.use('TkAgg')
-mpl.use('Qt4Agg')
+if __name__=='__main__': mpl.use('Qt4Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.backends.backend_pdf import PdfPages, FigureCanvas
@@ -169,16 +169,12 @@ class GenetreeDrawer(object):
     phyltreefile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
                    "PhylTree.Ensembl.{0}.conf"
     
-    def __init__(self, ensembl_version=None):
-        self.phyltree = None
+    def __init__(self, phyltreefile=None, ensembl_version=None):
         if ensembl_version: self.ensembl_version = ensembl_version
+        if phyltreefile: self.phyltreefile = phyltreefile
 
-    def load_phyltree(self, phyltreefile=None, ensembl_version=None):
-        phyltreefile = phyltreefile if phyltreefile else self.phyltreefile
-        ensembl_version = ensembl_version if ensembl_version else \
-                          self.ensembl_version
-        self.phyltree = PhylTree.PhylogeneticTree(phyltreefile.format(
-                                                            ensembl_version))
+        self.phyltree = PhylTree.PhylogeneticTree(self.phyltreefile.format(
+                                                        self.ensembl_version))
 
     def load_reconciled_genetree(self, filename, format=1, genetreename=None):
         """Load gene tree with all species nodes present.
@@ -439,6 +435,37 @@ class GenetreeDrawer(object):
             #input('Press Enter to continue.')
             ### TODO: add onpick action: display node name
 
+    def draw(self, genetree, extratitle='', angle_style=0, figsize=None):
+        """Once phyltree is loaded, perform all drawing steps."""
+        self.load_reconciled_genetree(genetree)
+        self.draw_species_tree(figsize=figsize, angle_style=angle_style) # Currently, must be called after load_reconciled
+        self.set_gene_coords()
+        self.draw_gene_tree(extratitle)
+
+
+def prepare(genetrees, ensembl_version=ENSEMBL_VERSION):
+    """extract and compute the reconciled genetrees, starting from genomicus data"""
+    datadir = '/users/ldog/glouvel/ws2/DUPLI_data%d/alignments' % ensembl_version
+    assert os.path.exists(datadir)
+
+    treeforestfile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data%d/" \
+                     "GoodThreshold/tree.4F.cut.bz2" % ensembl_version
+
+    if len(genetrees) == 1:
+        genetree, = genetrees
+        import ToolsDyogen.treeTools.ALL.extractOneGeneTree as xOne
+        filtertest = xOne.def_filtertest(genetree, field='family_name')
+        ### TODO: output not to stdout !!!
+        xOne.search(filtertest, treeforestfile, toNewick=True,
+                    withAncSpeciesNames=True)
+    else:
+        import ToolsDyogen.treeTools.ALL.extractMultipleGeneTree as xMulti
+        xMulti.main(treeforest, genetrees, toNewick=True,
+                    withAncSpeciesNames=True, output='')
+
+
+
+
 
 #TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00810000125388/subtrees2/RodentiaENSGT00810000125388.A.a.a.c.a.b.nwk"
 #TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.a.a.a.b.nwk"
@@ -448,7 +475,6 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION):
     figsize = None
     gd = GenetreeDrawer(ensembl_version=ensembl_version)
-    gd.load_phyltree()
     if outfile != '-':
         pdf = PdfPages(outfile)
         figsize = (8.2, 11.7)
@@ -456,10 +482,8 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION):
         genetree, *extratitles = genetree.split(',')
         extratitle = ', '.join(extratitles)
         print('INPUT FILE:', genetree)
-        gd.load_reconciled_genetree(genetree)
-        gd.draw_species_tree(figsize=figsize, angle_style=angle_style) # Currently, must be called after load_reconciled
-        gd.set_gene_coords()
-        gd.draw_gene_tree(extratitle)
+        gd.draw(genetree, extratitle, angle_style=angle_style, figsize=figsize)
+
         if outfile == '-':
             plt.show()
             figsize = gd.fig.get_size_inches()
