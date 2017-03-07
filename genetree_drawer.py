@@ -176,7 +176,8 @@ class GenetreeDrawer(object):
         self.phyltree = PhylTree.PhylogeneticTree(self.phyltreefile.format(
                                                         self.ensembl_version))
         self.ancgene2sp = re.compile(r'('
-                        + r'|'.join(self.phyltree.allNames).replace(' ','\.')
+                        + r'|'.join(list(self.phyltree.listSpecies) +
+                                    list(self.phyltree.listAncestr)).replace(' ','\.')
                         + r')(.*)$')
 
     def load_reconciled_genetree(self, filename, format=1, genetreename=None):

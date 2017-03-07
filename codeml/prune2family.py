@@ -373,7 +373,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                         outfiles_set.add(outfile)
 
                     if dry_run:
-                        print(outfile)
+                        print("node %r (%s) -> %s" % (node.name, ancestor, outfile))
                     else:
                         print_if_verbose("Writing to %r." % outfile)
                         node.write(format=1,
@@ -400,7 +400,9 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                            dry_run=False, ignore_errors=False):
     ### WARNING: uses global variables here, that are changed by command line
     phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ENSEMBL_VERSION))
-    ancgene2sp = re.compile(r'(' + r'|'.join(phyltree.allNames).replace(' ','\.')
+    ancgene2sp = re.compile(r'('
+                            + r'|'.join(list(phyltree.listSpecies) + 
+                                        list(phyltree.listAncestr)).replace(' ','\.')
                             + r')(.*)$')
     ancestorlists = {}
     ancestor_regexes = {}
@@ -409,7 +411,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
         ancestorlist = sorted(phyltree.allDescendants[ancestor],
                               key=lambda anc: -phyltree.ages[anc])
         ancestorlists[anc_lowercase] = ancestorlist
-        ancestor_regexes[anc_lowercase] = re.compile('^(%s)(.*)' % \
+        ancestor_regexes[anc_lowercase] = re.compile('^(%s)' % \
                                     '|'.join(ancestorlist).replace(' ', '.'))
 
     diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
