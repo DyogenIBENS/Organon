@@ -62,7 +62,7 @@ mpl.rcParams['savefig.frameon'] = False  #background frame transparent
                                             # (including ggplot2 style)
 #mpl.style.use('ggplot')
 
-def get_taxon(node, ensembl_version=ENSEMBL_VERSION):
+def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
     """from a gene name in my newick gene trees, find the taxon:
         either:
             - node is a leaf (e.g ENSMUSG00...)
@@ -71,17 +71,17 @@ def get_taxon(node, ensembl_version=ENSEMBL_VERSION):
         taxon = convert_gene2species(node.name, ensembl_version)
     else:
         try:
-            taxon = ANCGENE2SP.match(node.name).group(1).replace('.', ' ')
+            taxon = ancgene2sp.match(node.name).group(1).replace('.', ' ')
         except AttributeError:
             raise RuntimeError("Can not match species name in %r" % node.name)
     return taxon
 
 
 ### Unused function
-def get_taxa_set(etegenetree, ensembl_version=ENSEMBL_VERSION):
+def get_taxa_set(etegenetree, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
     taxa_set = set()
     for node in etegenetree.traverse():
-        taxon = get_taxon(node, ensembl_version)
+        taxon = get_taxon(node, ancgene2sp, ensembl_version)
         taxa_set.add(taxon)
     return taxa_set
 
@@ -175,6 +175,9 @@ class GenetreeDrawer(object):
 
         self.phyltree = PhylTree.PhylogeneticTree(self.phyltreefile.format(
                                                         self.ensembl_version))
+        self.ancgene2sp = re.compile(r'('
+                        + r'|'.join(self.phyltree.allNames).replace(' ','\.')
+                        + r')(.*)$')
 
     def load_reconciled_genetree(self, filename, format=1, genetreename=None):
         """Load gene tree with all species nodes present.
@@ -187,7 +190,7 @@ class GenetreeDrawer(object):
         self.genetree = ete3.Tree(filename, format=format)
         self.genetree.ladderize()
         # add only the meaningful taxa (not those with one child and age = 0)
-        root = get_taxon(self.genetree, self.ensembl_version)
+        root = get_taxon(self.genetree, self.ancgene2sp, self.ensembl_version)
         alldescendants = self.phyltree.allDescendants[root]
         self.taxa = set()
         for taxon in alldescendants:
@@ -275,33 +278,36 @@ class GenetreeDrawer(object):
 
         # x and y are relative to the branch considered. (between 0 and 1)
 
-        for node in self.genetree.traverse('postorder'):
-            taxon = get_taxon(node, self.ensembl_version)
+        for nodeid, node in enumerate(self.genetree.traverse('postorder')):
+            # set up a *unique* node ID, to avoid relying on node.name.
+            node.id = nodeid
+
+            taxon = get_taxon(node, self.ancgene2sp, self.ensembl_version)
             taxon_gene_coords = self.gene_coords.setdefault(taxon, [])
 
             if node.is_leaf():
-                taxon_gene_coords.append(node.name)
+                taxon_gene_coords.append(node.id)
                 node_y = len(taxon_gene_coords) - 1
-                interspecies_trees[node.name] = {'taxon': taxon,
-                                                 'ndup': 0,
-                                                 'x': 1,
-                                                 'y': node_y}
-                self.branchings[node.name] = [taxon, 0, node_y, 'leaf', []]
+                interspecies_trees[node.id] = {'taxon': taxon,
+                                               'ndup': 0,
+                                               'x': 1,
+                                               'y': node_y}
+                self.branchings[node.id] = [taxon, 0, node_y, 'leaf', []]
             else:
-                children_taxa = set(interspecies_trees[ch.name]['taxon'] for ch
+                children_taxa = set(interspecies_trees[ch.id]['taxon'] for ch
                                     in node.children)
                 if len(children_taxa) == 1 and len(node.children) > 1:
                     # It is a duplication
                     children_ys   = []
                     children_ndup = []
                     for ch in node.children:
-                        children_ys.append(interspecies_trees[ch.name]['y'])
-                        children_ndup.append(interspecies_trees[ch.name]['ndup'])
+                        children_ys.append(interspecies_trees[ch.id]['y'])
+                        children_ndup.append(interspecies_trees[ch.id]['ndup'])
 
                     node_y    = (min(children_ys) + max(children_ys)) / 2
                     node_ndup = max(children_ndup) + 1
 
-                    interspecies_trees[node.name] = {
+                    interspecies_trees[node.id] = {
                             'taxon': taxon,
                             'ndup': node_ndup,
                             'x': 1, # modified later
@@ -312,20 +318,20 @@ class GenetreeDrawer(object):
                         print("WARNING: the node %r -> %s is a duplication + "
                               "a speciation. Not truly reconciled tree." % 
                               (node.name, [ch.name for ch in node.children]))
-                    taxon_gene_coords.append(node.name)
+                    taxon_gene_coords.append(node.id)
 
                     node_y = len(taxon_gene_coords) - 1
-                    interspecies_trees[node.name] = {
+                    interspecies_trees[node.id] = {
                             'taxon': taxon,
                             'ndup': 0,
                             'x': 0,
                             'y': node_y}
-                    self.branchings[node.name] = [taxon, 0, node_y, 'spe',
-                                                  [ch.name for ch in
-                                                      node.children]]
+                    self.branchings[node.id] = [taxon, 0, node_y, 'spe',
+                                                [ch.id for ch in
+                                                    node.children]]
 
                     for ch in node.children:
-                        n_steps = interspecies_trees[ch.name]['ndup'] + 1
+                        n_steps = interspecies_trees[ch.id]['ndup'] + 1
 
                         delta_x = 1 / n_steps
 
@@ -333,14 +339,18 @@ class GenetreeDrawer(object):
                         nextnodes = [ch]
                         while nextnodes:
                             nextnode = nextnodes.pop(0)
-                            nextnode_ndup = interspecies_trees[nextnode.name]['ndup']
+                            try:
+                                nextnode_ndup = interspecies_trees[nextnode.id]['ndup']
+                            except KeyError as err:
+                                err.args += ('Non unique node name.',)
+                                raise
                             if nextnode_ndup > 0:
                                 nextnode_x = 1 - nextnode_ndup * delta_x
-                                nextnode_y = interspecies_trees[nextnode.name]['y']
-                                nextnode_taxon = interspecies_trees[nextnode.name]['taxon']
-                                nextnode_ch = [nnch.name for nnch in nextnode.children]
+                                nextnode_y = interspecies_trees[nextnode.id]['y']
+                                nextnode_taxon = interspecies_trees[nextnode.id]['taxon']
+                                nextnode_ch = [nnch.id for nnch in nextnode.children]
 
-                                self.branchings[nextnode.name] = [
+                                self.branchings[nextnode.id] = [
                                                                 nextnode_taxon,
                                                                 nextnode_x,
                                                                 nextnode_y,
@@ -348,7 +358,7 @@ class GenetreeDrawer(object):
                                                                 nextnode_ch]
                                 nextnodes.extend(nextnode.children)
 
-                            interspecies_trees.pop(nextnode.name)
+                            interspecies_trees.pop(nextnode.id)
         print(interspecies_trees)
 
                                                                 
@@ -373,7 +383,7 @@ class GenetreeDrawer(object):
 
         #seen_genenames = set()
         for node in self.genetree.traverse('postorder'):
-            genename = node.name
+            genename = node.id
             #if genename in seen_genenames:
             #    print('WARNING: %r already seen' % genename)
             #else:
@@ -451,17 +461,18 @@ def prepare(genetrees, ensembl_version=ENSEMBL_VERSION):
     treeforestfile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data%d/" \
                      "GoodThreshold/tree.4F.cut.bz2" % ensembl_version
 
-    if len(genetrees) == 1:
-        genetree, = genetrees
-        import ToolsDyogen.treeTools.ALL.extractOneGeneTree as xOne
-        filtertest = xOne.def_filtertest(genetree, field='family_name')
-        ### TODO: output not to stdout !!!
-        xOne.search(filtertest, treeforestfile, toNewick=True,
-                    withAncSpeciesNames=True)
-    else:
-        import ToolsDyogen.treeTools.ALL.extractMultipleGeneTree as xMulti
-        xMulti.main(treeforest, genetrees, toNewick=True,
-                    withAncSpeciesNames=True, output='')
+    #if len(genetrees) == 1:
+    #    genetree, = genetrees
+    #    import ToolsDyogen.treeTools.ALL.extractOneGeneTree as xOne
+    #    filtertest = xOne.def_filtertest(genetree, field='family_name')
+    #    ### TODO: output not to stdout !!!
+    #    xOne.search(filtertest, treeforestfile, toNewick=True,
+    #                withAncSpeciesNames=True)
+    #else:
+
+    import ToolsDyogen.treeTools.ALL.extractMultipleGeneTree as xMulti
+    xMulti.main(treeforest, genetrees, toNewick=True,
+                withAncSpeciesNames=True, output='')
 
 
 
@@ -509,16 +520,15 @@ if __name__ == '__main__':
                               "1: branches always at 45 degrees\n"
                               "2: parent node positioned at x-1 but branch "
                               "angles are equal"))
-    parser.add_argument('-r', '--ancgene-regex', default='ENS', help='start ' \
-                        'pattern of the ancgene name in the node name.')
+    #parser.add_argument('-r', '--ancgene-regex', default='ENS', help='start ' \
+    #                    'pattern of the ancgene name in the node name.')
     args = parser.parse_args()
     dictargs = vars(args)
     if not dictargs.get('genetrees'):
         dictargs['genetrees'] = [TESTTREE]
 
     # TODO: add into run()
-    ancgene_regex = dictargs.pop('ancgene_regex')
-    ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)%s' % ancgene_regex)
+    #ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)%s' % ancgene_regex)
 
     gd = run(**dictargs)
 
