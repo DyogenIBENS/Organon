@@ -359,7 +359,7 @@ class GenetreeDrawer(object):
                                 nextnodes.extend(nextnode.children)
 
                             interspecies_trees.pop(nextnode.id)
-        print(interspecies_trees)
+        print("root:", interspecies_trees)
 
                                                                 
     def draw_gene_tree(self, extratitle='', branch_width=0.8):
@@ -394,11 +394,10 @@ class GenetreeDrawer(object):
             nranks = len(pos_list) + 1
             children_real_coords = [self.real_gene_coords[ch] for ch in children]
             
-            print(genename, event, species, children)
+            #print(genename, event, species, children)
             if event == 'dup':
 
                 children_rel_ys = [(self.branchings[ch][2]) for ch in children]
-                #print(children_rel_ys)
 
                 parent_sp, Dx, Dy = self.species_branches[species]
                 parent_x, parent_y = self.species_coords[parent_sp]
