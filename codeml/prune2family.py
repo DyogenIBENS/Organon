@@ -19,32 +19,43 @@ ENSEMBL_VERSION = 85
 PHYLTREE_FMT = "/users/ldog/alouis/ws2/GENOMICUS_SVN/data{0}/PhylTree.Ensembl.{0}.conf"
 NEW_DUP_SUFFIX = re.compile(r'\.[A-Za-z`]+$')
 
+ANCGENE_START = 'ENSGT'
+ANCGENE2SP_PATTERN = r'([A-Z][A-Za-z_.-]+)(%s.*)$'
+ANCGENE2SP = re.compile(ANCGENE2SP_PATTERN % ANCGENE_START)
+
+
 #SPLIT_SPECIES_GENE = re.compile()
 
 def print_if_verbose(*args, **kwargs):
     print(*args, **kwargs)
 
 
-def split_species_gene(nodename):
-    """Split a node name into its two parts (taxon + ancestral gene name)."""
-    try:
-        idx = nodename.index('ENS')
-    except ValueError:
-        try:
-            idx = nodename.index('FBgn') # Drosophila
-        except ValueError:
-            try:
-                idx = nodename.index('WBGene') # Caenorhabditis
-            except ValueError:
-                try:
-                    idx = nodename.index('Y')
-                except ValueError:
-                    try:
-                        idx = nodename.index('Q0')
-                    except ValueError as err:
-                        err.args += ("ERROR: Invalid nodename %r" % nodename,)
-                        raise
-    return nodename[:idx].replace('.', ' '), nodename[idx:]
+#def split_species_gene(nodename):
+#    """Split a node name into its two parts (taxon + ancestral gene name)."""
+#    try:
+#        idx = nodename.index('ENS')
+#    except ValueError:
+#        try: # any subtring below here doesn't happen anymore with the last version.
+#            idx = nodename.index('FBgn') # Drosophila
+#        except ValueError:
+#            try:
+#                idx = nodename.index('WBGene') # Caenorhabditis
+#            except ValueError:
+#                try:
+#                    idx = nodename.index('Y')
+#                except ValueError:
+#                    try:
+#                        idx = nodename.index('Q0')
+#                    except ValueError as err:
+#                        err.args += ("ERROR: Invalid nodename %r" % nodename,)
+#                        raise
+#    return nodename[:idx].replace('.', ' '), nodename[idx:]
+
+def split_species_gene(nodename, ancgene2sp):
+    match = ancgene2sp.match(nodename)
+    assert match
+    taxon, genename = match.groups()
+    return taxon.replace('.', ' '), genename
 
 
 def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
@@ -139,10 +150,10 @@ def add_species_nodes_back(tree, diclinks, ages=None):
             ancestor = convert_gene2species(node.name)
             genename = node.name
         else:
-            ancestor, genename = split_species_gene(node.name)
+            ancestor, genename = split_species_gene(node.name, ancgene2sp)
         
         parent_node = node.up
-        parent_ancestor, parent_genename = split_species_gene(parent_node.name)
+        parent_ancestor, parent_genename = split_species_gene(parent_node.name, ancgene2sp)
 
         insert_missing_spe(parent_ancestor, ancestor, genename, parent_genename,
                            parent_node, node, diclinks, ages)
@@ -193,7 +204,7 @@ def suffix_list(parent, child):
     return suffixes
 
 
-def insert_species_nodes_back(tree, diclinks, ages=None,
+def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None, fix_suffix=True,
                               ensembl_version=ENSEMBL_VERSION):
     print_if_verbose("* Insert missing nodes:")
     ### Insert childs *while* iterating.
@@ -205,7 +216,7 @@ def insert_species_nodes_back(tree, diclinks, ages=None,
         # so you will iterate over your inserted children otherwise.
         node_children = copy(node.children)
         if node_children:
-            parent_sp, parent_gn = split_species_gene(node.name)
+            parent_sp, parent_gn = split_species_gene(node.name, ancgene2sp)
             child_sp = []
             child_gn = []
             for child in node_children:
@@ -214,7 +225,7 @@ def insert_species_nodes_back(tree, diclinks, ages=None,
                     ancestor = convert_gene2species(child.name, ensembl_version)
                     genename = child.name
                 else:
-                    ancestor, genename = split_species_gene(child.name)
+                    ancestor, genename = split_species_gene(child.name, ancgene2sp)
                 child_sp.append(ancestor)
                 child_gn.append(genename)
 
@@ -236,13 +247,15 @@ def insert_species_nodes_back(tree, diclinks, ages=None,
                 ###       HOWEVER this will potentially mess the new_dists
                 added_suffixes = [suffix_list(parent_gn, gn) for gn in child_gn]
                 added_suffixes = [suf[0].lstrip('.') if suf else None for suf in added_suffixes]
+                
+                ### TODO: put this section into a `fix_suffix` function.
                 suff_count = 1 #len(set((suf for suf in added_suffixes if suf)))
                 for i, (child, ancestor, genename, suf) in \
                         enumerate(zip(node_children, child_sp, child_gn,
                                         added_suffixes)):
                     if ancestor != parent_sp:
                         # append proper suffix if there isn't one.
-                        if not suf:
+                        if not suf and fix_suffix:
                             suf = chr(96+suff_count)
                             while suf in added_suffixes:
                                 suff_count += 1
@@ -313,9 +326,9 @@ def with_dup(leafnames):
     return (len(leafspecies) > len(set(leafspecies)))
 
 
-def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
-                  ages=None, ensembl_version=ENSEMBL_VERSION, outdir='.',
-                  only_dup=False, one_leaf=False, dry_run=False):
+def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
+        diclinks, ages=None, fix_suffix=True, ensembl_version=ENSEMBL_VERSION,
+        outdir='.', only_dup=False, one_leaf=False, dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
     outfiles_set = set() # check whether I write twice to the same outfile
     try:
@@ -323,7 +336,8 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
     except ete3.parser.newick.NewickError as err:
         err.args += ('ERROR with treefile %r' % treefile,)
         raise
-    insert_species_nodes_back(tree, diclinks, ages, ensembl_version)
+    insert_species_nodes_back(tree, ancgene2sp, diclinks, ages, fix_suffix,
+                              ensembl_version)
     print_if_verbose("* Searching for ancestors:")
     for ancestor, ancestorlist in ancestorlists.items():
         print_if_verbose(ancestor)
@@ -335,6 +349,8 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, diclinks,
             if len(leafnames) > 1 or one_leaf:
                 # check that there is at least one duplication
                 if not only_dup or with_dup(leafnames):
+                    ### TODO: when you *know* there can be duplicated node
+                    ###       names, use a custom unique id for each node.
                     outname = ancestor_regex.sub(ancestor, node.name)
                     #outname = re.sub('^[A-Za-z_.-]+(?=ENSGT)', node.name, ancestor)
                     #print_if_verbose(('generate outname:\n'
@@ -378,10 +394,12 @@ def save_subtrees_process(params):
 
 
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
-                           only_dup=False, one_leaf=False, dry_run=False,
-                           ignore_errors=False):
+                           only_dup=False, one_leaf=False, fix_suffix=True,
+                           dry_run=False, ignore_errors=False):
     ### WARNING: uses global variables here, that are changed by command line
     phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ENSEMBL_VERSION))
+    ancgene2sp = re.compile(r'(' + r'|'.join(phyltree.allNames).replace(' ','\.')
+                            + r')(.*)$')
     ancestorlists = {}
     ancestor_regexes = {}
     for anc_lowercase in ancestors:
@@ -389,7 +407,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
         ancestorlist = sorted(phyltree.allDescendants[ancestor],
                               key=lambda anc: -phyltree.ages[anc])
         ancestorlists[anc_lowercase] = ancestorlist
-        ancestor_regexes[anc_lowercase] = re.compile('^(%s)(?=ENSGT)' % \
+        ancestor_regexes[anc_lowercase] = re.compile('^(%s)(?=ENS)' % \
                                     '|'.join(ancestorlist).replace(' ', '.'))
 
     diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
@@ -397,8 +415,10 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
     generate_args = [[treefile,
                       ancestorlists,
                       ancestor_regexes,
+                      ancgene2sp,
                       diclinks,
                       ages,
+                      fix_suffix,
                       ENSEMBL_VERSION,
                       outdir.format(os.path.splitext(os.path.basename(treefile))[0]),
                       only_dup,
@@ -444,6 +464,11 @@ if __name__ == '__main__':
                         "in LibsDyogen PhylTree format. Can contain the string"\
                         " '{0}' which will be replaced by the Ensembl version"\
                         " [%(default)s]")
+    #parser.add_argument("-a", "--ancgene-start", default="ENSGT", help="start"\
+    #                    "of ancgenes (regex) [%(default)s]")
+    parser.add_argument("--nofix-suffix", action="store_false",
+                        dest="fix_suffix", help="disable attempt to fix gene "\
+                        "suffixes (when adding back duplicated nodes)")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="only print out the output files it would produce")
     parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
@@ -456,6 +481,8 @@ if __name__ == '__main__':
 
     PHYLTREE_FMT = dargs.pop("phyltree_fmt")
     ENSEMBL_VERSION = dargs.pop("ensembl_version")
+    #ANCGENE_START = dargs.pop("ancgene_start")
+    #ANCGENE2SP = re.compile(ANCGENE2SP_PATTERN % ANCGENE_START)
 
     if not dargs.pop("verbose"):
         # mute the custom print function
