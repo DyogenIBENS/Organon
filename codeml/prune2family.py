@@ -342,7 +342,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     for ancestor, ancestorlist in ancestorlists.items():
         print_if_verbose(ancestor)
         ancestor_regex = ancestor_regexes[ancestor]
-        for node in search_by_ancestorlist(tree, ancestorlist):
+        for ancestornodeid, node in enumerate(search_by_ancestorlist(tree, ancestorlist)):
             leafnames = node.get_leaf_names()
             #print(node.name)
             #print(node.get_ascii())
@@ -352,6 +352,8 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                     ### TODO: when you *know* there can be duplicated node
                     ###       names, use a custom unique id for each node.
                     outname = ancestor_regex.sub(ancestor, node.name)
+                    if outname == ancestor:
+                        outname += "%02d" % ancestornodeid
                     #outname = re.sub('^[A-Za-z_.-]+(?=ENSGT)', node.name, ancestor)
                     #print_if_verbose(('generate outname:\n'
                     #                  'regex: %r\n'
@@ -407,7 +409,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
         ancestorlist = sorted(phyltree.allDescendants[ancestor],
                               key=lambda anc: -phyltree.ages[anc])
         ancestorlists[anc_lowercase] = ancestorlist
-        ancestor_regexes[anc_lowercase] = re.compile('^(%s)(?=ENS)' % \
+        ancestor_regexes[anc_lowercase] = re.compile('^(%s)(.*)' % \
                                     '|'.join(ancestorlist).replace(' ', '.'))
 
     diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
