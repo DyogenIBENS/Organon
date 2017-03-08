@@ -169,12 +169,21 @@ class GenetreeDrawer(object):
     phyltreefile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
                    "PhylTree.Ensembl.{0}.conf"
     
-    def __init__(self, phyltreefile=None, ensembl_version=None):
+    def __init__(self, phyltreefile=None, ensembl_version=None,
+                 colorize_clades=None):
         if ensembl_version: self.ensembl_version = ensembl_version
         if phyltreefile: self.phyltreefile = phyltreefile
 
         self.phyltree = PhylTree.PhylogeneticTree(self.phyltreefile.format(
                                                         self.ensembl_version))
+        
+        self.colorize_species  = {}
+        if colorize_clades is not None:
+            cmap = plt.get_cmap('Set3', len(colorize_clades))
+            for i, clade in enumerate(colorize_clades):
+                self.colorize_species.update(**{sp: cmap(i) for sp in 
+                                                self.phyltree.species[clade]})
+
         self.ancgene2sp = re.compile(r'('
                         + r'|'.join(list(self.phyltree.listSpecies) +
                                     list(self.phyltree.listAncestr)).replace(' ','\.')
@@ -214,7 +223,8 @@ class GenetreeDrawer(object):
 
 
 
-    def draw_species_tree(self, figsize=None, angle_style=0, branch_width=0.8):
+    def draw_species_tree(self, figsize=None, angle_style=0, branch_width=0.8,
+                          colorize_clades = None):
         """Init figure + draw branches of the species tree.
         
         branch_width: proportion of vertical space between two branches taken
@@ -249,8 +259,17 @@ class GenetreeDrawer(object):
                                           edgecolor='#e5e5e5'))
             ha = 'center' if cx < 0 else 'left'
             va = 'bottom' if cx < 0 else 'top'
+            if cx == 0:
+                cx += 0.1 # Add some padding
+            # data-specific coloring (low-coverage)
+            alpha = 1
+            if child in self.phyltree.lstEsp6X: alpha = 0.6
+            if child in self.phyltree.lstEsp2X: alpha = 0.3
+
+            bgcolor = self.colorize_species.get(child, '#ffffff00')
             ax0.text(cx, cy, child, ha=ha, va=va, fontsize='x-small',
-                     fontstyle='italic', family='serif')
+                     fontstyle='italic', family='serif', alpha=alpha,
+                     backgroundcolor=bgcolor)
 
         # include root.
         self.species_coords[parent] = (px, py)
@@ -483,9 +502,11 @@ def prepare(genetrees, ensembl_version=ENSEMBL_VERSION):
 TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.b.a.b.b.a.b.c.a.a.a.nwk"
 
 
-def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION):
+def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
+        colorize_clades=None):
     figsize = None
-    gd = GenetreeDrawer(ensembl_version=ensembl_version)
+    gd = GenetreeDrawer(ensembl_version=ensembl_version,
+                        colorize_clades=colorize_clades)
     if outfile != '-':
         pdf = PdfPages(outfile)
         figsize = (8.2, 11.7)
@@ -520,8 +541,9 @@ if __name__ == '__main__':
                               "1: branches always at 45 degrees\n"
                               "2: parent node positioned at x-1 but branch "
                               "angles are equal"))
-    #parser.add_argument('-r', '--ancgene-regex', default='ENS', help='start ' \
-    #                    'pattern of the ancgene name in the node name.')
+    parser.add_argument('-c', '--colorize-clade', action='append',
+                        dest='colorize_clades',
+                        help='species in these clades will have a specific color')
     args = parser.parse_args()
     dictargs = vars(args)
     if not dictargs.get('genetrees'):
