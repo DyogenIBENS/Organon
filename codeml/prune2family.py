@@ -53,9 +53,13 @@ def print_if_verbose(*args, **kwargs):
 
 def split_species_gene(nodename, ancgene2sp):
     match = ancgene2sp.match(nodename)
-    assert match
-    taxon, genename = match.groups()
-    return taxon.replace('.', ' '), genename
+    try:
+        taxon, genename = match.groups()
+        taxon = taxon.replace('.', ' ')
+    except AttributeError:
+        taxon = None
+        genename = nodename
+    return taxon, genename
 
 
 def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
@@ -217,6 +221,14 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None, fix_suffix=
         node_children = copy(node.children)
         if node_children:
             parent_sp, parent_gn = split_species_gene(node.name, ancgene2sp)
+            ### Delete this node if species is not recognized
+            if parent_sp is None:
+                print("WARNING: taxon not found in %r. Deleting node." %
+                            parent_gn, file=sys.stderr)
+                node.delete(prevent_nondicotomic=False,
+                            preserve_branch_length=True)
+                continue
+
             child_sp = []
             child_gn = []
             for child in node_children:
@@ -224,6 +236,14 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None, fix_suffix=
                 if child.is_leaf():
                     ancestor = convert_gene2species(child.name, ensembl_version)
                     genename = child.name
+                    if ancestor not in diclinks:
+                        print("WARNING: taxon %r absent from phylogeny. "
+                              "Deleting node %r." % (ancestor, genename),
+                              file=sys.stderr)
+                        node_children.remove(child)
+                        child.delete(prevent_nondicotomic=False,
+                                     preserve_branch_length=True)
+                        continue
                 else:
                     ancestor, genename = split_species_gene(child.name, ancgene2sp)
                 child_sp.append(ancestor)
