@@ -15,6 +15,7 @@ ARGUMENTS:
 """
 
 import sys
+import os
 import os.path
 import re
 import argparse
@@ -472,28 +473,74 @@ class GenetreeDrawer(object):
         self.draw_gene_tree(extratitle)
 
 
-def prepare(genetrees, ensembl_version=ENSEMBL_VERSION):
-    """extract and compute the reconciled genetrees, starting from genomicus data"""
+def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
+            edited=True, subtrees_dir='subtrees_'):
+    """
+    Prepare genetree files (if needed) starting from raw Genomicus/Ensembl data:
+      1. find them in the tree forest;
+      2. reconcile them with the species tree;
+      3. extract the subtrees starting at a given ancestor.
+    """
+    # 1. Find ancgene name from modern gene?
+    # 2. Find the orthologs/ancestors in the given ancestors
+
     datadir = '/users/ldog/glouvel/ws2/DUPLI_data%d/alignments' % ensembl_version
     assert os.path.exists(datadir)
 
-    treeforestfile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data%d/" \
-                     "GoodThreshold/tree.4F.cut.bz2" % ensembl_version
+    if edited:
+        # Take gene tree from Genomicus
+        treeforestfile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data%d/"\
+                         "GoodThreshold/tree.4F.cut.bz2" % ensembl_version
+        withAncGenesNames = True
+        field = 'family_name'
+        output = os.path.join(datadir, '{genetree}', '{genetree}.nwk')
+        fix_suffix = True
+    else:
+        # Take gene tree from Ensembl
+        treeforestfile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data%d/"\
+                         "tree.1.ensembl.bz2" % ensembl_version
+        withAncGenesNames = False
+        field = 'tree_name'
+        output = os.path.join(datadir, '{genetree}', '{genetree}_ensembl.nwk')
+        fix_suffix = False
 
-    #if len(genetrees) == 1:
-    #    genetree, = genetrees
-    #    import ToolsDyogen.treeTools.ALL.extractOneGeneTree as xOne
-    #    filtertest = xOne.def_filtertest(genetree, field='family_name')
-    #    ### TODO: output not to stdout !!!
-    #    xOne.search(filtertest, treeforestfile, toNewick=True,
-    #                withAncSpeciesNames=True)
-    #else:
+    all_outputs = [output.format(genetree=gt) for gt in genetrees]
+    new_genetrees = [gt for gt in genetrees if not os.path.exists(output.format(genetree=gt))]
+    new_outputs = [output.format(genetree=gt) for gt in new_genetrees]
+    print("The following genetrees are already extracted: %s" %
+            (set(all_outputs) - set(new_outputs),), file=sys.stderr)
+    
+    # Extract genetrees
+    if new_outputs:
+        import ToolsDyogen.treeTools.ALL.extractMultipleGeneTree as xMulti
+        xMulti.main(treeforestfile, new_genetrees, toNewick=True,
+                    withAncSpeciesNames=True,
+                    withAncGenesNames=withAncGenesNames,
+                    output=output, mkdirs=True)
+    else:
+        print("No new genetrees to extract.", file=sys.stderr)
 
-    import ToolsDyogen.treeTools.ALL.extractMultipleGeneTree as xMulti
-    xMulti.main(treeforest, genetrees, toNewick=True,
-                withAncSpeciesNames=True, output='')
 
+    # Create output dirs for prune2family
+    prune_outdir = os.path.join(datadir, '{0}', subtrees_dir)
+    for gt in genetrees:
+        p_outdir = prune_outdir.format(gt)
+        print(p_outdir, end=' ')
+        if not os.path.exists(p_outdir):
+            print("make!")
+            os.mkdir(p_outdir)
+        else:
+            print("exists.")
 
+    # prune genetrees to the right ancestor
+    import codeml.prune2family as prune2family
+
+    return prune2family.parallel_save_subtrees(all_outputs, ancestors,
+                                           ncores=ncores,
+                                           outdir=prune_outdir,
+                                           only_dup=False, one_leaf=True,
+                                           fix_suffix=fix_suffix,
+                                           dry_run=False, ignore_errors=False)
 
 
 
