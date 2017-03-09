@@ -12,7 +12,7 @@ from copy import copy
 
 import ete3
 import LibsDyogen.myPhylTree as PhylTree
-from select_leaves_from_specieslist import convert_gene2species
+from codeml.select_leaves_from_specieslist import convert_gene2species
 
 
 ENSEMBL_VERSION = 85
@@ -390,36 +390,38 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                               file=sys.stderr)
                         sys.exit(1)
                     else:
+                        if dry_run:
+                            print("node %r (%s) -> %s" % (node.name, ancestor, outfile))
+                        else:
+                            print_if_verbose("Writing to %r." % outfile)
+                            node.write(format=1,
+                                       format_root_node=True,
+                                       outfile=outfile,
+                                       features=["reinserted"])
                         outfiles_set.add(outfile)
+    return list(outfiles_set)
 
-                    if dry_run:
-                        print("node %r (%s) -> %s" % (node.name, ancestor, outfile))
-                    else:
-                        print_if_verbose("Writing to %r." % outfile)
-                        node.write(format=1,
-                                   format_root_node=True,
-                                   outfile=outfile,
-                                   features=["reinserted"])
 
 def save_subtrees_process(params):
     print("* Input tree: %r" % params[0])
     ignore_errors = params.pop()
     try:
-        save_subtrees(*params)
+        outfiles = save_subtrees(*params)
     except BaseException as err:
         if ignore_errors:
             print("Ignore %r: %r" % (params[0], err), file=sys.stderr)
-            return 0
+            return 0, []
         else:
             raise
-    return 1 # return a value to let Pool.map count the number of results.
+    return 1, outfiles # return a value to let Pool.map count the number of results.
 
 
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                            only_dup=False, one_leaf=False, fix_suffix=True,
-                           dry_run=False, ignore_errors=False):
+                           dry_run=False, ignore_errors=False,
+                           ensembl_version=ENSEMBL_VERSION):
     ### WARNING: uses global variables here, that are changed by command line
-    phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ENSEMBL_VERSION))
+    phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ensembl_version))
     ancgene2sp = re.compile(r'('
                             + r'|'.join(list(phyltree.listSpecies) + 
                                         list(phyltree.listAncestr)).replace(' ','\.')
@@ -443,7 +445,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       diclinks,
                       ages,
                       fix_suffix,
-                      ENSEMBL_VERSION,
+                      ensembl_version,
                       outdir.format(os.path.splitext(os.path.basename(treefile))[0]),
                       only_dup,
                       one_leaf,
@@ -454,14 +456,18 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
     print("To process: %d input trees" % n_input)
     if ncores > 1:
         pool = mp.Pool(ncores)
-        return_values = pool.map(save_subtrees_process, generate_args)
+        outputs = pool.map(save_subtrees_process, generate_args)
+        return_values, outfiles = zip(*outputs)
         progress = sum(return_values)
     else:
         progress = 0
+        outfiles = []
         for args in generate_args:
-            progress += 1
-            save_subtrees_process(args)
+            return_value, some_outfiles = save_subtrees_process(args)
+            progress += return_value
+            outfiles.append(some_outfiles)
     print("Finished processing %d/%d input trees" % (progress, n_input))
+    return outfiles
 
 
 def parse_treefiles(treefiles_file):
@@ -504,7 +510,7 @@ if __name__ == '__main__':
     dargs = vars(args)
 
     PHYLTREE_FMT = dargs.pop("phyltree_fmt")
-    ENSEMBL_VERSION = dargs.pop("ensembl_version")
+    #ENSEMBL_VERSION = dargs.pop("ensembl_version")
     #ANCGENE_START = dargs.pop("ancgene_start")
     #ANCGENE2SP = re.compile(ANCGENE2SP_PATTERN % ANCGENE_START)
 
