@@ -336,9 +336,15 @@ class GenetreeDrawer(object):
                 else:
                     # It is a speciation
                     if taxon in children_taxa:
-                        print("WARNING: the node %r -> %s is a duplication + "
-                              "a speciation. Not truly reconciled tree." % 
-                              (node.name, [ch.name for ch in node.children]))
+                        msg = "WARNING: the node %r -> %s" % \
+                              (node.name, [ch.name for ch in node.children])
+                        if len(node.children) > 1:
+                            msg += " is a duplication + a speciation. Not " \
+                                   "truly reconciled tree."
+                        else:
+                            msg += " is a duplication/speciation with one " \
+                                   "descendant."
+                        print(msg, file=sys.stderr)
                     taxon_gene_coords.append(node.id)
 
                     node_y = len(taxon_gene_coords) - 1
