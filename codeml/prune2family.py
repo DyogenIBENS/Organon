@@ -63,7 +63,7 @@ def split_species_gene(nodename, ancgene2sp):
 
 
 def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
-                     diclinks, ages=None):
+                     diclinks, ages=None, event='spe'):
     """given two taxa and the child gene name, return each missing speciation
     node inbetween."""
     try:
@@ -117,31 +117,41 @@ def insert_nodes(new_node_names, parent, child, new_dist_ratios=None):
         new_branch_dists = [float(child.dist) * r for r in new_dist_ratios]
 
     new_node = parent
-    print_if_verbose("Inserted nodes\n  (   %s\n  -> %s):" % (new_node.name, child.name))
+    new_nodes = []
+    print_if_verbose("Inserted nodes\n (   %s\n  -> %s):" % (new_node.name, child.name))
     for new_name, new_dist in zip(new_node_names, new_branch_dists[:-1]):
         new_node = new_node.add_child(name=new_name, dist=new_dist)
         new_node.add_feature('reinserted', True)
+        new_nodes.append(new_node)
         print_if_verbose(" -", new_name)
     #print_if_verbose()
     # Move the child on top of the created intermediate links
-    new_node.add_child(child=child.detach(), dist=new_branch_dists[-1])
+    new_node = new_node.add_child(child=child.detach(), dist=new_branch_dists[-1])
+    return new_nodes
 
 
 ### TODO: write `insert_missing_dup`
 def insert_missing_spe(parent_sp, ancestor, genename, parent_genename,
-                       parent_node, child, diclinks, ages=None):
+                       parent_node, child, diclinks, ages=None, event='spe'):
+    """Insert missing speciation nodes between parent_node and child.
+    
+    If event='spe': parent_node is a speciation, 
+    else if event='dup', it is a duplication and an extra speciation node
+    must be appended."""
     new_node_names, new_branch_dists = name_missing_spe(parent_sp,
                                                         ancestor,
                                                         genename,
                                                         parent_genename,
                                                         diclinks,
-                                                        ages)
+                                                        ages,
+                                                        event=event)
     if new_node_names:
         print_if_verbose("Nodes to insert: %s" % new_node_names)
-        insert_nodes(new_node_names, parent_node, child, new_branch_dists)
+        return insert_nodes(new_node_names, parent_node, child, new_branch_dists)
         #return True
     # return false if no node was added
     #return False
+    return []
 
 
 def add_species_nodes_back(tree, diclinks, ages=None):
@@ -208,14 +218,26 @@ def suffix_list(parent, child):
     return suffixes
 
 
-def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None, fix_suffix=True,
+def get_mrca(parent_sp, children_sp, diclinks):
+    children_anc = [diclinks[parent_sp][ch_sp] for ch_sp in children_sp]
+    for next_parents in zip(*children_anc):
+        #print(parent_sp, next_parents)
+        if len(set(next_parents)) > 1:
+            break
+        else:
+            mrca = next_parents[0]
+    return mrca
+
+
+def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
+                              fix_suffix=True, force_mrca=False,
                               ensembl_version=ENSEMBL_VERSION):
     print_if_verbose("* Insert missing nodes:")
     ### Insert childs *while* iterating.
     ### Beware not to iterate on these new nodes:
     ### iterate from leaves to root ('postorder') and insert between node and child
     for node in tree.traverse('postorder'):
-        print_if_verbose(" " + node.name)
+        print_if_verbose(" * " + node.name)
         # Copying this list is CRUCIAL: children get inserted in node.children,
         # so you will iterate over your inserted children otherwise.
         node_children = copy(node.children)
@@ -224,94 +246,196 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None, fix_suffix=
             ### Delete this node if species is not recognized
             if parent_sp is None:
                 print("WARNING: taxon not found in %r. Deleting node." %
-                            parent_gn, file=sys.stderr)
+                        parent_gn, file=sys.stderr)
                 node.delete(prevent_nondicotomic=False,
                             preserve_branch_length=True)
                 continue
 
             child_sp = []
             child_gn = []
+            nodes_without_taxon = []
             for child in node_children:
                 print_if_verbose("  - child %r" % child.name)
                 if child.is_leaf():
                     ancestor = convert_gene2species(child.name, ensembl_version)
                     genename = child.name
-                    if ancestor not in diclinks:
-                        print("WARNING: taxon %r absent from phylogeny. "
-                              "Deleting node %r." % (ancestor, genename),
-                              file=sys.stderr)
-                        node_children.remove(child)
-                        child.delete(prevent_nondicotomic=False,
-                                     preserve_branch_length=True)
-                        continue
                 else:
                     ancestor, genename = split_species_gene(child.name, ancgene2sp)
-                child_sp.append(ancestor)
-                child_gn.append(genename)
+                if ancestor not in diclinks:
+                    print("WARNING: taxon %r absent from phylogeny. "
+                          "Deleting node %r." % (ancestor, genename),
+                          file=sys.stderr)
+                    nodes_without_taxon.append(child)
+                    child.delete(prevent_nondicotomic=False,
+                                 preserve_branch_length=True)
+                else:#    continue
+                    child_sp.append(ancestor)
+                    child_gn.append(genename)
 
-            test_same_species = [parent_sp == sp for sp in child_sp]
-            if all(test_same_species):
-                # duplication.
-                # check suffixes
-                event = 'dup'
-            elif not any(test_same_species):
-                # speciation
-                # check suffixes
-                event = 'spe'
-            else:
-                print_if_verbose("implicit dup+spe")
-                # there is a dup + a spe. Need to add nodes
-                ### TODO: check this missing node **before** this node:
-                ###       if node_taxon != parent_taxon and \
-                ###           sisternode_taxon == parent_taxon
-                ###       HOWEVER this will potentially mess the new_dists
-                added_suffixes = [suffix_list(parent_gn, gn) for gn in child_gn]
-                added_suffixes = [suf[0].lstrip('.') if suf else None for suf in added_suffixes]
-                
-                ### TODO: put this section into a `fix_suffix` function.
-                suff_count = 1 #len(set((suf for suf in added_suffixes if suf)))
-                for i, (child, ancestor, genename, suf) in \
-                        enumerate(zip(node_children, child_sp, child_gn,
-                                        added_suffixes)):
-                    if ancestor != parent_sp:
-                        # append proper suffix if there isn't one.
-                        if not suf and fix_suffix:
-                            suf = chr(96+suff_count)
-                            while suf in added_suffixes:
-                                suff_count += 1
-                                suf = chr(96+suff_count)
-                            added_suffixes.append(suf)
-                            genename = parent_gn + '.' + suf
-                            child_gn[i] = genename
-                        # Insert back the needed speciation event after.
-                        # (make this node a duplication again)
-                        spe_node_name = parent_sp + genename
-                        print_if_verbose("Inserted node (spe-dup):",
-                                         spe_node_name)
-                        # Then check the succession of ancestors
-                        new_node_names, new_branch_dists = name_missing_spe(
-                                                                parent_sp,
-                                                                ancestor,
-                                                                genename,
-                                                                genename, #because speciation
-                                                                diclinks,
-                                                                ages)
-                        new_node_names.insert(0, spe_node_name)
-                        # adjust the length of this dup-spe branch
-                        n_new_nodes = len(new_node_names)
-                        new_branch_dists = [1./(n_new_nodes+1)] + \
-                                            [r * n_new_nodes/(n_new_nodes+1) \
-                                                for r in new_branch_dists]
-                        insert_nodes(new_node_names, node, child, new_branch_dists)
-                        child_sp[i] = parent_sp
-                event = 'dup'
             
-            # MUST update node_children after the previous edit
-            node_children = copy(node.children)
+            # MUST UPDATE because the children list just changed.
+            for n_without_taxon in nodes_without_taxon:
+                node_children.remove(n_without_taxon)
+
+            # Tricky part: possible situations:
+            # tree : parent X -> children Y1, Y2 (Y3...)
+            # 1. All equal     -> duplication
+            # 2. All different -> speciation (but must check that X is the MRCA)
+            # 
+            # 3. At least one child = parent, but not all
+            #   -> a duplication (+ missing speciation)
+            # 
+            # 4. At least one pair of child is equal, but they are all
+            #    different from parent.
+            #   -> speciations after X are missing (should not happen)
+            #   + a duplication is missing.
+            #
+            # It seems like cases 2 and 4 can be grouped together (spe) as 
+            # "at least one pair of children different" -> check MRCA fits
+            #
+            # 1 and 3 can be grouped as duplication: ""
+
+            # Compare the parent with its descendants
+            compare_vertical = [parent_sp == sp for sp in child_sp]
+            # compare each pair of children (True if at least one pair)
+            compare_horizontal = len(child_sp) > len(set(child_sp))
+
+            # 1. all(compare_vertical) and all(compare_horiz)
+            # 2. not any(compare_vertical) and not any(compare_horiz)
+            # 3. any(compare_vertical) and not all(compare_vertical)
+            # 4. any(compare_horizontal) and not any(compare_vertical)
+
+            #if all(test_same_species):
+            #    # duplication.
+            #    # check suffixes
+            #    event = 'dup'
+            #elif not any(test_same_species):
+            #    # speciation
+            #    # check suffixes
+            #    event = 'spe'
+            if any(compare_vertical):
+                event = 'dup'
+            else:
+                event = 'spe'
+                # Check that parent is the MRCA
+                mrca = get_mrca(parent_sp, child_sp, diclinks)
+                if not parent_sp == mrca:
+                    # I didn't expect this to happen. Let's fix it (not raise)
+                    print("WARNING: Unexpected case: parent %r is not the "
+                          "MRCA of %s." % (parent_sp, child_sp),
+                          end=' ', file=sys.stderr)
+                    if not force_mrca:
+                        print("Ignoring.", file=sys.stderr)
+                        # Must change event to dup.
+                        event = 'dup'
+                    else:
+                        print("Setting common parent to MRCA %r." % mrca,
+                              file=sys.stderr)
+                        # Choose the length of the common branch to add according
+                        # to the closest child (shortest branch)
+                        closest_child = min(node_children, key=lambda node: node.dist)
+                        closest_i = node_children.index(closest_child)
+                        print_if_verbose('  --- closest child %r:' % closest_child.name)
+                        new_nodes = insert_missing_spe(parent_sp,
+                                            child_sp[closest_i],
+                                            child_gn[closest_i],
+                                            parent_gn,
+                                            node, closest_child,
+                                            diclinks, ages)
+                        mrca_i, mrca_node = [(i, n) for i,n in enumerate(new_nodes)
+                                                if n.name.startswith(
+                                                        mrca.replace(' ', '.'))][0]
+                        print_if_verbose('MRCA node: %r' % mrca_node)
+                        mrca_dist = sum(n.dist for n in new_nodes[1:(mrca_i+1)])
+                        for i, other_child in enumerate(node_children):
+                            print_if_verbose('  --- other child %r:' % other_child.name,
+                                             end=' ')
+                            if other_child != closest_child:
+                                print_if_verbose('re-branch to the MRCA: %s ->'
+                                                    % other_child.up.name,
+                                                 end=' ')
+                                mrca_node.add_child(child=other_child.detach(),
+                                                    dist=other_child.dist - mrca_dist)
+                                print_if_verbose(other_child.up.name)
+                                #insert_missing_spe(mrca, child_sp[i], child_gn[i],
+                                #                   parent_gn,
+                                #                   mrca_node, other_child,
+                                #                   diclinks, ages)
+                            else:
+                                print_if_verbose()
+                        print_if_verbose(node.get_ascii())
+
+                        node_children.remove(closest_child)
+                        child_sp = child_sp[:closest_i] + child_sp[(closest_i+1):]
+                        child_gn = child_gn[:closest_i] + child_gn[(closest_i+1):]
+                        node = mrca_node
+                        parent_sp = mrca
+
+                if compare_horizontal:
+                    #if all(compare_horizontal):
+                    #    raise AssertionError("Descendants are duplicates, but "
+                    #                         "the parent node species differs.")
+                    #    # Same as the previous assertion (i.e. is not MRCA)
+                    #else:
+                    raise AssertionError("Unexpected case: some but not "
+                                         "all descendants are duplicates.")
+
+            if event == 'dup':
+                if not all(compare_vertical):
+                    print_if_verbose("implicit dup+spe")
+                    # there is a dup + a spe. Need to add nodes
+                    ### TODO: check this missing node **before** this node:
+                    ###       if node_taxon != parent_taxon and \
+                    ###           sisternode_taxon == parent_taxon
+                    ###       HOWEVER this will potentially mess the new_dists
+                    added_suffixes = [suffix_list(parent_gn, gn) for gn in child_gn]
+                    added_suffixes = [suf[0].lstrip('.') if suf else None for suf in added_suffixes]
+                    
+                    ### TODO: put this section into a `fix_suffix` function.
+                    suff_count = 1 #len(set((suf for suf in added_suffixes if suf)))
+                    for i, (child, ancestor, genename, suf) in \
+                            enumerate(zip(node_children, child_sp, child_gn,
+                                            added_suffixes)):
+                        if ancestor != parent_sp:
+                            # append proper suffix if there isn't one.
+                            if not suf and fix_suffix:
+                                suf = chr(96+suff_count)
+                                while suf in added_suffixes:
+                                    suff_count += 1
+                                    suf = chr(96+suff_count)
+                                added_suffixes.append(suf)
+                                genename = parent_gn + '.' + suf
+                                child_gn[i] = genename
+                            # Insert back the needed speciation event after.
+                            # (make this node a duplication again)
+                            spe_node_name = parent_sp + genename
+                            print_if_verbose("Inserted node (spe after dup):",
+                                             spe_node_name)
+                            # Then check the succession of ancestors
+                            new_node_names, new_branch_dists = name_missing_spe(
+                                                                    parent_sp,
+                                                                    ancestor,
+                                                                    genename,
+                                                                    genename, #because speciation
+                                                                    diclinks,
+                                                                    ages)
+                            new_node_names.insert(0, spe_node_name)
+                            # adjust the length of this dup-spe branch
+                            n_new_nodes = len(new_node_names)
+                            new_branch_dists = [1./(n_new_nodes+1)] + \
+                                               [r * n_new_nodes/(n_new_nodes+1)
+                                                   for r in new_branch_dists]
+                            new_nodes = insert_nodes(new_node_names, node,
+                                                     child, new_branch_dists)
+                            # MUST update node_children after the previous edit
+                            node_children[i] = new_nodes[0]
+                            child_sp[i] = parent_sp
+            
+            #node_children = copy(node.children)
             for child, ancestor, genename in zip(node_children, child_sp, child_gn):
                 if not child.is_leaf():
                     try:
-                        assert suffixes_ok(parent_gn, genename, event)
+                        assert suffixes_ok(parent_gn, genename, event) or not fix_suffix
                     except AssertionError:
                         print("WARNING: inconsistent suffixes:\n",
                               "  - node            %r\n" % node.name,
@@ -325,7 +449,7 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None, fix_suffix=
 
                 # Nothing gets inserted if it is a duplication.
                 insert_missing_spe(parent_sp, ancestor, genename, parent_gn,
-                                   node, child, diclinks, ages)
+                                   node, child, diclinks, ages, event=event)
 
 
 def search_by_ancestorlist(tree, ancestorlist):
@@ -347,8 +471,9 @@ def with_dup(leafnames):
 
 
 def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
-        diclinks, ages=None, fix_suffix=True, ensembl_version=ENSEMBL_VERSION,
-        outdir='.', only_dup=False, one_leaf=False, dry_run=False):
+        diclinks, ages=None, fix_suffix=True, force_mrca=False,
+        ensembl_version=ENSEMBL_VERSION, outdir='.', only_dup=False,
+        one_leaf=False, dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
     outfiles_set = set() # check whether I write twice to the same outfile
     try:
@@ -357,7 +482,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
         err.args += ('ERROR with treefile %r' % treefile,)
         raise
     insert_species_nodes_back(tree, ancgene2sp, diclinks, ages, fix_suffix,
-                              ensembl_version)
+                              force_mrca, ensembl_version)
     print_if_verbose("* Searching for ancestors:")
     for ancestor, ancestorlist in ancestorlists.items():
         print_if_verbose(ancestor)
@@ -418,10 +543,14 @@ def save_subtrees_process(params):
 
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                            only_dup=False, one_leaf=False, fix_suffix=True,
-                           dry_run=False, ignore_errors=False,
+                           force_mrca=False, dry_run=False,
+                           ignore_errors=False,
                            ensembl_version=ENSEMBL_VERSION):
     ### WARNING: uses global variables here, that are changed by command line
     phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ensembl_version))
+    # Crucial point: the pattern alternatives must be sorted by age, so that
+    # you don't match an ancestor whose name is contained in its descendant name
+    # (like theria is contained in eutheria)
     ancgene2sp = re.compile(r'('
                             + r'|'.join(list(phyltree.listSpecies) + 
                                         list(phyltree.listAncestr)).replace(' ','\.')
@@ -445,6 +574,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       diclinks,
                       ages,
                       fix_suffix,
+                      force_mrca,
                       ensembl_version,
                       outdir.format(os.path.splitext(os.path.basename(treefile))[0]),
                       only_dup,
@@ -499,6 +629,9 @@ if __name__ == '__main__':
     parser.add_argument("--nofix-suffix", action="store_false",
                         dest="fix_suffix", help="disable attempt to fix gene "\
                         "suffixes (when adding back duplicated nodes)")
+    parser.add_argument("--force-mrca", action="store_true",
+                        help="If parent is not the species MRCA of its " \
+                             "children, rebranch children on the MRCA.")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="only print out the output files it would produce")
     parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
