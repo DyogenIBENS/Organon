@@ -41,6 +41,7 @@ def def_showtree(show=False):
             ns_dup = ete3.NodeStyle()
             ns_dup['fgcolor'] = 'red'
             
+            # TODO: this should be a layout function. Then change ts.layout_fn.
             for n in fulltree.traverse():
                 info = ages_dict.get(n.name, [0.0, 'leaf'])
                 n.add_feature('age', info[0])
