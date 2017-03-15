@@ -479,6 +479,15 @@ class GenetreeDrawer(object):
         self.draw_gene_tree(extratitle)
 
 
+def check_extracted(genetrees, output):
+    all_outputs = [output.format(genetree=gt) for gt in genetrees]
+    new_genetrees = [gt for gt in genetrees if not os.path.exists(output.format(genetree=gt))]
+    new_outputs = [output.format(genetree=gt) for gt in new_genetrees]
+    print("The following genetrees are already extracted: %s" %
+            (set(all_outputs) - set(new_outputs),), file=sys.stderr)
+    return all_outputs, new_outputs, new_genetrees
+
+
 def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
             edited=True, subtrees_dir='subtrees_'):
     """
@@ -510,25 +519,24 @@ def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
         output = os.path.join(datadir, '{genetree}', '{genetree}_ensembl.nwk')
         fix_suffix = False
 
-    all_outputs = [output.format(genetree=gt) for gt in genetrees]
-    new_genetrees = [gt for gt in genetrees if not os.path.exists(output.format(genetree=gt))]
-    new_outputs = [output.format(genetree=gt) for gt in new_genetrees]
-    print("The following genetrees are already extracted: %s" %
-            (set(all_outputs) - set(new_outputs),), file=sys.stderr)
+    all_outputs, new_outputs, new_genetrees = check_extracted(genetrees, output)
     
     # Extract genetrees
     if new_outputs:
         import ToolsDyogen.treeTools.ALL.extractMultipleGeneTree as xMulti
-        xMulti.main(treeforestfile, new_genetrees, toNewick=True,
+        xMulti.main(treeforestfile, new_genetrees, field=field, toNewick=True,
                     withAncSpeciesNames=True,
                     withAncGenesNames=withAncGenesNames,
                     output=output, mkdirs=True)
     else:
         print("No new genetrees to extract.", file=sys.stderr)
 
-
     # Create output dirs for prune2family
-    prune_outdir = os.path.join(datadir, '{0}', subtrees_dir)
+    gt_format = '{0}' if edited else '{0:.%d}' % len(genetrees[0])
+    #print(gt_format)
+    
+    prune_outdir = os.path.join(datadir, gt_format, subtrees_dir)
+
     for gt in genetrees:
         p_outdir = prune_outdir.format(gt)
         print(p_outdir, end=' ')
@@ -546,7 +554,8 @@ def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
                                            outdir=prune_outdir,
                                            only_dup=False, one_leaf=True,
                                            fix_suffix=fix_suffix,
-                                           dry_run=False, ignore_errors=False)
+                                           dry_run=False, ignore_errors=False,
+                                           ensembl_version=ensembl_version)
 
 
 
@@ -566,7 +575,7 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
     for genetree in genetrees:
         genetree, *extratitles = genetree.split(',')
         extratitle = ', '.join(extratitles)
-        print('INPUT FILE:', genetree)
+        print('INPUT FILE:', genetree, '(%s)' % extratitle)
         gd.draw(genetree, extratitle, angle_style=angle_style, figsize=figsize)
 
         if outfile == '-':
@@ -586,6 +595,8 @@ if __name__ == '__main__':
                         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('outfile')
     parser.add_argument('genetrees', nargs='*')
+    parser.add_argument('--fromfile', action='store_true',
+                        help='take genetree paths and description from a file')
     parser.add_argument('-e', '--ensembl-version', type=int,
                         default=ENSEMBL_VERSION)
     parser.add_argument('-a', '--angle-style', type=int, choices=[0,1,2],
@@ -601,7 +612,12 @@ if __name__ == '__main__':
     dictargs = vars(args)
     if not dictargs.get('genetrees'):
         dictargs['genetrees'] = [TESTTREE]
-
+    elif dictargs.pop('fromfile'):
+        assert len(dictargs['genetrees']) == 1
+        genetreelistfile = dictargs.pop('genetrees')[0]
+        with open(genetreelistfile) as stream:
+            dictargs['genetrees'] = [line.rstrip() for line in stream]
+            
     # TODO: add into run()
     #ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)%s' % ancgene_regex)
 
