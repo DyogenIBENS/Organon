@@ -21,8 +21,8 @@ import re
 import argparse
 import numpy as np
 import matplotlib as mpl
-#mpl.use('TkAgg')
-if __name__=='__main__': mpl.use('Qt4Agg')
+#mpl.use('Agg')
+if __name__=='__main__': mpl.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.backends.backend_pdf import PdfPages, FigureCanvas
@@ -187,7 +187,9 @@ class GenetreeDrawer(object):
 
         self.ancgene2sp = re.compile(r'('
                         + r'|'.join(list(self.phyltree.listSpecies) +
-                                    list(self.phyltree.listAncestr)).replace(' ','\.')
+                                    sorted(self.phyltree.listAncestr,
+                                           key=lambda a: len(a),
+                                           reverse=True)).replace(' ','\.')
                         + r')(.*)$')
 
     def load_reconciled_genetree(self, filename, format=1, genetreename=None):
@@ -566,12 +568,19 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 
 def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
         colorize_clades=None):
+    #global plt
+
     figsize = None
     gd = GenetreeDrawer(ensembl_version=ensembl_version,
                         colorize_clades=colorize_clades)
     if outfile != '-':
         pdf = PdfPages(outfile)
         figsize = (8.2, 11.7)
+    elif __name__=='__main__':
+        plt.switch_backend('Qt4Agg')
+        #mpl.use('Qt4Agg')
+        #from importlib import reload; reload(plt)
+
     for genetree in genetrees:
         genetree, *extratitles = genetree.split(',')
         extratitle = ', '.join(extratitles)

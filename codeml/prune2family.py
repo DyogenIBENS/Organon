@@ -553,7 +553,9 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
     # (like theria is contained in eutheria)
     ancgene2sp = re.compile(r'('
                             + r'|'.join(list(phyltree.listSpecies) + 
-                                        list(phyltree.listAncestr)).replace(' ','\.')
+                                        sorted(phyltree.listAncestr,
+                                               key=lambda a:len(a),
+                                               reverse=True).replace(' ','\.')
                             + r')(.*)$')
     ancestorlists = {}
     ancestor_regexes = {}
