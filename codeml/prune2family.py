@@ -555,7 +555,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                             + r'|'.join(list(phyltree.listSpecies) + 
                                         sorted(phyltree.listAncestr,
                                                key=lambda a:len(a),
-                                               reverse=True).replace(' ','\.')
+                                               reverse=True)).replace(' ','\.')
                             + r')(.*)$')
     ancestorlists = {}
     ancestor_regexes = {}
