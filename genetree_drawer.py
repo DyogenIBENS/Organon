@@ -491,7 +491,7 @@ def check_extracted(genetrees, output):
 
 
 def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
-            edited=True, subtrees_dir='subtrees_'):
+            edited=True, subtrees_dir='subtrees_', dry_run=False):
     """
     Prepare genetree files (if needed) starting from raw Genomicus/Ensembl data:
       1. find them in the tree forest;
@@ -556,7 +556,7 @@ def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
                                            outdir=prune_outdir,
                                            only_dup=False, one_leaf=True,
                                            fix_suffix=fix_suffix,
-                                           dry_run=False, ignore_errors=False,
+                                           dry_run=dry_run, ignore_errors=False,
                                            ensembl_version=ensembl_version)
 
 
