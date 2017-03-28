@@ -89,6 +89,7 @@ def get_ctl_ancestor_pre(wildcards):
 	todo = len(r)
 	print("To include: %d ; already done: %d files." % (todo, count-todo),
 			file=sys.stderr)
+	print("\n".join(r[:5] + ['...']), file=sys.stderr)
 	return r
 
 def get_ctl_ancestor(wildcards):
@@ -222,7 +223,7 @@ rule condor_descript:
 		' {output}'
 		' /users/ldog/glouvel/scripts/codeml/run_codeml_separatedir.sh'
 		' -a {params.ctl}'
-		' -cl \'glouvel:34\''
+		' -cl \'glouvel:125\''
 		' -m 1G'
 
 # Check that all the .ctl corresponding to the .nwk have been produced.
@@ -256,7 +257,7 @@ rule condor_descript_all:
 		' {output}'
 		' /users/ldog/glouvel/scripts/codeml/run_codeml_separatedir.sh'
 		' --fromfile {input}'
-		' -cl \'glouvel:34\''
+		' -cl \'glouvel:125\''
 		' -m "1G"'
 		' -ni True'
 
