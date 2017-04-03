@@ -755,7 +755,7 @@ if __name__=='__main__':
     phyltree = PhylTree.PhylogeneticTree("/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data85/PhylTree.Ensembl.85.conf")
     
     with Out(outfile, 'w') as out:
-        opened_outfile.write('\t'.join(['name'] +
+        out.write('\t'.join(['name'] +
                                        ['age_'+m for m in args.measures] +
                                        ['type'])
                              + '\n')
