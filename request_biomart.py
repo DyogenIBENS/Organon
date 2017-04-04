@@ -59,12 +59,15 @@ def query_fromargs(outfile='-', ensembl_version=None, formatter='TSV', header=0,
 def do_query(query, outfile='-', ensembl_version=None):
     url = ARCHIVES.get(ensembl_version, URL) + FORM + query
     response = requests.get(url)
+    response.raise_for_status()
     
-    out = sys.stdout if outfile == '-' else open(outfile, 'w')
-
-    out.write(response.text)
-
-    if outfile == '-': out.close()
+    if response.text:
+        out = sys.stdout if outfile == '-' else open(outfile, 'w')
+        out.write(response.text)
+        if outfile == '-': out.close()
+    else:
+        print("No content. Status code: %d" % response.status_code,
+              file=sys.stderr)
 
 
 def main(**kwargs):
@@ -86,8 +89,8 @@ if __name__=='__main__':
     parser.add_argument('-o', '--outfile', default='-')
     parser.add_argument('-e', '--ensembl-version')
     parser.add_argument('-F', '--formatter', choices=['TSV', 'FASTA'], default='TSV')
-    parser.add_argument('-H', '--header', choices=[0, 1], default=0)
-    parser.add_argument('-u', '--uniqueRows', choices=[0, 1], default=0)
+    parser.add_argument('-H', '--header', type=int, choices=[0, 1], default=0)
+    parser.add_argument('-u', '--uniqueRows', type=int, choices=[0, 1], default=0)
     parser.add_argument('-c', '--count', default='')
     parser.add_argument('-d', '--dataset', default='hsapiens_gene_ensembl')
     parser.add_argument('-f', '--filters', action='append',
