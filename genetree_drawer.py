@@ -25,6 +25,7 @@ import matplotlib as mpl
 if __name__=='__main__': mpl.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.lines as lines
 from matplotlib.backends.backend_pdf import PdfPages, FigureCanvas
 import ete3
 
@@ -62,6 +63,15 @@ mpl.rcParams['savefig.frameon'] = False  #background frame transparent
 #mpl.rcParams['savefig.transparent'] = True # all background transparent
                                             # (including ggplot2 style)
 #mpl.style.use('ggplot')
+def get_common_name(phyltree, latin_name):
+    """Get the common species name from the latin one"""
+    for name in phyltree.commonNames[latin_name]:
+        if name != latin_name and \
+                not isinstance(name, int) and \
+                not '_' in name:
+            return name
+    return None
+
 
 def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
     """from a gene name in my newick gene trees, find the taxon:
@@ -178,10 +188,23 @@ class GenetreeDrawer(object):
         self.phyltree = PhylTree.PhylogeneticTree(self.phyltreefile.format(
                                                         self.ensembl_version))
         
+        # add legend elements for coverage information
+        self.legend_coverage = []
+        self.legend_coverage.append(lines.Line2D([], [], alpha=1,
+                                    linestyle=' ', label='high coverage'))
+        self.legend_coverage.append(lines.Line2D([], [], alpha=0.6,
+                                    linestyle=' ', label='6X coverage'))
+        self.legend_coverage.append(lines.Line2D([], [], alpha=0.3,
+                                    linestyle=' ', label='2X coverage'))
+
+        # add legend elements for the clade information
         self.colorize_species  = {}
+        self.legend_clades = []
         if colorize_clades is not None:
             cmap = plt.get_cmap('Set3', len(colorize_clades))
             for i, clade in enumerate(colorize_clades):
+                self.legend_clades.append(patches.Patch(color=cmap(i),
+                                                         label=clade))
                 self.colorize_species.update(**{sp: cmap(i) for sp in 
                                                 self.phyltree.species[clade]})
 
@@ -270,6 +293,11 @@ class GenetreeDrawer(object):
             if child in self.phyltree.lstEsp2X: alpha = 0.3
 
             bgcolor = self.colorize_species.get(child, '#ffffff00')
+
+            if cx >= 0:
+                # It is a species, add the common name
+                child += ', %s' % get_common_name(self.phyltree, child)
+
             ax0.text(cx, cy, child, ha=ha, va=va, fontsize='x-small',
                      fontstyle='italic', family='serif', alpha=alpha,
                      backgroundcolor=bgcolor)
@@ -279,6 +307,28 @@ class GenetreeDrawer(object):
         ax0.text(px, py, parent, ha='right', fontsize='x-small',
                  fontstyle='italic', family='serif')
         
+        # Add legend in case of colorized_clades
+        legend_cov = ax0.legend(handles=self.legend_coverage,
+                                loc="upper left",
+                                bbox_to_anchor=(0, 1),
+                                title="Sequencing coverage",
+                                prop={'size': 'x-small', 'family': 'serif', 'style': 'italic'},
+                                handlelength=0,
+                                facecolor='inherit')
+        for label, line in zip(legend_cov.get_texts(), legend_cov.get_lines()):
+            label.set_alpha(line.get_alpha())
+            #label.set_style('italic')
+            #label.set_family('serif')
+
+        if self.legend_clades:
+            ax0.legend(handles=self.legend_clades,
+                       loc="upper left",
+                       bbox_to_anchor=(0, 0.9),
+                       title="Clades",
+                       prop={'size': 'x-small', 'family': 'serif', 'style': 'italic'},
+                       facecolor='inherit')
+            ax0.add_artist(legend_cov)
+
         ax0.set_xlim(px, 1)
         ax0.set_ylim(ymin - 1, 1)
         self.ax0 = ax0
@@ -617,6 +667,8 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--colorize-clade', action='append',
                         dest='colorize_clades',
                         help='species in these clades will have a specific color')
+    #parser.add_argument('-m', '--multiple-pdfs', action='store_true',
+    #                    help='output one pdf file per genetree. [NOT implemented]')
     args = parser.parse_args()
     dictargs = vars(args)
     if not dictargs.get('genetrees'):
@@ -625,7 +677,8 @@ if __name__ == '__main__':
         assert len(dictargs['genetrees']) == 1
         genetreelistfile = dictargs.pop('genetrees')[0]
         with open(genetreelistfile) as stream:
-            dictargs['genetrees'] = [line.rstrip() for line in stream]
+            dictargs['genetrees'] = [line.rstrip() for line in stream
+                                        if not line.startswith('#')]
             
     # TODO: add into run()
     #ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)%s' % ancgene_regex)
