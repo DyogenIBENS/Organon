@@ -452,9 +452,24 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                                    node, child, diclinks, ages, event=event)
 
 
-def search_by_ancestorlist(tree, ancestorlist):
-    def stop_at_any_ancestor(node):
-        return any(node.name.startswith(anc) for anc in ancestorlist)
+def search_by_ancestorlist(tree, ancestorlist, latest_ancestor=False):
+    """Return an iterator over all basal nodes belonging to an ancestor in 
+    ancestorlist. If `latest_ancestor` is True, return the most recent nodes
+    belonging to one of these ancestors."""
+    if not latest_ancestor:
+        def stop_at_any_ancestor(node):
+            return any(node.name.startswith(anc) for anc in ancestorlist)
+    else:
+        def stop_at_any_ancestor(node):
+            match_anc = [anc for anc in ancestorlist if node.name.startswith(anc)]
+            if match_anc:
+                anc = match_anc[0]
+                # test for any
+                return node.is_leaf() or \
+                       not all(ch.name.startswith(anc) for ch in node.children)
+            else:
+                return False
+    
     return tree.iter_leaves(is_leaf_fn=stop_at_any_ancestor)
 
 
@@ -472,8 +487,8 @@ def with_dup(leafnames):
 
 def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
         diclinks, ages=None, fix_suffix=True, force_mrca=False,
-        ensembl_version=ENSEMBL_VERSION, outdir='.', only_dup=False,
-        one_leaf=False, dry_run=False):
+        latest_ancestor=False, ensembl_version=ENSEMBL_VERSION, outdir='.',
+        only_dup=False, one_leaf=False, dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
     outfiles_set = set() # check whether I write twice to the same outfile
     try:
@@ -487,7 +502,8 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     for ancestor, ancestorlist in ancestorlists.items():
         print_if_verbose(ancestor)
         ancestor_regex = ancestor_regexes[ancestor]
-        for ancestornodeid, node in enumerate(search_by_ancestorlist(tree, ancestorlist)):
+        for ancestornodeid, node in enumerate(search_by_ancestorlist(tree, ancestorlist, 
+                                                        latest_ancestor)):
             leafnames = node.get_leaf_names()
             #print(node.name)
             #print(node.get_ascii())
@@ -543,8 +559,8 @@ def save_subtrees_process(params):
 
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                            only_dup=False, one_leaf=False, fix_suffix=True,
-                           force_mrca=False, dry_run=False,
-                           ignore_errors=False,
+                           force_mrca=False, latest_ancestor=False,
+                           dry_run=False, ignore_errors=False,
                            ensembl_version=ENSEMBL_VERSION):
     ### WARNING: uses global variables here, that are changed by command line
     phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ensembl_version))
@@ -577,6 +593,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       ages,
                       fix_suffix,
                       force_mrca,
+                      latest_ancestor,
                       ensembl_version,
                       outdir.format(os.path.splitext(os.path.basename(treefile))[0]),
                       only_dup,
@@ -634,6 +651,12 @@ if __name__ == '__main__':
     parser.add_argument("--force-mrca", action="store_true",
                         help="If parent is not the species MRCA of its " \
                              "children, rebranch children on the MRCA.")
+    parser.add_argument("-l", "--latest-ancestor", "--latest",
+                        action="store_true",
+                        help="When an ancestor has multiple paralogs of the " \
+                        "gene, output one tree per paralog and root each tree"\
+                        " at the latest gene, (instead of rooting at the " \
+                        "ancestral gene)")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="only print out the output files it would produce")
     parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
