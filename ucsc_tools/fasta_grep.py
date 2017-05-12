@@ -43,6 +43,7 @@ class getPattern(argparse.Action):
     """Action class for the command-line parser: read the pattern from
     a file."""
     def __call__(self, parser, namespace, values, option_string=None):
+        #print(namespace)
         if namespace.file:
             delattr(namespace, 'file')
             filename = values
@@ -53,7 +54,6 @@ class getPattern(argparse.Action):
             pattern = values
             
         setattr(namespace, self.dest, pattern)
-        print(namespace)
 
 
 #class patternFromCLI(argparse.Action):
@@ -67,8 +67,8 @@ class getPattern(argparse.Action):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('pattern', 
-                        action=getPattern)
+    #pattern_parser = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument('pattern', nargs='?', action=getPattern)
     parser.add_argument('-f', '--file', action='store_true',
                         help='Obtain pattern from file (one per line)')
     parser.add_argument('fastafile')
