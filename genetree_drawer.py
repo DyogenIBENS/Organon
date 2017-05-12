@@ -181,9 +181,11 @@ class GenetreeDrawer(object):
                    "PhylTree.Ensembl.{0}.conf"
     
     def __init__(self, phyltreefile=None, ensembl_version=None,
-                 colorize_clades=None):
+                 colorize_clades=None, commonname=False, latinname=False):
         if ensembl_version: self.ensembl_version = ensembl_version
         if phyltreefile: self.phyltreefile = phyltreefile
+        self.commonname = commonname
+        self.latinname = latinname
 
         self.phyltree = PhylTree.PhylogeneticTree(self.phyltreefile.format(
                                                         self.ensembl_version))
@@ -296,7 +298,12 @@ class GenetreeDrawer(object):
 
             if cx >= 0:
                 # It is a species, add the common name
-                child += ', %s' % get_common_name(self.phyltree, child)
+                if not self.latinname:
+                    common_name = get_common_name(self.phyltree, child)
+                    if self.commonname:
+                        child = common_name
+                    else:
+                        child += ', %s' % common_name
 
             ax0.text(cx, cy, child, ha=ha, va=va, fontsize='x-small',
                      fontstyle='italic', family='serif', alpha=alpha,
@@ -617,12 +624,14 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 
 
 def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
-        colorize_clades=None):
+        colorize_clades=None, commonname=False, latinname=False):
     #global plt
 
     figsize = None
     gd = GenetreeDrawer(ensembl_version=ensembl_version,
-                        colorize_clades=colorize_clades)
+                        colorize_clades=colorize_clades,
+                        commonname=commonname,
+                        latinname=latinname)
     if outfile != '-':
         pdf = PdfPages(outfile)
         figsize = (8.2, 11.7)
@@ -664,6 +673,11 @@ if __name__ == '__main__':
                               "1: branches always at 45 degrees\n"
                               "2: parent node positioned at x-1 but branch "
                               "angles are equal"))
+    parser.add_argument('--commonname', action='store_true', 
+                        help='Species common names only')
+    parser.add_argument('--latinname', action='store_true', 
+                        help='Species scientific names only')
+    
     parser.add_argument('-c', '--colorize-clade', action='append',
                         dest='colorize_clades',
                         help='species in these clades will have a specific color')
