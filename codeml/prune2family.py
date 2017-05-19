@@ -558,9 +558,10 @@ def save_subtrees_process(params):
 
 
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
-                           only_dup=False, one_leaf=False, fix_suffix=True,
-                           force_mrca=False, latest_ancestor=False,
-                           dry_run=False, ignore_errors=False,
+                           outsub=None, only_dup=False, one_leaf=False,
+                           fix_suffix=True, force_mrca=False,
+                           latest_ancestor=False, dry_run=False,
+                           ignore_errors=False,
                            ensembl_version=ENSEMBL_VERSION):
     ### WARNING: uses global variables here, that are changed by command line
     phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ensembl_version))
@@ -585,6 +586,15 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
 
     diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
     ages = phyltree.ages.common_names_mapper_2_dict()
+
+    if outsub:
+        def format_outdir(treefile):
+            return outdir.format(''.join(os.path.basename(treefile).split(outsub)[:-1]))
+
+    else:
+        def format_outdir(treefile):
+            return outdir.format(os.path.splitext(os.path.basename(treefile))[0])
+
     generate_args = [[treefile,
                       ancestorlists,
                       ancestor_regexes,
@@ -595,7 +605,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       force_mrca,
                       latest_ancestor,
                       ensembl_version,
-                      outdir.format(os.path.splitext(os.path.basename(treefile))[0]),
+                      format_outdir(treefile),
                       only_dup,
                       one_leaf,
                       dry_run,
@@ -631,6 +641,9 @@ if __name__ == '__main__':
     parser.add_argument("--fromfile", action="store_true", help="read treefile"\
                         " names from the first argument")
     parser.add_argument("-o", "--outdir", default='./{0}', help="[%(default)s]")
+    parser.add_argument("-s", "--outsub", help="alternative splitting " \
+                        "character to remove the extension from the basename "\
+                        "of the treefile (used by '{0}' in --outdir).")
     parser.add_argument("--only-dup", action="store_true",
                         help="do not extract trees that don't have at least "\
                              "one duplication")
