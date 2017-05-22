@@ -28,6 +28,7 @@ GENETREES = config.setdefault('genetrees', ['ENSGT00850000133333'])
 #                               'Strepsirrhini',
 #                               'Xenarthra'])
 # in get_subtrees_ancestor_pre, do you want to include files where a .mlc exists?
+
 SUBTREEDIR = config.setdefault('subtreedir', 'subtrees')
 BASE_CTL = config.setdefault('base_ctl', 'base0.ctl')
 REDO = config.setdefault('redo', False)
@@ -47,9 +48,10 @@ def get_ctl_pre(wildcards):
 	return [f.replace('.nwk', '.ctl') for f in get_subtrees(wildcards)]
 
 def get_subtrees_ancestor(wildcards):
-	patterns = ['{0}/{1}/{ancestor}{0}*.nwk'.format(genetree, SUBTREEDIR, \
-													**vars(wildcards)) \
-				for genetree in GENETREES]
+	mainpattern = '{{0}}/{0}/{ancestor}{{0}}*.nwk'.format(SUBTREEDIR,
+													  **vars(wildcards))
+	print("Search on pattern: %r" % mainpattern, file=sys.stderr)
+	patterns = [mainpattern.format(genetree) for genetree in GENETREES]
 	#discarded = 0
 	#discarded_codeml = 0
 	#total_genetrees = len(GENETREES)
