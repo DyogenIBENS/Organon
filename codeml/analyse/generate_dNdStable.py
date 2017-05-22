@@ -68,7 +68,7 @@ def def_showtree(show=False):
             ts = ete3.TreeStyle()
             ts.show_branch_length = True
 
-            fulltree.show(tree_style=ts)
+            fulltree.show(tree_style=ts, name=fulltree.name)
     else:
         def showtree(fulltree, ages):
             pass
@@ -516,8 +516,9 @@ def bound_average_2(fulltree, phyltree, measures=['dS']):
         - D': branch length from the previous speciation to this duplication"""
     ages = []
     subtree = {} # temporary subtree while traversing from one speciation to
-    # another initial measure while passing a speciation for the first time
+    # another
     n_measures = len(measures)
+    # initial measure while passing a speciation for the first time
     measures_zeros = np.zeros(n_measures)
 
     for node in fulltree.traverse('postorder'):
