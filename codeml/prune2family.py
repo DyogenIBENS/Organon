@@ -76,7 +76,10 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
     # nodes with a single child and age 0. (introducing potential errors)
     # BUT: do not remove species (age = 0) !
     if ages:
-        links = [link for link in ancestor_lineage[1:-1] if ages[link] > 0]
+        age_parent, age_child = ages[ancestor_lineage[0]], ages[ancestor_lineage[-1]]
+        links = [link for link in ancestor_lineage[1:-1]
+                     if age_parent >= ages[link] and ages[link] >= age_child]
+        ancestor_lineage = [ancestor_lineage[0]] + links + [ancestor_lineage[-1]]
 
     # If doesn't match species tree
     # same ancestor as child is possible for duplication node
@@ -88,10 +91,19 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
 
     if ages is not None:
         new_branch_dists = []
-        total_len = ages[ancestor_lineage[-1]] - ages[ancestor_lineage[0]]
+        total_len = ages[ancestor_lineage[0]] - ages[ancestor_lineage[-1]]
         for link_parent, link in zip(ancestor_lineage[:-1],
                                      ancestor_lineage[ 1:]):
             new_dist = float(ages[link_parent] - ages[link])
+            if new_dist < 0:
+                print("INVALID AGE:\n child node : %s (%r)\n" % (genename, ancestor),
+                      "parent node: %s (%r)\n" % (parent_genename, parent_sp),
+                      "total_len: %s\n" % total_len,
+                      "new link: %s - %s\n" % (link_parent, link),
+                      "new link ages: %s - %s" % (ages[link_parent], ages[link]),
+                      file=sys.stderr)
+                raise AssertionError('Invalid Age: %s (%s)' % (link_parent,
+                                                            ages[link_parent]))
             try:
                 new_branch_dists.append(new_dist / total_len)
             except ZeroDivisionError as err:
