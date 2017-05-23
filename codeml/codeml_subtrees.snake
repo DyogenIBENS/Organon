@@ -244,7 +244,9 @@ rule condor_descript_prepare:
 			OUT.write("template\targuments\n")
 			for ctlfile in input:
 				base, _ = os.path.splitext(os.path.basename(ctlfile))
-				tmpl = 'condor_logs/%s/%s' % (wildcards.ancestor, base)
+				tmpl = 'condor_logs/%s_%s/%s' % (wildcards.ancestor,
+												 wildcards.subtreedir,
+												 base)
 				OUT.write('%s\t-q %s\n' % (tmpl, ctlfile))
 
 
