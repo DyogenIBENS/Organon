@@ -78,8 +78,10 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
     if ages:
         age_parent, age_child = ages[ancestor_lineage[0]], ages[ancestor_lineage[-1]]
         links = [link for link in ancestor_lineage[1:-1]
-                     if age_parent >= ages[link] >= age_child]
+                     if age_parent >= ages[link] >= age_child and ages[link] > 0]
         ancestor_lineage = [ancestor_lineage[0]] + links + [ancestor_lineage[-1]]
+    else:
+        links = ancestor_lineage[1:-1]
 
     # If doesn't match species tree
     # same ancestor as child is possible for duplication node
@@ -88,6 +90,10 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
     if links:
         # Alright to use parent_genename if not a duplication.
         new_node_names = [link + parent_genename for link in links]
+
+    ### TODO: refactor the part above to compute and check 'links' only once, 
+    ###       during the following loop, and to check for *each* link age 
+    ###       relatively to the previous one.
 
     if ages is not None:
         new_branch_dists = []
@@ -98,12 +104,12 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
             if new_dist < 0:
                 print("INVALID AGE:\n child node : %s (%r)\n" % (genename, ancestor),
                       "parent node: %s (%r)\n" % (parent_genename, parent_sp),
-                      "total_len: %s\n" % total_len,
+                      "total_len: %s - %s = %s\n" % (age_parent, age_child, total_len),
                       "new link: %s - %s\n" % (link_parent, link),
                       "new link ages: %s - %s" % (ages[link_parent], ages[link]),
                       file=sys.stderr)
-                raise AssertionError('Invalid Age: %s (%s)' % (link_parent,
-                                                            ages[link_parent]))
+                raise AssertionError('Tree %r: Invalid Age: %s (%s)' % \
+                            (parent_genename, link_parent, ages[link_parent]))
             try:
                 new_branch_dists.append(new_dist / total_len)
             except ZeroDivisionError as err:
