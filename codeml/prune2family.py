@@ -78,7 +78,7 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
     if ages:
         age_parent, age_child = ages[ancestor_lineage[0]], ages[ancestor_lineage[-1]]
         links = [link for link in ancestor_lineage[1:-1]
-                     if age_parent >= ages[link] and ages[link] >= age_child]
+                     if age_parent >= ages[link] >= age_child]
         ancestor_lineage = [ancestor_lineage[0]] + links + [ancestor_lineage[-1]]
 
     # If doesn't match species tree
