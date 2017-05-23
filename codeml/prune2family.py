@@ -86,12 +86,12 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
         # Alright to use parent_genename if not a duplication.
         new_node_names = [link + parent_genename for link in links]
 
-    if ages:
+    if ages is not None:
         new_branch_dists = []
         total_len = ages[ancestor_lineage[-1]] - ages[ancestor_lineage[0]]
         for link_parent, link in zip(ancestor_lineage[:-1],
                                      ancestor_lineage[ 1:]):
-            new_dist = float(ages[link] - ages[link_parent])
+            new_dist = float(ages[link_parent] - ages[link])
             try:
                 new_branch_dists.append(new_dist / total_len)
             except ZeroDivisionError as err:
@@ -219,6 +219,8 @@ def suffix_list(parent, child):
 
 
 def get_mrca(parent_sp, children_sp, diclinks):
+    """Get most recent common ancestor of all children species, given a root
+    'parent_sp'."""
     children_anc = [diclinks[parent_sp][ch_sp] for ch_sp in children_sp]
     for next_parents in zip(*children_anc):
         #print(parent_sp, next_parents)
