@@ -141,7 +141,7 @@ rule get_tree:
 # The actual starting rule
 rule list_tree_labels:
 	input: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}.nwk"
-	output: temp("{genetree}/{subtreedir}/{ancestorgenetreesuffix}_labels.txt"
+	output: temp("{genetree}/{subtreedir}/{ancestorgenetreesuffix}_labels.txt")
 	# the perl part removes the last newline of stdin. (Otherwise
 	# evosite3d/extract_sequences.py fails if there are no labels)
 	shell: "nw_labels -I '{input}' | perl -pe 'chomp if eof' > '{output}'"
@@ -150,7 +150,7 @@ rule reshape_tree:
 	# /!\ Cyclic rule!
 	# nw_topology -bI: remove inner node labels (but keep branch lengths)
 	# nw_clade: remove nodes with one child at the root.
-	input:"{genetree}/{subtreedir}/{ancestorgenetreesuffix}.nwk"
+	input: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}.nwk"
 		#tree="{genetree}/{subtreedir}/{ancestorgenetreesuffix}.nwk",
 		#labels=rules.list_tree_labels.output
 	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_codeml.nwk"
@@ -196,14 +196,14 @@ rule codeml:
 		seq =rules.fasta2phylip.output,
 		tree="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_codeml.nwk"
 	output:
-		mlc  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.mlc"
-		dN   ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_2NG.dN"
-		dS   ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_2NG.dS"
-		t    ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_2NG.t"
-		ffold="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_4fold.nuc"
-		lnf  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_lnf"
-		rst  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_rst"
-		rst1 ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_rst1"
+		mlc  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.mlc",
+		dN   ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_2NG.dN",
+		dS   ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_2NG.dS",
+		t    ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_2NG.t",
+		ffold="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_4fold.nuc",
+		lnf  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_lnf",
+		rst  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_rst",
+		rst1 ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_rst1",
 		rub  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_rub"
 	log: "{genetree}/%s/{ancestorgenetreesuffix}_{model}.log"
 	shell:
