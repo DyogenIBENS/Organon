@@ -28,12 +28,27 @@ def showtree(fulltree, ages):
     redefined using `def_showtree`"""
     pass
 
-def def_showtree(show=False):
+def def_showtree(show=None):
     """Depending on the boolean argument 'show', return the function
     `showtree`:
-    if show=False, this function does nothing;
+    if show=None, this function does nothing;
     else, showtree display an interactive tree using ete3."""
     if show:
+        if show == 'gui':
+            def show_func(tree, ts=None):
+                print("Showing tree.", file=sys.stderr)
+                tree.show(tree_style=ts, name=tree.name)
+        elif show == 'notebook':
+            def show_func(tree, ts=None):
+                #print("Rendering tree.", file=sys.stderr)
+                print(("Defining global FULLTREE and TS. Display with:\n"
+                       "    FULLTREE.render('%%inline', tree_style=TS)"),
+                       file=sys.stderr)
+                #tree.render('%%inline', w=500, tree_style=ts) # 
+                global FULLTREE, TS
+                FULLTREE = tree
+                TS = ts
+
         def showtree(fulltree, ages):
             ages_dict = {row[0]: row[1:] for row in ages}
 
@@ -68,7 +83,8 @@ def def_showtree(show=False):
             ts = ete3.TreeStyle()
             ts.show_branch_length = True
 
-            fulltree.show(tree_style=ts, name=fulltree.name)
+            show_func(fulltree, ts)
+            return fulltree
     else:
         def showtree(fulltree, ages):
             pass
@@ -223,7 +239,7 @@ def set_dS_fulltree(fulltree, id2nb, dNdS):
 
 def rm_erroneous_ancestors(fulltree, phyltree):
     """Some ancestors with only one child are present in the species phylogeny.
-    They must be remomved when they have an age of zero"""
+    They must be removed when they have an age of zero"""
     for node in fulltree.iter_descendants():
         if not node.is_leaf():
             try:
@@ -691,7 +707,6 @@ def process(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
     return ages
 
 
-
 class Out(object):
     """Context Manager class (for use with `with` statement). Do the exact
     same as `open()`, but if filename is '-', open stdout for writing."""
@@ -716,6 +731,58 @@ class Out(object):
             self.file_obj.close()
 
 
+def main(outfile, mlcfiles, method2=False, measures=['dS'], verbose=False,
+         show=None, replace_nwk='.mlc', ignore_errors=False):
+    print("Main: outfile  %s\n" % outfile,
+          "     mlcfiles %s\n" % mlcfiles,
+          "     method2  %s\n" % method2,
+          "     measures %s\n" % measures,
+          "     verbose  %s\n" % verbose,
+          "     show     %s\n" % show,
+          "     replace_nwk %s\n" % replace_nwk,
+          "     ignore_errors %s\n" % ignore_errors)
+    
+    nb_mlc = len(mlcfiles)
+    
+    # "compile" some functions to avoid redondant tests ("if verbose: ...")
+    if verbose:
+        global print_if_verbose
+        def print_if_verbose(*args, **kwargs):
+            print(*args, **kwargs)
+
+    #if args.measure == 'dS':
+    #    process = process_mlc2 if args.method2 else process_mlc
+    #elif args.measure == 'dist':
+    #    process = process_nwk2 if args.method2 else process_nwk
+    #else:
+    #    raise RuntimeError("Unknown measure %r" % args.measure)
+
+    global showtree
+    showtree = def_showtree(show)
+
+    phyltree = PhylTree.PhylogeneticTree("/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data85/PhylTree.Ensembl.85.conf")
+    
+    with Out(outfile, 'w') as out:
+        out.write('\t'.join(['name'] + ['age_'+m for m in measures] + ['type'])
+                             + '\n')
+        for i, mlcfile in enumerate(mlcfiles, start=1):
+            percentage = float(i) / nb_mlc * 100
+            print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_mlc, percentage, mlcfile),
+                  end=' ')
+            try:
+                ages = process(mlcfile, phyltree, replace_nwk,
+                               measures, method2)
+                save_ages(ages, out)
+            except BaseException as err:
+                print()
+                if ignore_errors:
+                    print("Skip %r: %r" % (mlcfile, err), file=sys.stderr)
+                else:
+                    raise
+    print()
+    
+
+
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('outfile')
@@ -727,7 +794,7 @@ if __name__=='__main__':
                              'dist (from PhyML)')
     parser.add_argument('-v', '--verbose', action='store_true', 
                         help='print progression along tree')
-    parser.add_argument('--show', action='store_true',
+    parser.add_argument('--show', choices=['gui', 'notebook'],
                         help='start the interactive ete3 tree browser')
     parser.add_argument('-r', '--replace-nwk', default='.mlc',
                         help='string to be replaced by .nwk to find the tree'\
@@ -735,44 +802,4 @@ if __name__=='__main__':
     parser.add_argument("-i", "--ignore-errors", action="store_true", 
                         help="On error, print the error and continue the loop.")
     args = parser.parse_args()
-    outfile = args.outfile
-    mlcfiles = args.mlcfiles
-    nb_mlc = len(mlcfiles)
-    
-    # "compile" some functions to avoid redondant tests ("if verbose: ...")
-    if args.verbose:
-        def print_if_verbose(*args, **kwargs):
-            print(*args, **kwargs)
-
-    #if args.measure == 'dS':
-    #    process = process_mlc2 if args.method2 else process_mlc
-    #elif args.measure == 'dist':
-    #    process = process_nwk2 if args.method2 else process_nwk
-    #else:
-    #    raise RuntimeError("Unknown measure %r" % args.measure)
-
-    showtree = def_showtree(args.show)
-
-    phyltree = PhylTree.PhylogeneticTree("/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data85/PhylTree.Ensembl.85.conf")
-    
-    with Out(outfile, 'w') as out:
-        out.write('\t'.join(['name'] +
-                                       ['age_'+m for m in args.measures] +
-                                       ['type'])
-                             + '\n')
-        for i, mlcfile in enumerate(mlcfiles, start=1):
-            percentage = float(i) / nb_mlc * 100
-            print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_mlc, percentage, mlcfile),
-                  end=' ')
-            try:
-                ages = process(mlcfile, phyltree, args.replace_nwk,
-                               args.measures, args.method2)
-                save_ages(ages, out)
-            except BaseException as err:
-                print()
-                if args.ignore_errors:
-                    print("Skip %r: %r" % (mlcfile, err), file=sys.stderr)
-                else:
-                    raise
-    print()
-    
+    main(**vars(args))
