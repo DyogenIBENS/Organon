@@ -547,27 +547,15 @@ CMD_FUNC = {cmd_name: globals()['cmd_' + cmd_name] for cmd_name in COMMANDS}
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    ### Command-specific arguments
-    subparsers = parser.add_subparsers(dest='command')
-
-    for cmd_name in COMMANDS:
-        cmd_func = CMD_FUNC[cmd_name]
-        cmd_parser = subparsers.add_parser(cmd_name,
-                                           description=cmd_func.__doc__,
-                        formatter_class=argparse.RawDescriptionHelpFormatter)
-        for cmd_arg in CMD_ARGS[cmd_name]:
-            #print(cmd_name)
-            #print(cmd_arg)
-            kwargs = cmd_arg[1] if len(cmd_arg) > 1 else {}
-            cmd_parser.add_argument(*cmd_arg[0], **kwargs)
 
     ### Generic arguments
-    parser.add_argument('ages_file')
-    parser.add_argument('outfile', nargs='?')
-    parser.add_argument('-a', '--age-key', default=DEFAULT_AGE_KEY)
-    parser.add_argument('-b', '--nbins', default=DEFAULT_NBINS)
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument('ages_file')
+    parent_parser.add_argument('outfile', nargs='?')
+    parent_parser.add_argument('-a', '--age-key', default=DEFAULT_AGE_KEY)
+    parent_parser.add_argument('-b', '--nbins', default=DEFAULT_NBINS)
     
-    process_edited_parser = parser.add_mutually_exclusive_group()
+    process_edited_parser = parent_parser.add_mutually_exclusive_group()
     # these two options must be given the treeforest file.
     process_edited_parser.add_argument('--show-edited',
                                        metavar='TREEFOREST',
@@ -576,6 +564,20 @@ if __name__=='__main__':
                                        metavar='TREEFOREST',
                                        help='delete edited gene trees from data')
     
+    ### Command-specific arguments
+    subparsers = parser.add_subparsers(dest='command')
+
+    for cmd_name in COMMANDS:
+        cmd_func = CMD_FUNC[cmd_name]
+        cmd_parser = subparsers.add_parser(cmd_name,
+                                           description=cmd_func.__doc__,
+                                           parents=[parent_parser],
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+        for cmd_arg in CMD_ARGS[cmd_name]:
+            #print(cmd_name)
+            #print(cmd_arg)
+            kwargs = cmd_arg[1] if len(cmd_arg) > 1 else {}
+            cmd_parser.add_argument(*cmd_arg[0], **kwargs)
 
     args = parser.parse_args()
     
