@@ -16,11 +16,13 @@ import LibsDyogen.myProteinTree as ProteinTree
 DEL_COUNT = 0
 DEL_LEAF_COUNT = 0
 
-def filternodes(tree, node=None):
+
+def filternodes(tree, node=None, dryrun=False):
     global DEL_COUNT, DEL_LEAF_COUNT
     if node is None:
         node = tree.root
         DEL_COUNT = 0
+        DEL_LEAF_COUNT = 0
 
     data = tree.data.get(node)
 
@@ -37,31 +39,39 @@ def filternodes(tree, node=None):
             edited = dists.index(maxdist)
             children = list(children)
             edited_child = children.pop(edited)
-            data.pop(edited)
-            try:
-                tree.data.pop(edited_child)
-            except KeyError:
-                # the child is a leaf.
-                DEL_LEAF_COUNT += 1
-                #pass
-            finally:
-                tree.info.pop(edited_child)
+            # Delete the edited branch from the list of children
+            if not dryrun:
+                data.pop(edited)
+                try:
+                    # Delete the edited child from the tree data
+                    tree.data.pop(edited_child)
+                except KeyError:
+                    # the child is a leaf.
+                    DEL_LEAF_COUNT += 1
+                    #pass
+                finally:
+                    tree.info.pop(edited_child)
+                    DEL_COUNT += 1
+            else:
                 DEL_COUNT += 1
 
             #print('NEW CHILDREN: %s (%s)\nNEW DATA: %s' % (children, dists, data))
             #children = [(child, dist) for child, dist in data if dist == maxdist]
         
         for child in children:
-            filternodes(tree, node=child)
+            filternodes(tree, node=child, dryrun=dryrun)
 
 
-def main(treeforestfile, outfile):
+def main(treeforestfile, outfile, dryrun=False):
     total_deleted = 0
     total_leaves_deleted = 0
+    if dryrun:
+        outfile = '/dev/null'
     with open(outfile, 'w') as out:
         for tree in ProteinTree.loadTree(treeforestfile):
-            filternodes(tree)
+            filternodes(tree, dryrun=dryrun)
             total_deleted += DEL_COUNT
+            total_leaves_deleted += DEL_LEAF_COUNT
             tree.printTree(out)
             #break
     print("Deleted %d branches, of which %d leaves." % (total_deleted, total_leaves_deleted))
@@ -71,6 +81,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('treeforestfile')
     parser.add_argument('outfile')
+    parser.add_argument('-n', '--dryrun', action='store_true',
+                        help='Do not delete or output anything, just print '\
+                             'counts.')
     
     args = parser.parse_args()
     main(**vars(args))
