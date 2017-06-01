@@ -584,14 +584,18 @@ def bound_average_2(fulltree, phyltree, measures=['dS']):
                 # Since it is a duplication, this should be the same for
                 # children[0] and children[1]:
                 ch_ages = [subtree[ch.name]['age'] for ch in node.children]
-                try:
-                    assert len(set(ch_ages)) == 1
-                except AssertionError as err:
-                    print("At %r: unequal children's ages (next speciation ages): %s" % (scname, ch_ages), file=sys.stderr)
+                #try:
+                #    assert len(set(ch_ages)) == 1
+                #except AssertionError as err:
+                #    raise
+                if len(set(ch_ages)) == 1
+                    print(("WARNING: at %r: unequal children's ages (next "
+                            "speciation ages): %s" % (scname, ch_ages)), file=sys.stderr)
                     showtree(fulltree)
-                    raise
-                # This 'age' will *later* be modified (rescaled according to dS)
-                subtree[scname]['age'] = ch_ages[0]
+                    subtree[scname]['age'] = np.NaN
+                else:
+                    # This 'age' will *later* be modified (rescaled according to dS)
+                    subtree[scname]['age'] = ch_ages[0]
 
             else:
                 # it is a speciation.
