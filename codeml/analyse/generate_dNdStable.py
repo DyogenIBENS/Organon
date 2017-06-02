@@ -15,6 +15,7 @@ import LibsDyogen.myPhylTree as PhylTree # my custom python3 version
 from select_leaves_from_specieslist import convert_gene2species
 
 
+PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data85/PhylTree.Ensembl.85.conf"
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS')
 
 
@@ -83,7 +84,7 @@ def def_showtree(measures, show=None):
             show_func(fulltree, ts)
             return fulltree
     else:
-        def showtree(fulltree, ages):
+        def showtree(fulltree):
             pass
     return showtree
 
@@ -237,19 +238,32 @@ def set_dS_fulltree(fulltree, id2nb, dNdS):
 def rm_erroneous_ancestors(fulltree, phyltree):
     """Some ancestors with only one child are present in the species phylogeny.
     They must be removed when they have an age of zero"""
+    infinite_dist = 50000
     for node in fulltree.iter_descendants():
+        if node.dist > infinite_dist:
+            print('WARNING: DELETE node with dist>%d : %s, dist=%d' \
+                    % (infinite_dist, node.name, node.dist), file=sys.stderr)
+            node.delete(prevent_nondicotomic=False,
+                        preserve_branch_length=True)
         if not node.is_leaf():
             try:
                 taxon = ANCGENE2SP.match(node.name).group(1).replace('.', ' ')
             except AttributeError:
                 raise RuntimeError("Can not match species name in %r" % \
                                    node.name)
-            if hasattr(node, 'reinserted'):
-                if phyltree.ages[taxon] == 0:
-                    print('WARNING: reinserted node with age>0: %s' % node.name,
-                          file=sys.stderr)
+            if len(node.children) == 1:
+                if hasattr(node, 'reinserted'):
+                    if phyltree.ages[taxon] > 0:
+                        print('WARNING: DELETE reinserted node with age>0: %s'\
+                                % node.name,
+                              file=sys.stderr)
+                else:
+                    print('WARNING: DELETE node with single child: %s' \
+                            % node.name,
+                          file=sys.stderr) 
                 node.delete(prevent_nondicotomic=False,
                             preserve_branch_length=True)
+        
 
 
 
@@ -540,8 +554,13 @@ def bound_average_2(fulltree, phyltree, measures=['dS']):
 
     for node in fulltree.traverse('postorder'):
         scname = node.name
-        branch_measures = np.array([getattr(node, m) for m in measures])
         print_if_verbose("* %s:" % scname, end=' ')
+        #try:
+        branch_measures = np.array([getattr(node, m, np.NaN) for m in measures])
+        #except AttributeError as err:
+        #    if not node.is_root():
+        #        err.args += ("Node: %r (is_root: %s)" % (node, node.is_root()),)
+        #        raise
         if node.is_leaf():
             node.add_feature('type', 'leaf')
             taxon = convert_gene2species(scname)
@@ -554,6 +573,13 @@ def bound_average_2(fulltree, phyltree, measures=['dS']):
                          measures_zeros.tolist() + ["leaf"])
             print_if_verbose("Leaf")
         else:
+            try:
+                assert len(node.children) > 1
+            except AssertionError as err:
+                if node.is_root():
+                    pass
+                else:
+                    raise
             try:
                 taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
             except AttributeError:
@@ -584,14 +610,17 @@ def bound_average_2(fulltree, phyltree, measures=['dS']):
                 # Since it is a duplication, this should be the same for
                 # children[0] and children[1]:
                 ch_ages = [subtree[ch.name]['age'] for ch in node.children]
-                try:
-                    assert len(set(ch_ages)) == 1
-                except AssertionError as err:
+                #try:
+                #    assert len(set(ch_ages)) == 1
+                #except AssertionError as err:
+                #    raise
+                if len(set(ch_ages)) > 1:
                     print("At %r: unequal children's ages (next speciation ages): %s" % (scname, ch_ages), file=sys.stderr)
-                    showtree(fulltree)
-                    raise
-                # This 'age' will *later* be modified (rescaled according to dS)
-                subtree[scname]['age'] = ch_ages[0]
+                    #showtree(fulltree)
+                    subtree[scname]['age'] = np.NaN
+                else:
+                    # This 'age' will *later* be modified (rescaled according to dS)
+                    subtree[scname]['age'] = ch_ages[0]
 
             else:
                 # it is a speciation.
@@ -610,6 +639,7 @@ def bound_average_2(fulltree, phyltree, measures=['dS']):
                     # walk descendants until speciation.
                     # need to get the age of next speciation and compute the
                     # time between the two speciation.
+
                     branch_length = node_age - subtree[ch.name]['age']
                     print_if_verbose("    climb up to next speciation: " \
                                      "br_len=%s" % branch_length)
@@ -752,8 +782,9 @@ class Out(object):
             self.file_obj.close()
 
 
-def main(outfile, mlcfiles, method2=False, measures=['dS'], verbose=False,
-         show=None, replace_nwk='.mlc', ignore_errors=False):
+def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
+        measures=['dS'], verbose=False, show=None, replace_nwk='.mlc',
+        ignore_errors=False):
     nb_mlc = len(mlcfiles)
     
     # "compile" some functions to avoid redondant tests ("if verbose: ...")
@@ -782,7 +813,7 @@ def main(outfile, mlcfiles, method2=False, measures=['dS'], verbose=False,
     global showtree
     showtree = def_showtree(measures, show)
 
-    phyltree = PhylTree.PhylogeneticTree("/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data85/PhylTree.Ensembl.85.conf")
+    phyltree = PhylTree.PhylogeneticTree(phyltreefile)
     
     with Out(outfile, 'w') as out:
         header = ['name'] + ['branch_'+m for m in measures] + \
@@ -810,6 +841,7 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('outfile')
     parser.add_argument('mlcfiles', nargs='+')
+    parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE)
     parser.add_argument('--method2', action='store_true')
     parser.add_argument('--measures', nargs='*', default=['dS'],
                         choices=['dS', 'dist'],
