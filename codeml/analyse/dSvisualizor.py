@@ -11,10 +11,12 @@ USAGE:
 
 COMMANDS = ['lineage', 'tree', 'scatter']
 
-CMD_ARGS = {'lineage': [(('-l', '--lineage'),)],
+CMD_ARGS = {'lineage': [(('-l', '--lineage'),),
+                        (('-p', '--phyltreefile'),)],
             'tree':    [(('-v', '--vertical'),
-                         dict(action='store_true'))],
-            'scatter': [(('-x',),), (('-y',),)]}
+                         dict(action='store_true')),
+                        (('-p', '--phyltreefile'),)],
+            'scatter': [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)]}
 
 
 import sys
@@ -56,6 +58,8 @@ mpl.rcParams['savefig.frameon'] = False  #background frame transparent
 #mpl.style.use('ggplot')
 pd.set_option('display.max_colwidth', 85)
 
+PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
+                   "PhylTree.Ensembl.{0}.conf"
 
 RE_TAXON = re.compile(r'[A-Z][A-Za-z_.-]+(?=ENSGT)')
 PAT_TAXON = r'^([A-Z][A-Za-z_.-]+)(ENSGT[0-9]+)(.*)$'
@@ -82,8 +86,7 @@ def intersect_size(serie, checked_values):
 class DataVisualizor(object):
 
     ensembl_version = 85
-    phyltreefile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
-                   "PhylTree.Ensembl.{0}.conf"
+    phyltreefile = PHYLTREEFILE
     default_nbins = DEFAULT_NBINS
 
     def load_edited_set(self, treeforest):
@@ -168,7 +171,7 @@ class DataVisualizor(object):
         self.dup_ages['taxoncolor'] = self.dup_ages.taxon.apply(self.dottaxon2color.get)
 
 
-    def scatter(self, x, y, outfile=None):
+    def scatter(self, x, y, xlim=None, ylim=None, outfile=None):
         """scatter plot of x~y, colorized by taxon."""
         #self.ax = self.dup_ages.plot.scatter(x, y, c=self.dup_ages.taxoncolor,
         #                                     alpha=self.taxonalpha)
@@ -176,9 +179,19 @@ class DataVisualizor(object):
         self.fig, self.ax = plt.subplots()
         for taxon in self.dottaxa:
             data = self.taxa_ages.get_group(taxon)
-            data.plot.scatter(x, y, ax=self.ax,
-                              color=self.dottaxon2color[taxon],
-                              alpha=self.taxonalpha, label=taxon)
+            #print("Taxon: %s\n" % taxon, data.head())
+            try:
+                data.plot.scatter(x, y, ax=self.ax,
+                                  color=self.dottaxon2color[taxon],
+                                  alpha=self.taxonalpha, label=taxon)
+            except KeyError as err:
+                print(('Data column %r not available for scatter plot. Check '
+                       'if your data can be converted to float'), file=sys.stderr)
+                raise
+        if xlim:
+            self.ax.set_xlim(*(float(x) for x in xlim.split(',')))
+        if ylim:
+            self.ax.set_ylim(*(float(y) for y in ylim.split(',')))
 
         self.ax.legend()
         #self.save_or_show(outfile)
@@ -491,15 +504,15 @@ class DataVisualizor(object):
 
 ### Script commands ###
 #COMMANDS = ['lineage', 'tree', 'scatter']
-def run(command, ages_file, outfile=None, lineage=None, show_edited=None,
-        no_edited=False, age_key=DEFAULT_AGE_KEY, nbins=DEFAULT_NBINS, 
-        vertical=False, x=None, y=None):
+def run(command, ages_file, phyltreefile=None, outfile=None, lineage=None,
+        show_edited=None, no_edited=False, age_key=DEFAULT_AGE_KEY,
+        nbins=DEFAULT_NBINS, vertical=False, x=None, y=None, xlim=None, ylim=None):
 
     dv = DataVisualizor(ages_file, no_edited=no_edited, age_key=age_key)
     
     if command in ('tree', 'lineage'):
         dv.colorize_taxa(alpha=1)
-        dv.load_phyltree()
+        dv.load_phyltree(phyltreefile)
         if command == 'lineage':
             dv.lineage_hist(lineage, nbins)
         elif command == 'tree':
@@ -510,7 +523,7 @@ def run(command, ages_file, outfile=None, lineage=None, show_edited=None,
             dv.add_edited_prop(show_edited)
     elif command == 'scatter':
         dv.colorize_taxa(alpha=0.5)
-        dv.scatter(x, y, outfile)
+        dv.scatter(x, y, xlim, ylim, outfile)
 
     dv.save_or_show(outfile)
 
