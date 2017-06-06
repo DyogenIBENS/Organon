@@ -538,13 +538,49 @@ def bound_average_dS_2(dNdS, id2nb, fulltree, phyltree):
     return ages
 
 
-def bound_average_2(fulltree, phyltree, measures=['dS']):
+def rec_average_u(node, scname, subtree, measures=['dS']):
+    """Perform the averaging of one node, given its descendants (unweighted).
+    
+    This operation must be repeated along the tree, from the leaves to the root
+    """
+    # Array operation here: increment tmp_m with current measure.
+    # One children per row.
+    children_ms = np.stack([getattr(ch, m) for m in measures] \
+                            + subtree[ch.name]['tmp_m']
+                           for ch in node.children)
+    # weights:
+    children_ws = np.array([[subtree[ch.name]['speleaves']] for ch in
+                            node.children])
+    subtree[scname]['speleaves'] = children_ws.sum()
+    children_ms *= children_ws / children_ws.sum()
+
+    # mean of each measure (across children)
+    subtree[scname]['tmp_m'] = children_ms.sum(axis=0)
+
+
+def rec_average_w(node, scname, subtree, measures=['dS']):
+    """Perform the averaging of one node, given its descendants (weighted).
+    
+    This operation must be repeated along the tree, from the leaves to the root
+    """
+    # Array operation here: increment tmp_m with current measure.
+    # One children per row.
+    children_ms = np.stack([getattr(ch, m) for m in measures] \
+                            + subtree[ch.name]['tmp_m']
+                           for ch in node.children)
+    # mean of each measure (across children)
+    subtree[scname]['tmp_m'] = children_ms.mean(axis=0)
+
+
+def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
+                  method2=False):
     """normalize duplication node position between speciation nodes.
      scaling: d / (D' + d)
-        - d: average (WPGMA-like) of branch length leading to next speciation,
-             in 'measure'.
+        - d: average (WPGMA/UPGMA-like) of branch length leading to next
+             speciation, in units of 'measure'.
              'measure' must be an attribute present in fulltree ('dS', 'dist').
         - D': branch length from the previous speciation to this duplication"""
+    rec_average = rec_average_u if unweighted else rec_average_w
     ages = []
     subtree = {} # temporary subtree while traversing from one speciation to
     # another
@@ -567,8 +603,10 @@ def bound_average_2(fulltree, phyltree, measures=['dS']):
             subtree[scname] = {'taxon': taxon,
                                'tmp_m': measures_zeros,
                                'br_m': branch_measures,
-                               'age': 0} #, 'next_age': 0}
+                               'age': 0,
+                               'speleaves': 1} # number of descendant speciation nodes
             #ages[scname] = 0
+            ### TODO: add parent_name, parent_event
             ages.append([scname] + branch_measures.tolist() +
                          measures_zeros.tolist() + ["leaf"])
             print_if_verbose("Leaf")
@@ -589,22 +627,11 @@ def bound_average_2(fulltree, phyltree, measures=['dS']):
             children_taxa = set((subtree[ch.name]['taxon'] for ch in 
                                  node.children))
 
+            rec_average(node, scname, subtree, measures)
+
             if len(children_taxa & set((taxon,))) == 1:
                 # it is a duplication:
                 node.add_feature('type', 'dup')
-                # Array operation here: increment tmp_m with current measure.
-                # One children per row.
-                children_ms = np.stack([getattr(ch, m) for m in measures] \
-                                        + subtree[ch.name]['tmp_m']
-                                       for ch in node.children)
-                #print(np.stack(['%s:%s' % (ch.name, measure) for measure
-                #                in measures]
-                #               for ch in node.children))
-                #print(children_ms)
-
-                # mean of each measure (across children)
-                subtree[scname]['tmp_m'] = children_ms.mean(axis=0)
-
                 print_if_verbose("Dupl; m=%s" % subtree[scname]['tmp_m'])
                 # Store the age of the next speciation event (propagate down).
                 # Since it is a duplication, this should be the same for
@@ -629,12 +656,15 @@ def bound_average_2(fulltree, phyltree, measures=['dS']):
                 node.add_feature('type', 'spe')
                 # store the age of this taxon
                 node_age = subtree[scname]['age'] = phyltree.ages[taxon]
+                subtree[scname]['speleaves'] = 1
                 ages.append([scname] + branch_measures.tolist() +
                             [node_age] * n_measures + ["spe"])
                 for i, m in enumerate(measures):
                     node.add_feature('age_'+m, node_age)
                 # climb up tree until next speciation and assign an age to
                 # each duplication met on the way
+                if not method2:
+                    scaling_m = subtree[scname]['tmp_m']
                 for ch in node.children:
                     ### This is where version _2 is different
                     # walk descendants until speciation.
@@ -661,7 +691,9 @@ def bound_average_2(fulltree, phyltree, measures=['dS']):
                                              nextnode_m, next_path_m))
                         # or: any(nextnode_m > measures_zeros) ?
                         if nextnode_m is not measures_zeros:
-                            scaling_m = next_path_m + nextnode_m
+                            if method2:
+                                scaling_m = next_path_m + nextnode_m
+
                             if any(scaling_m == 0):
                                 print("\nWARNING: scaling measure = %s (" \
                                       "cannot divide) at %r" % \
@@ -741,7 +773,7 @@ def process_nwk2(mlcfile, phyltree, replace_nwk='.mlc'):
 
 
 def process(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
-            method2=False):
+            method2=False, unweighted=False):
     fulltree = load_fulltree(mlcfile, replace_nwk)
     rm_erroneous_ancestors(fulltree, phyltree)
     if 'dS' in measures:
@@ -751,10 +783,10 @@ def process(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
 
         set_dS_fulltree(fulltree, id2nb, dNdS)
     
-    if not method2:
-        raise NotImplementedError("bound_average for method1 not written yet.")
-
-    ages = bound_average_2(fulltree, phyltree, measures=measures)
+    #if not method2:
+    #    raise NotImplementedError("bound_average for method1 not written yet.")
+    ages = bound_average(fulltree, phyltree, measures=measures,
+                         unweighted=unweighted, method2=method2)
     showtree(fulltree)
     return ages
 
@@ -784,8 +816,8 @@ class Out(object):
 
 
 def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
-        measures=['dS'], verbose=False, show=None, replace_nwk='.mlc',
-        ignore_errors=False):
+         measures=['dS'], unweighted=False, verbose=False, show=None,
+         replace_nwk='.mlc', ignore_errors=False):
     nb_mlc = len(mlcfiles)
     
     # "compile" some functions to avoid redondant tests ("if verbose: ...")
@@ -800,6 +832,7 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
           "     measures %s\n" % measures,
           "     verbose  %s\n" % verbose,
           "     show     %s\n" % show,
+          "     unweighted %s\n" % unweighted,
           "     replace_nwk %s\n" % replace_nwk,
           "     ignore_errors %s\n" % ignore_errors)
     
@@ -826,7 +859,7 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
                   end=' ')
             try:
                 ages = process(mlcfile, phyltree, replace_nwk,
-                               measures, method2)
+                               measures, method2, unweighted)
                 save_ages(ages, out)
             except BaseException as err:
                 print()
@@ -848,6 +881,8 @@ if __name__=='__main__':
                         choices=['dS', 'dist'],
                         help='which distance measure: dS (from codeml) or ' \
                              'dist (from PhyML)')
+    parser.add_argument('-u', '--unweighted', action='store_true', 
+                        help='average weighted by the size of clusters')
     parser.add_argument('-v', '--verbose', action='store_true', 
                         help='print progression along tree')
     parser.add_argument('--show', choices=['gui', 'notebook'],
