@@ -9,14 +9,15 @@ USAGE:
     ./plot_dS.py command <ages_file> <outfile>
 """
 
-COMMANDS = ['lineage', 'tree', 'scatter']
+COMMANDS = ['lineage', 'tree', 'scatter', 'violin']
 
 CMD_ARGS = {'lineage': [(('-l', '--lineage'),),
                         (('-p', '--phyltreefile'),)],
             'tree':    [(('-v', '--vertical'),
                          dict(action='store_true')),
                         (('-p', '--phyltreefile'),)],
-            'scatter': [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)]}
+            'scatter': [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)],
+            'violin': [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)]}
 
 
 import sys
@@ -32,6 +33,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import LibsDyogen.myPhylTree as PhylTree
+
+from seaborn import violinplot
 
 from glou_duphist import dfw_descendants_generalized, ladderize
 
@@ -171,7 +174,7 @@ class DataVisualizor(object):
         self.dup_ages['taxoncolor'] = self.dup_ages.taxon.apply(self.dottaxon2color.get)
 
 
-    def scatter(self, x, y, xlim=None, ylim=None, outfile=None):
+    def scatter(self, x, y, xlim=None, ylim=None):
         """scatter plot of x~y, colorized by taxon."""
         #self.ax = self.dup_ages.plot.scatter(x, y, c=self.dup_ages.taxoncolor,
         #                                     alpha=self.taxonalpha)
@@ -195,6 +198,25 @@ class DataVisualizor(object):
 
         self.ax.legend()
         #self.save_or_show(outfile)
+        return self.ax
+
+
+    def violin(self, x, y, xlim=None, ylim=None):
+        self.fig, self.ax = plt.subplots()
+        #for taxon in self.dottaxa:
+        #    data = self.taxa_ages.get_group(taxon)
+        #if ylim:
+        #    ylim = [float(yl) for yl in ylim.split(',')]
+        #    data = self.dup_ages[self.dup_ages[y] < ylim[1]]
+        #else:
+        data = self.dup_ages
+        violinplot(x, y, data=data, scale='width', cut=0, ax=self.ax)
+        plt.setp(self.ax.xaxis.get_majorticklabels(), rotation=45, ha='right',
+                 va='top')
+        if ylim:
+            ylim = [float(yl) for yl in ylim.split(',')]
+            self.ax.set_ylim(ylim)
+
         return self.ax
 
 
@@ -523,7 +545,9 @@ def run(command, ages_file, phyltreefile=None, outfile=None, lineage=None,
             dv.add_edited_prop(show_edited)
     elif command == 'scatter':
         dv.colorize_taxa(alpha=0.5)
-        dv.scatter(x, y, xlim, ylim, outfile)
+        dv.scatter(x, y, xlim, ylim)
+    elif command == 'violin':
+        dv.violin(x, y, xlim, ylim)
 
     dv.save_or_show(outfile)
 
@@ -539,6 +563,9 @@ def cmd_tree(ages_file, outfile=None, nbins=DEFAULT_NBINS, vertical=False,
 #
 def cmd_scatter(ages_file, x, y, outfile=None, show_edited=None, no_edited=False):
     """scatter plot"""
+
+def cmd_violin(ages_file, x, y, outfile=None, show_edited=None, no_edited=False):
+    """violin plot"""
 
 
 def document_commands():
@@ -581,7 +608,7 @@ if __name__=='__main__':
     subparsers = parser.add_subparsers(dest='command')
 
     for cmd_name in COMMANDS:
-        cmd_func = CMD_FUNC[cmd_name]
+        cmd_func = CMD_FUNC[cmd_name] # only used for the __doc__ ...
         cmd_parser = subparsers.add_parser(cmd_name,
                                            description=cmd_func.__doc__,
                                            parents=[parent_parser],
