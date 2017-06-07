@@ -24,6 +24,13 @@ def print_if_verbose(*args, **kwargs):
     nothing."""
     pass
 
+
+def printtree(tree, indent='', **kwargs):
+    print(indent + tree.name, **kwargs)
+    for ch in tree.children:
+        printtree(ch, indent=(indent+'  '))
+
+
 def showtree(fulltree, ages):
     """Default `showtree` function: do nothing. This function can be
     redefined using `def_showtree`"""
@@ -37,14 +44,13 @@ def def_showtree(measures, show=None):
     if show:
         if show == 'gui':
             def show_func(tree, ts=None):
-                print("Showing tree.", file=sys.stderr)
+                print("Showing tree.")
                 tree.show(tree_style=ts, name=tree.name)
         elif show == 'notebook':
             def show_func(tree, ts=None):
                 #print("Rendering tree.", file=sys.stderr)
                 print(("Defining global FULLTREE and TS. Display with:\n"
-                       "    FULLTREE.render('%%inline', tree_style=TS)"),
-                       file=sys.stderr)
+                       "    FULLTREE.render('%%inline', tree_style=TS)"))
                 #tree.render('%%inline', w=500, tree_style=ts) # 
                 global FULLTREE, TS
                 FULLTREE = tree
@@ -141,6 +147,9 @@ def branch2nb(mlc, fulltree):
     id2nb = dict(zip(tree_ids.get_leaf_names(), tree_nbs.get_leaf_names()))
     nb2id = dict(zip(tree_nbs.get_leaf_names(), tree_ids.get_leaf_names()))
 
+    # Remember nodes that were detached from fulltree, and all their descendants
+    detached_subtrees = set()
+
     # get internal nodes nb-to-id conversion (fulltree: tree with internal node
     # annotations)
     for leafnb, leafid in zip(tree_nbs.get_leaves(), fulltree.get_leaves()):
@@ -152,29 +161,49 @@ def branch2nb(mlc, fulltree):
         print_if_verbose("%-8s" % (base + '..' + tip), end=' ')
         try:
             tip_id = nb2id[tip]
+            found_tips = fulltree.search_nodes(name=tip_id)
             try:
-                base_node = fulltree.search_nodes(name=tip_id)[0].up
+                try:
+                    base_node = found_tips[0].up
+                except IndexError as err:
+                    print('Node %s:%r not found in fulltree' % (tip, tip_id),
+                          file=sys.stderr)
+                    # TODO: search in tree_ids, then detached_subtrees.add()
+                    detached_subtrees.add(tip)
+                    continue
+
                 while len(base_node.children) == 1:
                     base_node = base_node.up
-                base_id = base_node.name
-                print_if_verbose("%s -> %s  " % (base_id, tip_id), end=" ")
-                nb2id[base] = base_id
-                id2nb[base_id] = base
-                # Add number in the fulltree:
-                base_node.add_feature('nb', base)
-                # Also update the tree_nbs
-                base_nb_node = tree_nbs.search_nodes(name=tip)[0].up
-                base_nb_node.name = base
-                print_if_verbose('ok')
-            except AttributeError:
+            except AttributeError as err:
                 print('root (%r: %r) cannot have ancestors' % (tip, tip_id))
-                pass
+                #print(fulltree.search_nodes(name=tip_id), err)
+                continue
+
+            base_id = base_node.name
+            print_if_verbose("%s -> %s  " % (base_id, tip_id), end=" ")
+            nb2id[base] = base_id
+            id2nb[base_id] = base
+            # Add number in the fulltree:
+            base_node.add_feature('nb', base)
+            # Also update the tree_nbs
+            base_nb_node = tree_nbs.search_nodes(name=tip)[0].up
+            base_nb_node.name = base
+            print_if_verbose('ok')
         except KeyError as e:
+            #if base in detached_subtrees:
+            # I assume a progression from leaves to root, otherwise I will miss nodes
+            print_if_verbose('Detached')
+            #else:
             # Not found now, put it back in the queue for later
-            branches.insert(0, (base, tip))
-            print_if_verbose('KeyError')
+            #    branches.insert(0, (base, tip))
+            #    print_if_verbose('KeyError')
 
     print_if_verbose(tree_nbs.get_ascii())
+    #print_if_verbose(tree_ids.get_ascii())
+    #print_if_verbose(fulltree)
+    #print_if_verbose(fulltree.get_ascii())
+    #printtree(fulltree)
+    #showtree(fulltree)
     return id2nb, nb2id, tree_nbs
 
 
@@ -200,7 +229,8 @@ def get_dNdS(mlc):
     return dNdS
     
 
-def set_dS_fulltree(fulltree, id2nb, dNdS):
+#def set_dS_fulltree(fulltree, id2nb, dNdS):
+def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
     """Add codeml dS on each branch of the complete tree (with missing species
     nodes).
     When a node has a single child: take the branch dS on which it is, 
@@ -212,14 +242,28 @@ def set_dS_fulltree(fulltree, id2nb, dNdS):
             while parent.up and len(parent.children) == 1: #at root, up is None
                 intermediates.append(parent)
                 parent = parent.up
+            #print("%s:%s -> %s:%s\n   %s" % (id2nb[parent.name],
+            #                          parent.name,
+            #                          id2nb[node.name],
+            #                          node.name,
+            #                          [ch.name for ch in parent.children]), file=sys.stderr)
 
             if parent.is_root():
                 # then this is a root with a single children: cannot have dS
                 dS_tot = 0
+                dN_tot = 0
             else:
-                dS_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][5]
+                try:
+                    dS_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][5]
+                    dN_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][4]
+                except KeyError as err:
+                    
+                    raise
     
             if intermediates: # this if is not necessary, maybe more efficient
+                if raise_at_intermediates:
+                    raise AssertionError('Node %r has a single child.' % parent.name)
+
                 dist_tot = sum(n.dist for n in intermediates + [node])
 
                 if dist_tot == 0:
@@ -231,8 +275,11 @@ def set_dS_fulltree(fulltree, id2nb, dNdS):
                 for inter_node in intermediates + [node]:
                     inter_node.add_feature('dS',
                                            dS_tot * inter_node.dist / dist_tot)
+                    inter_node.add_feature('dN',
+                                           dN_tot * inter_node.dist / dist_tot)
             else:
                 node.add_feature('dS', dS_tot)
+                node.add_feature('dN', dN_tot)
 
 
 def rm_erroneous_ancestors(fulltree, phyltree):
@@ -241,10 +288,12 @@ def rm_erroneous_ancestors(fulltree, phyltree):
     infinite_dist = 50000
     for node in fulltree.iter_descendants():
         if node.dist > infinite_dist:
-            print('WARNING: DELETE node with dist>%d : %s, dist=%d' \
+            print('WARNING: SKIP node with dist>%d : %s, dist=%d' \
                     % (infinite_dist, node.name, node.dist), file=sys.stderr)
-            node.delete(prevent_nondicotomic=False,
-                        preserve_branch_length=True)
+            # Detaching/deleting would create a mismatch between fulltree and
+            # tree_nbs/tree_ids
+            #node.add_feature('skip', True)
+            node.detach()
         if not node.is_leaf():
             try:
                 taxon = ANCGENE2SP.match(node.name).group(1).replace('.', ' ')
@@ -608,7 +657,7 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
             #ages[scname] = 0
             ### TODO: add parent_name, parent_event
             ages.append([scname] + branch_measures.tolist() +
-                         measures_zeros.tolist() + ["leaf"])
+                         measures_zeros.tolist() + ["leaf", node.up.name])
             print_if_verbose("Leaf")
         else:
             try:
@@ -643,7 +692,8 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
                 #    raise
                 if len(set(ch_ages)) > 1:
                     print(("WARNING: at %r: unequal children's ages (next "
-                            "speciation ages): %s" % (scname, ch_ages)), file=sys.stderr)
+                           "speciation ages): %s" % (scname, ch_ages)),
+                          file=sys.stderr)
                     #showtree(fulltree)
                     subtree[scname]['age'] = np.NaN
                 else:
@@ -658,7 +708,8 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
                 node_age = subtree[scname]['age'] = phyltree.ages[taxon]
                 subtree[scname]['speleaves'] = 1
                 ages.append([scname] + branch_measures.tolist() +
-                            [node_age] * n_measures + ["spe"])
+                            [node_age] * n_measures +
+                            ["spe", getattr(node.up, 'name', None)])
                 for i, m in enumerate(measures):
                     node.add_feature('age_'+m, node_age)
                 # climb up tree until next speciation and assign an age to
@@ -704,7 +755,7 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
                             #ages[nextnode.name] = age
                             nextnode_measures = subtree[nextnode.name]['br_m'].tolist()
                             ages.append([nextnode.name] + nextnode_measures
-                                         + age.tolist() + ["dup"])
+                                         + age.tolist() + ["dup", nextnode.up.name])
                             for i, m in enumerate(measures):
                                 nextnode.add_feature('age_'+m, age[i])
                             # When climbing up to next spe, need to increment
@@ -781,7 +832,7 @@ def process(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
             id2nb, nb2id, tree_nbs = branch2nb(mlc, fulltree)
             dNdS = get_dNdS(mlc)
 
-        set_dS_fulltree(fulltree, id2nb, dNdS)
+        set_dNdS_fulltree(fulltree, id2nb, dNdS)
     
     #if not method2:
     #    raise NotImplementedError("bound_average for method1 not written yet.")
@@ -851,7 +902,7 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
     
     with Out(outfile, 'w') as out:
         header = ['name'] + ['branch_'+m for m in measures] + \
-                 ['age_'+m for m in measures] + ['type']
+                 ['age_'+m for m in measures] + ['type', 'parent']
         out.write('\t'.join(header) + '\n')
         for i, mlcfile in enumerate(mlcfiles, start=1):
             percentage = float(i) / nb_mlc * 100
@@ -878,7 +929,7 @@ if __name__=='__main__':
     parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE)
     parser.add_argument('--method2', action='store_true')
     parser.add_argument('--measures', nargs='*', default=['dS'],
-                        choices=['dS', 'dist'],
+                        choices=['dN', 'dS', 'dist'],
                         help='which distance measure: dS (from codeml) or ' \
                              'dist (from PhyML)')
     parser.add_argument('-u', '--unweighted', action='store_true', 
