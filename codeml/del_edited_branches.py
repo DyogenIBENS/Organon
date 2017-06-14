@@ -13,53 +13,67 @@ import LibsDyogen.myProteinTree as ProteinTree
 
 #def prottree_getchildren(tree, node):
 #    return [child for child, _ in tree.data.get(node, [])]
-DEL_COUNT = 0
-DEL_LEAF_COUNT = 0
+
+INFINITE_DIST = 10000
 
 
-def filternodes(tree, node=None, dryrun=False):
-    global DEL_COUNT, DEL_LEAF_COUNT
-    if node is None:
-        node = tree.root
-        DEL_COUNT = 0
-        DEL_LEAF_COUNT = 0
+def lock_targets(nodedata, nodeinfo):
+    """Return which children to delete"""
+    try:
+        targets = {child: i for i,(child,dist) in enumerate(nodedata) if dist >= INFINITE_DIST}
+    except ValueError as err:
+        err.args += (nodedata,)
+        raise
+
+    if nodeinfo['Duplication'] == 3:
+        children, dists = zip(*nodedata)
+        maxdist = max(dists)
+        edited = dists.index(maxdist)
+        children = list(children)
+        edited_child = children.pop(edited)
+        targets[edited_child] = edited
+
+    return targets
+
+
+def knock_targets(targets, tree, nodedata, nodeinfo):
+    """Delete target nodes (i.e subtrees) from tree"""
+    leaf_count = 0
+    for target, target_index in sorted(tuple(targets.items()),
+                                        key=lambda item: -item[1]):
+        tree.info.pop(target)
+        try:
+            tree.data.pop(target)
+        except KeyError as err:
+            leaf_count += 1
+
+        nodedata.pop(target_index)
+    return leaf_count
+
+
+def filterbranches(tree, node):
+    del_count = 0
+    del_leaf_count = 0
+
+    #if node is None:
+    #    node = tree.root
 
     data = tree.data.get(node)
 
     if data:
         info = tree.info[node]
-
-        children, dists = zip(*data)
-
-        # If this node was edited:
-        if info['Duplication'] == 3:
-            # remove the longest branch (the edited one)
-            #print('EDITED NODE: %s -> %s (%s)' % (node, children, dists))
-            maxdist = max(dists)
-            edited = dists.index(maxdist)
-            children = list(children)
-            edited_child = children.pop(edited)
-            # Delete the edited branch from the list of children
-            if not dryrun:
-                data.pop(edited)
-                try:
-                    # Delete the edited child from the tree data
-                    tree.data.pop(edited_child)
-                except KeyError:
-                    # the child is a leaf.
-                    DEL_LEAF_COUNT += 1
-                    #pass
-                finally:
-                    tree.info.pop(edited_child)
-                    DEL_COUNT += 1
-            else:
-                DEL_COUNT += 1
-
-            #print('NEW CHILDREN: %s (%s)\nNEW DATA: %s' % (children, dists, data))
-            #children = [(child, dist) for child, dist in data if dist == maxdist]
+        targets = lock_targets(data, info)
+        if targets:
+            del_count      += len(targets)
+            del_leaf_count += knock_targets(targets, tree, data, info)
         
-        for child in children:
-            filternodes(tree, node=child, dryrun=dryrun)
+        for child,_ in data:
+            ch_dc, ch_dlc = filterbranches(tree, node=child)
+            del_count      += ch_dc
+            del_leaf_count += ch_dlc
+
+    return del_count, del_leaf_count
+
 
 
 def main(treeforestfile, outfile, dryrun=False):
@@ -69,9 +83,9 @@ def main(treeforestfile, outfile, dryrun=False):
         outfile = '/dev/null'
     with open(outfile, 'w') as out:
         for tree in ProteinTree.loadTree(treeforestfile):
-            filternodes(tree, dryrun=dryrun)
-            total_deleted += DEL_COUNT
-            total_leaves_deleted += DEL_LEAF_COUNT
+            del_count, del_leaf_count = filterbranches(tree, node=tree.root)
+            total_deleted        += del_count
+            total_leaves_deleted += del_leaf_count
             tree.printTree(out)
             #break
     print("Deleted %d branches, of which %d leaves." % (total_deleted, total_leaves_deleted))
