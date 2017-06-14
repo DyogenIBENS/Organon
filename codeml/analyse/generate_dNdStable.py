@@ -25,16 +25,22 @@ def print_if_verbose(*args, **kwargs):
     pass
 
 
-def printtree(tree, indent='', **kwargs):
-    print(indent + tree.name, **kwargs)
+def printtree(tree, indent='', features=None, **kwargs):
+    line = indent + tree.name
+    if features:
+        line += ': ' + ' '.join('%s=%s' % (ft,getattr(tree, ft))
+                                for ft in features
+                                if getattr(tree, ft, None))
+    print(line, **kwargs)
     for ch in tree.children:
-        printtree(ch, indent=(indent+'  '))
+        printtree(ch, (indent+'  '), features)
 
 
 def showtree(fulltree, ages):
     """Default `showtree` function: do nothing. This function can be
     redefined using `def_showtree`"""
     pass
+
 
 def def_showtree(measures, show=None):
     """Depending on the boolean argument 'show', return the function
@@ -152,13 +158,21 @@ def branch2nb(mlc, fulltree):
 
     # get internal nodes nb-to-id conversion (fulltree: tree with internal node
     # annotations)
-    for leafnb, leafid in zip(tree_nbs.get_leaves(), fulltree.get_leaves()):
-        leafid.add_feature('nb', leafnb.name)
+    for leafid in fulltree.get_leaves():
+        try:
+            leafid.add_feature('nb', id2nb[leafid.name])
+        except KeyError as err:
+            # This leaf is not a species node. skip.
+            pass
 
     # branches follow the order of the newick string.
     while branches:
         base, tip = branches.pop()
         print_if_verbose("%-8s" % (base + '..' + tip), end=' ')
+        # Update the tree_nbs
+        base_nb_node = tree_nbs.search_nodes(name=tip)[0].up
+        base_nb_node.name = base
+        # Then find the matching node in fulltree
         try:
             tip_id = nb2id[tip]
             found_tips = fulltree.search_nodes(name=tip_id)
@@ -166,14 +180,14 @@ def branch2nb(mlc, fulltree):
                 try:
                     base_node = found_tips[0].up
                 except IndexError as err:
-                    print('Node %s:%r not found in fulltree' % (tip, tip_id),
-                          file=sys.stderr)
+                    print_if_verbose('Node %s:%r not found in fulltree' % (tip, tip_id))
+                          #file=sys.stderr)
                     # TODO: search in tree_ids, then detached_subtrees.add()
                     detached_subtrees.add(tip)
                     continue
 
-                while len(base_node.children) == 1:
-                    base_node = base_node.up
+                #while len(base_node.children) == 1:
+                #    base_node = base_node.up
             except AttributeError as err:
                 print('root (%r: %r) cannot have ancestors' % (tip, tip_id))
                 #print(fulltree.search_nodes(name=tip_id), err)
@@ -185,9 +199,6 @@ def branch2nb(mlc, fulltree):
             id2nb[base_id] = base
             # Add number in the fulltree:
             base_node.add_feature('nb', base)
-            # Also update the tree_nbs
-            base_nb_node = tree_nbs.search_nodes(name=tip)[0].up
-            base_nb_node.name = base
             print_if_verbose('ok')
         except KeyError as e:
             #if base in detached_subtrees:
@@ -199,10 +210,10 @@ def branch2nb(mlc, fulltree):
             #    print_if_verbose('KeyError')
 
     print_if_verbose(tree_nbs.get_ascii())
-    #print_if_verbose(tree_ids.get_ascii())
-    #print_if_verbose(fulltree)
+    print_if_verbose(tree_ids.get_ascii())
+    print_if_verbose(fulltree)
     #print_if_verbose(fulltree.get_ascii())
-    #printtree(fulltree)
+    #printtree(fulltree, features=['nb'])
     #showtree(fulltree)
     return id2nb, nb2id, tree_nbs
 
@@ -239,7 +250,8 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
         if len(node.children) != 1:
             parent = node.up
             intermediates = []
-            while parent.up and len(parent.children) == 1: #at root, up is None
+            #at root, up is None
+            while parent.up and getattr(parent, 'reinserted', None):
                 intermediates.append(parent)
                 parent = parent.up
             #print("%s:%s -> %s:%s\n   %s" % (id2nb[parent.name],
@@ -280,32 +292,38 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
             else:
                 node.add_feature('dS', dS_tot)
                 node.add_feature('dN', dN_tot)
+    
 
 
 def rm_erroneous_ancestors(fulltree, phyltree):
     """Some ancestors with only one child are present in the species phylogeny.
     They must be removed when they have an age of zero"""
-    infinite_dist = 50000
+    infinite_dist = 10000
     for node in fulltree.iter_descendants():
         if node.dist > infinite_dist:
-            print('WARNING: SKIP node with dist>%d : %s, dist=%d' \
+            print('WARNING: DETACH node with dist>%d : %s, dist=%d' \
                     % (infinite_dist, node.name, node.dist), file=sys.stderr)
             # Detaching/deleting would create a mismatch between fulltree and
             # tree_nbs/tree_ids
             #node.add_feature('skip', True)
+            parent = node.up
             node.detach()
+
         if not node.is_leaf():
             try:
                 taxon = ANCGENE2SP.match(node.name).group(1).replace('.', ' ')
             except AttributeError:
                 raise RuntimeError("Can not match species name in %r" % \
                                    node.name)
-            if len(node.children) == 1:
+            if len(node.children) <= 1:
                 if hasattr(node, 'reinserted'):
                     if phyltree.ages[taxon] > 0:
                         print('WARNING: DELETE reinserted node with age>0: %s'\
                                 % node.name,
                               file=sys.stderr)
+                        ### TODO: see if I should actually keep these nodes
+                        ###       (most often known ancestors, so might be
+                        ###        useful)
                 else:
                     print('WARNING: DELETE node with single child: %s' \
                             % node.name,
@@ -594,7 +612,7 @@ def rec_average_u(node, scname, subtree, measures=['dS']):
     """
     # Array operation here: increment tmp_m with current measure.
     # One children per row.
-    children_ms = np.stack([getattr(ch, m) for m in measures] \
+    children_ms = np.stack([getattr(ch, m, np.NaN) for m in measures] \
                             + subtree[ch.name]['tmp_m']
                            for ch in node.children)
     # weights:
@@ -614,7 +632,7 @@ def rec_average_w(node, scname, subtree, measures=['dS']):
     """
     # Array operation here: increment tmp_m with current measure.
     # One children per row.
-    children_ms = np.stack([getattr(ch, m) for m in measures] \
+    children_ms = np.stack([getattr(ch, m, np.NaN) for m in measures] \
                             + subtree[ch.name]['tmp_m']
                            for ch in node.children)
     # mean of each measure (across children)
@@ -624,18 +642,23 @@ def rec_average_w(node, scname, subtree, measures=['dS']):
 def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
                   method2=False):
     """normalize duplication node position between speciation nodes.
-     scaling: d / (D' + d)
+     scaling:
+       method1: d / (D' + d) with D' modified (UPGMA/WPGMA)
+       method2: d / (D' + d) with D' as the original measure.
         - d: average (WPGMA/UPGMA-like) of branch length leading to next
              speciation, in units of 'measure'.
              'measure' must be an attribute present in fulltree ('dS', 'dist').
         - D': branch length from the previous speciation to this duplication"""
     rec_average = rec_average_u if unweighted else rec_average_w
     ages = []
+    # list of ete3 subtrees of fulltree (between two consecutive speciations)
+    subtrees = []
     subtree = {} # temporary subtree while traversing from one speciation to
     # another
     n_measures = len(measures)
     # initial measure while passing a speciation for the first time
     measures_zeros = np.zeros(n_measures)
+    is_subtree_leaf = lambda node: (node.type in set(('leaf', 'spe'))) 
 
     for node in fulltree.traverse('postorder'):
         scname = node.name
@@ -648,25 +671,33 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
         #        raise
         if node.is_leaf():
             node.add_feature('type', 'leaf')
-            taxon = convert_gene2species(scname)
+            try:
+                taxon = convert_gene2species(scname)
+                leaf_age = 0
+            except RuntimeError as err:
+                print('WARNING', err, file=sys.stderr)
+                taxon = None
+                leaf_age = np.NaN
+
             subtree[scname] = {'taxon': taxon,
                                'tmp_m': measures_zeros,
                                'br_m': branch_measures,
-                               'age': 0,
+                               'age': leaf_age,
                                'speleaves': 1} # number of descendant speciation nodes
             #ages[scname] = 0
             ### TODO: add parent_name, parent_event
             ages.append([scname] + branch_measures.tolist() +
-                         measures_zeros.tolist() + ["leaf", node.up.name])
+                        measures_zeros.tolist() +
+                        ["leaf", getattr(node.up, 'name', None)])
             print_if_verbose("Leaf")
         else:
-            try:
-                assert len(node.children) > 1
-            except AssertionError as err:
-                if node.is_root():
-                    pass
-                else:
-                    raise
+            #try:
+            #    assert len(node.children) > 1
+            #except AssertionError as err:
+            #    if node.is_root():
+            #        pass
+            #    else:
+            #        raise
             try:
                 taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
             except AttributeError:
@@ -710,6 +741,7 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
                 ages.append([scname] + branch_measures.tolist() +
                             [node_age] * n_measures +
                             ["spe", getattr(node.up, 'name', None)])
+
                 for i, m in enumerate(measures):
                     node.add_feature('age_'+m, node_age)
                 # climb up tree until next speciation and assign an age to
@@ -765,9 +797,12 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
                                     for nch in nextnode.children)
                         subtree.pop(nextnode.name)
 
+                subtrees.append(node.write(features=['type'], format=1,
+                                           is_leaf_fn=is_subtree_leaf,
+                                           format_root_node=True))
                 # then reset measure (dS, dist) to zero
                 subtree[scname]['tmp_m'] = measures_zeros
-    return ages
+    return ages, subtrees
 
 
 def save_ages(ages, opened_outfile):
@@ -776,6 +811,20 @@ def save_ages(ages, opened_outfile):
         #                                if not np.isnan(elem) else '')
                              + "\n")
 
+def save_fulltree(fulltree, opened_outfile):
+    opened_outfile.write(fulltree.write(features=['type', 'age_dS', 'age_dist',
+                                                  'age_dN'],
+                                        format=1,
+                                        format_root_node=True) + '\n')
+
+def save_subtrees(subtrees, opened_outfile):
+    #for stree in subtrees:
+    #    opened_outfile.write(stree.write(features=['type'], format=1) + '\n')
+    opened_outfile.write('\n'.join(subtrees))
+
+savefunctions = {'ages': save_ages,
+                 'fulltree': save_fulltree,
+                 'subtrees': save_subtrees}
 
 def process_mlc(mlcfile, phyltree, replace_nwk='.mlc'):
     """main command: scale ages based on *dS* (method1)"""
@@ -823,23 +872,41 @@ def process_nwk2(mlcfile, phyltree, replace_nwk='.mlc'):
     return ages
 
 
-def process(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
-            method2=False, unweighted=False):
+def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS']):
     fulltree = load_fulltree(mlcfile, replace_nwk)
     rm_erroneous_ancestors(fulltree, phyltree)
-    if 'dS' in measures:
+    if set(('dN', 'dS')) & set(measures):
         with open(mlcfile) as mlc:
             id2nb, nb2id, tree_nbs = branch2nb(mlc, fulltree)
             dNdS = get_dNdS(mlc)
 
         set_dNdS_fulltree(fulltree, id2nb, dNdS)
+    return fulltree
+
+
+#def process_tonewick(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'], 
+#                     **kwargs):
+#    fulltree = setup_fulltree(mlcfile, phyltree, replace_nwk, measures)
+#
+#    # replace the branch distances by the chosen measure
+#    measure = measures[0]
+#    if measure != 'dist':
+#        for node in fulltree.traverse():
+#            node.add_feature('old_dist', node.dist)
+#            node.dist = getattr(node, measure, np.NaN)
+#
+#    return fulltree
+
     
-    #if not method2:
-    #    raise NotImplementedError("bound_average for method1 not written yet.")
-    ages = bound_average(fulltree, phyltree, measures=measures,
-                         unweighted=unweighted, method2=method2)
+#def process_toages(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
+def process(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
+            method2=False, unweighted=False):
+    fulltree = setup_fulltree(mlcfile, phyltree, replace_nwk, measures)
+    
+    ages, subtrees = bound_average(fulltree, phyltree, measures=measures,
+                                   unweighted=unweighted, method2=method2)
     showtree(fulltree)
-    return ages
+    return ages, fulltree, subtrees
 
 
 class Out(object):
@@ -868,7 +935,7 @@ class Out(object):
 
 def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
          measures=['dS'], unweighted=False, verbose=False, show=None,
-         replace_nwk='.mlc', ignore_errors=False):
+         replace_nwk='.mlc', ignore_errors=False, saveas='ages'):
     nb_mlc = len(mlcfiles)
     
     # "compile" some functions to avoid redondant tests ("if verbose: ...")
@@ -879,21 +946,18 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
 
     print_if_verbose("Main: outfile  %s\n" % outfile,
           "     mlcfiles %s %s\n" % (mlcfiles[:5], '...' * (nb_mlc>5)),
-          "     method2  %s\n" % method2,
           "     measures %s\n" % measures,
           "     verbose  %s\n" % verbose,
           "     show     %s\n" % show,
+          "     method2  %s\n" % method2,
           "     unweighted %s\n" % unweighted,
           "     replace_nwk %s\n" % replace_nwk,
           "     ignore_errors %s\n" % ignore_errors)
     
 
-    #if args.measure == 'dS':
-    #    process = process_mlc2 if args.method2 else process_mlc
-    #elif args.measure == 'dist':
-    #    process = process_nwk2 if args.method2 else process_nwk
-    #else:
-    #    raise RuntimeError("Unknown measure %r" % args.measure)
+    saveas_indices = {'ages': 0, 'fulltree': 1, 'subtrees': 2}
+    saveas_i = saveas_indices[saveas]
+    save_result = savefunctions[saveas]
 
     global showtree
     showtree = def_showtree(measures, show)
@@ -901,17 +965,19 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
     phyltree = PhylTree.PhylogeneticTree(phyltreefile)
     
     with Out(outfile, 'w') as out:
-        header = ['name'] + ['branch_'+m for m in measures] + \
-                 ['age_'+m for m in measures] + ['type', 'parent']
-        out.write('\t'.join(header) + '\n')
+        if saveas == 'ages':
+            header = ['name'] + ['branch_'+m for m in measures] + \
+                     ['age_'+m for m in measures] + ['type', 'parent']
+            out.write('\t'.join(header) + '\n')
+
         for i, mlcfile in enumerate(mlcfiles, start=1):
             percentage = float(i) / nb_mlc * 100
             print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_mlc, percentage, mlcfile),
                   end=' ')
             try:
-                ages = process(mlcfile, phyltree, replace_nwk,
-                               measures, method2, unweighted)
-                save_ages(ages, out)
+                result = process(mlcfile, phyltree, replace_nwk, measures,
+                                 method2=method2, unweighted=unweighted)
+                save_result(result[saveas_i], out)
             except BaseException as err:
                 print()
                 if ignore_errors:
@@ -928,6 +994,14 @@ if __name__=='__main__':
     parser.add_argument('mlcfiles', nargs='+')
     parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE)
     parser.add_argument('--method2', action='store_true')
+    parser.add_argument('-t', '--tofulltree', dest='saveas', action='store_const',
+                        const='fulltree', default='ages',
+                        help='Do not compute the table, but save trees in one'\
+                            'newick file with the chosen measure as distance')
+    parser.add_argument('-s', '--tosubtrees', dest='saveas', action='store_const',
+                        const='subtrees', default='ages',
+                        help='Do not compute the table, but save trees in one'\
+                            'newick file with the chosen measure as distance')
     parser.add_argument('--measures', nargs='*', default=['dS'],
                         choices=['dN', 'dS', 'dist'],
                         help='which distance measure: dS (from codeml) or ' \
