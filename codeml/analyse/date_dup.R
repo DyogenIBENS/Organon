@@ -3,6 +3,10 @@
 library(ape)
 
 
+load_calibration  <- function(agefile) {
+    agefile <- read.delim(agefile)
+}
+
 date_line <- function(line){
 	tree <- read.tree(text=line)
 }

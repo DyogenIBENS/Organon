@@ -64,7 +64,9 @@ PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
                    "PhylTree.Ensembl.{0}.conf"
 
 RE_TAXON = re.compile(r'[A-Z][A-Za-z_.-]+(?=ENSGT)')
-PAT_TAXON = r'^([A-Z][A-Za-z_.-]+|ENS[A-Z]+G)(ENSGT[0-9]+|)(.*)$'
+#PAT_TAXON = r'^(ENS[A-Z]+G|[A-Z][A-Za-z_.-]+)(ENSGT[0-9]+|)(.*)$'
+#PAT_TAXON = r'^([A-Z][A-Za-z_.-]+)(ENSGT[0-9]+)(.*)$'
+PAT_TAXON = r'^(ENS[A-Z]+G|[A-Z][A-Za-z_.-]+(?=ENSGT))(|ENSGT[0-9]+)([0-9]+|[.A-Za-z`]*)$'
 
 DEFAULT_NBINS = 50
 DEFAULT_AGE_KEY = 'age_dS'
@@ -129,6 +131,7 @@ class DataVisualizor(object):
         self.all_ages = pd.read_table(ages_file) #, names=['name','age','type'])
         splitted_names = self.all_ages.name.str.extract(PAT_TAXON, expand=True)
         splitted_names.columns = ['taxon', 'genetree', 'suffix']
+        #print(splitted_names.head(50))
         self.all_ages = pd.concat([self.all_ages, splitted_names], axis=1)
         self.dup_ages = self.all_ages[self.all_ages.type == 'dup'].copy()
 
