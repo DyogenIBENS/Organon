@@ -145,7 +145,7 @@ class DataVisualizor(object):
         print('shape after drop_dup:', self.dup_ages.shape)
         self.dup_ages.reset_index(drop=True, inplace=True)
         self.taxa_ages = self.dup_ages.groupby(['taxon'], sort=False)
-        self.dottaxa = self.taxa_ages.groups.keys()
+        self.dottaxa = sorted(self.taxa_ages.groups.keys())
         """A dot is used to separate words (genre.species)"""
         
         #newdata = [taxa_ages.get_group(lab)[age_keys] for lab in labels]
