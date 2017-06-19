@@ -560,6 +560,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                                        outfile=outfile,
                                        features=["reinserted"])
                         outfiles_set.add(outfile)
+    #print_if_verbose("Output %d trees." % len(outfiles_set))
     return list(outfiles_set)
 
 
@@ -638,14 +639,16 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
         outputs = pool.map(save_subtrees_process, generate_args)
         return_values, outfiles = zip(*outputs)
         progress = sum(return_values)
+        outfiles = [outf for outf_group in outfiles for outf in outf_group]
     else:
         progress = 0
         outfiles = []
         for args in generate_args:
             return_value, some_outfiles = save_subtrees_process(args)
             progress += return_value
-            outfiles.append(some_outfiles)
-    print("Finished processing %d/%d input trees" % (progress, n_input))
+            outfiles.extend(some_outfiles)
+    print("Finished processing %d/%d input trees. Output %d trees." % \
+            (progress, n_input, len(outfiles)))
     return outfiles
 
 
