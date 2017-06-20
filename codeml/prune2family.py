@@ -69,8 +69,9 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
     try:
         ancestor_lineage = diclinks[parent_sp][ancestor]
     except KeyError as err:
-        err.args += ("child node : %s (%r)" % (genename, ancestor),
-                     "parent node: %s (%r)" % (parent_genename, parent_sp))
+        err.args = (err.args[0] +
+                    "\nchild node : %s (%r)" % (genename, ancestor) +
+                    "\nparent node: %s (%r)" % (parent_genename, parent_sp),)
         raise err
     # Links from diclinks must be corrected: unnecessary nodes removed, i.e
     # nodes with a single child and age 0. (introducing potential errors)
@@ -514,7 +515,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     try:
         tree = ete3.Tree(treefile, format=1)
     except ete3.parser.newick.NewickError as err:
-        err.args += ('ERROR with treefile %r' % treefile,)
+        err.args = (err.args[0] + 'ERROR with treefile %r' % treefile,)
         raise
     insert_species_nodes_back(tree, ancgene2sp, diclinks, ages, fix_suffix,
                               force_mrca, ensembl_version)
@@ -552,7 +553,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                         sys.exit(1)
                     else:
                         if dry_run:
-                            print("node %r (%s) -> %s" % (node.name, ancestor, outfile))
+                            print("node %r (%s)\n\\-> %s" % (node.name, ancestor, outfile))
                         else:
                             print_if_verbose("Writing to %r." % outfile)
                             node.write(format=1,
