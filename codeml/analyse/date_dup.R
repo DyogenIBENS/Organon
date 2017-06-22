@@ -5,28 +5,28 @@ library(ape)
 agefile <- "ages/Rodentia_M1_agesdNdSdist.subtreesNoEdit-um2.tsv"
 treefile <- "trees/Rodentia_M1_dist.subtreesNoEdit.fulltree.nwk"
 
-load_calibration  <- function(agefile) {
-  ages <- read.delim(agefile)
-  calib <- ages[ages$type != "dup", c("name", "age_dist", "type")]
-  names(calib) <- c("name", "age.min", "type")
-  calib$age.max <- calib$age.min
+load_calibration <- function(agefile) {
+  ages <- read.delim(agefile, row.names=1)
+  #calib <- ages[ages$type == "spe", c("age_dist", "type")]
+  #names(calib) <- c("name", "age.min", "type")
+  #calib$age.max <- calib$age.min
   # cbind
   # calib$soft.bounds
   # calib$node
-  return(calib)
+  #return(calib)
+  return(ages)
 }
 
-subset_calibration <- function(calib, tree) {
-  ntips <- length(tree$tip.label)
+subset_calibration <- function(ages, tree, age_col="age_dist") {
+  ntips <- Ntip(tree)
   subcalib_names <- tree$node.label
-  subcalib_nodes <- sapply(tree$node.label, function (nl) {
-                           grep(nl, subcalib_names) + ntips})
-  subcalib_agemin <- sapply(subcalib_names, function(nl) {
-                              calib$age.min[calib$name == nl]})
+  subcalib_nodes <- seq_along(subcalib_names) + ntips
+  subcalib_agemin <- ages[subcalib_names, age_col]
   subcalib <- data.frame(node=subcalib_nodes,
                          age.min=subcalib_agemin,
                          age.max=subcalib_agemin,
-                         soft.bounds=FALSE)
+                         soft.bounds=FALSE,
+                         row.names=subcalib_names)
 }
 
 
@@ -45,8 +45,8 @@ date_tree <- function(tree, dating_func=chronos, ...) {
 
 }
 
-date_PL <- function(tree, calibration) {
-  return(chronos(tree, calibration=calibration))
+date_PL <- function(tree, calibration, lambda=1) {
+  return(chronos(tree, lambda=lambda, calibration=calibration))
 }
 
 date_NPRS <- function(tree, calibration) {
@@ -57,10 +57,19 @@ date_MPL <- function(tree, calibration) {
   return(chronos(tree, lambda=0, calibration=calibration))
 }
 
-date_PL <- function(tree, calibration) {
+date_ML <- function(tree, calibration) {
   return(chronos(tree, model='relaxed', calibration=calibration))
 }
 
+date_bestMPL <- function(tree, calibration, minl=0, maxl=2, lstep=0.1) {
+  all_chro <- lapply(seq(minl, maxl, lstep), function(lambda) {
+                        chronos(tree, lambda=lambda, calibration=calibration)})
+  #all_lambda <- sapply(all_chro, function(chro) {attr(chro, "PHIIC", exact=T)$lambda})
+  all_ploglik <- sapply(all_chro, function(chro) {attr(chro, "ploglik", exact=T)})
+
+  return(all_chro[which.min(all_ploglik)])
+
+}
 
 # Function that fills an age at one row (i.e one edge). To use in `apply`.
 fill.dates <- function(edgedatum, datation.env=new.env(), scale=1) {
@@ -74,9 +83,9 @@ chronogram2table <- function(chronogram,
                              leaf.age=0,
                              datation.env=new.env())
 {
-  ntips <- length(chronogram$tip.label)
+  ntips <- Ntip(chronogram)
   rootnb <- ntips + 1
-  nnodes <- chronogram$Nnode
+  nnodes <- Nnode(chronogram)
   tot_nodes <- ntips + nnodes
   # either write calibrated nodes too, or remove them from the edges beforehand
   #dated <- data.frame(row.names=seq(1, ntips+nnodes),
@@ -91,25 +100,53 @@ chronogram2table <- function(chronogram,
   edge_data <- cbind(chronogram$edge, chronogram$edge.length)
   edge_data <- edge_data[edge_data[,2] > ntips,]
 
-  apply(edge_data, 1, fill.dates, datation.env, scale=(root.age - leaf.age))
+  apply(edge_data, 1, fill.dates, datation.env) #, scale=(root.age - leaf.age))
   return(datation.env$dated)
 }
 
 
-date_all <- function(treefile, agefile) {
-  calib <- load_calibration(agefile)
-  f <- file(treefile, "r")
-  while ( TRUE ) {
-    line <- readLines(f, n=1)
-    if ( length(line) == 0 ) {
-      break
-    }
-    tree <- read.tree(text=line)
-    subcalib <- subset_calibration(calib, tree)
-    if (nrow(subcalib) < tree$Nnode) {
-      date_tree(line, calibration=tree)
-    }
+#date_all <- function(treefile, agefile) {
+#  calib <- load_calibration(agefile)
+#  f <- file(treefile, "r")
+#  while ( TRUE ) {
+#    line <- readLines(f, n=1)
+#    if ( length(line) == 0 ) {
+#      break
+#    }
+#    tree <- read.tree(text=line)
+#    subcalib <- subset_calibration(calib, tree)
+#    if (nrow(subcalib) < tree$Nnode) {
+#      date_tree(line, calibration=tree)
+#    }
+#  }
+#  close(f)
+#}
+
+process_line <- function(line, calibration, outfile, date_func=date_PL,
+                         age_col="age_dist", datation.env=new.env()) {
+  tree <- read.tree(text=line)
+  subcalib <- subset_calibration(calibration, tree, age_col=age_col)
+  if (nrow(subcalib) < tree$Nnode & all(calibration[tree$tip.label, age_col] == 0)) {
+    return(c("calibrate", tree$node.label[1]))
+    chronogram <- date_func(tree, calibration=subcalib)
+    root.age <- subcalib[tree$node.label[1], "age"]
+    dated <- chronogram2table(chronogram, root.age, datation.env=datation.env)
+    dated <- cbind(dated, ifelse(dated$name %in% subcalib), "spe", "dup")
+    write.table(dated, outfile, append=TRUE, sep='\t')
+  } else {
+    return(c("skip", tree$node.label[1]))
   }
-  close(f)
+
+}
+
+
+date_all <- function(treefile, agefile, outfile, date_func=date_PL,
+                     age_col="age_dist", test=-1) {
+  calib <- load_calibration(agefile)
+  #alltrees <- read.tree(treefile)
+  allnewick <- scan(treefile, what=character(), n=test)
+  datation.env <- new.env()
+  sapply(allnewick, process_line, calib, outfile, date_func, age_col, datation.env,
+         USE.NAMES=FALSE)
 }
 
