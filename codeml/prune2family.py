@@ -12,7 +12,8 @@ from copy import copy
 
 import ete3
 import LibsDyogen.myPhylTree as PhylTree
-from codeml.select_leaves_from_specieslist import convert_gene2species
+#from codeml.select_leaves_from_specieslist import convert_gene2species
+from select_leaves_from_specieslist import convert_gene2species
 
 
 ENSEMBL_VERSION = 85
