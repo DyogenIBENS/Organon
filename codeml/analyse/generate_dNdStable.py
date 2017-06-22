@@ -820,7 +820,10 @@ def save_ages(ages, opened_outfile):
 
 def save_fulltree(fulltree, opened_outfile):
     # first delete nodes with single child, because R Ape cannot read it.
+    #print("Save_fulltree")
+    #print(fulltree.get_ascii())
     for node in fulltree.iter_descendants('postorder'):
+        #print(node.name, node.children)
         if len(node.children) == 1:
             child = node.children[0]
             #parent = node.up
@@ -828,12 +831,17 @@ def save_fulltree(fulltree, opened_outfile):
                 if hasattr(child, feature):
                     setattr(child, feature,
                             getattr(child, feature) + getattr(node, feature, np.nan))
+            print_if_verbose('DELETE %r before saving' % node.name,
+                             file=sys.stderr)
             node.delete(prevent_nondicotomic=False, preserve_branch_length=True)
+    while len(fulltree.children) == 1:
+        fulltree = fulltree.children[0].detach()
 
-    opened_outfile.write(fulltree.write(features=['type', 'age_dS', 'age_dist',
-                                                  'age_dN'],
-                                        format=1,
-                                        format_root_node=True) + '\n')
+    if fulltree.children:
+        opened_outfile.write(fulltree.write(features=['type', 'age_dS',
+                                                        'age_dist', 'age_dN'],
+                                            format=1,
+                                            format_root_node=True) + '\n')
 
 def save_subtrees(subtrees, opened_outfile):
     #for stree in subtrees:
