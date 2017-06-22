@@ -279,8 +279,14 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
             for child in node_children:
                 print_if_verbose("  - child %r" % child.name)
                 if child.is_leaf():
-                    ancestor = convert_gene2species(child.name, ensembl_version)
-                    genename = child.name
+                    try:
+                        ancestor = convert_gene2species(child.name, ensembl_version)
+                        genename = child.name
+                    except RuntimeError as err:
+                        print("WARNING: Leaf %r not in an extant species" % \
+                              child.name,
+                              file=sys.stderr)
+                        ancestor, genename = split_species_gene(child.name, ancgene2sp)
                 else:
                     ancestor, genename = split_species_gene(child.name, ancgene2sp)
                 if ancestor not in diclinks:
