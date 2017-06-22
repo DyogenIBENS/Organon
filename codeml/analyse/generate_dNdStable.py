@@ -366,243 +366,250 @@ def sum_average_dNdS(dNdS, nb2id, tree_nbs):
     return dN, dS
 
 
-def bound_average_dS(dNdS, nb2id, tree_nbs, phyltree):
-    """calibrate tree using speciation nodes."""
-    ages = []
-    subtree = {}
-    for n in tree_nbs.traverse('postorder'):
-        node = n.name
-        scname = nb2id[node] # scientific name
-        print_if_verbose("%2s. %s:" % (node, scname), end=' ')
-        if n.is_leaf():
-            taxon = convert_gene2species(scname)
-            subtree[node] = {'taxon': taxon, 'dS': 0, 'age': 0} #, 'next_age': 0}
-            #ages[scname] = 0
-            print_if_verbose("Leaf")
-        else:
-            try:
-                taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
-            except AttributeError:
-                raise RuntimeError("Can not match species name in %r" % scname)
-
-            subtree[node] = {'taxon': taxon}
-            # determine if speciation or not
-            children_taxa = set(subtree[c.name]['taxon'] for c in n.children)
-            # compute and store average dS to next spe, for each child
-            children_dS = [subtree[c.name]['dS'] + \
-                            dNdS[node + '..' + c.name][5] \
-                            for c in n.children]
-            if len(children_taxa) == 1:
-                # It is a duplication: average children_dS
-                subtree[node]['dS'] = sum(children_dS) / len(children_dS)
-                print_if_verbose("Dupl; dS=%s" % subtree[node]['dS'])
-                # store the age of the next speciation event.
-                # Since it is a duplication, this should be the same for
-                # children[0] and children[1].
-                # This 'age' will later be modified (rescaled according to dS)
-                subtree[node]['age'] = subtree[n.children[0].name]['age']
-            else:
-                print_if_verbose("Spe")
-                # speciation: store the age of this taxon
-                node_age = subtree[node]['age'] = phyltree.ages[taxon]
-                ages.append([scname, node_age, "spe"])
-                # compute average dS to each next speciation.
-                # update age of each posterior dup
-                if len(n.children) > 1:
-                    pass
-                for c in n.children:
-                    # walk descendants until speciation.
-                    # need to get the age of next speciation and compute the
-                    # time between the two speciation.
-                    # NOTE: could actually have used the phyltree.branches
-                    branch_length = node_age - subtree[c.name]['age']
-                    dS_genebranch = dNdS[node + '..' + c.name][5]
-                    scaling_dS = subtree[c.name]['dS'] + dS_genebranch
-                    print_if_verbose("    climb up to next speciation: " \
-                                      "scaling_dS=%s; br_len=%s" % \
-                                        (scaling_dS, branch_length))
-                    nextnodes = [c]
-                    while nextnodes:
-                        nextnode = nextnodes.pop(0)
-                        nextnode_dS = subtree[nextnode.name]['dS']
-                        print_if_verbose("    - %2s. %s: dS=%s" % \
-                                            (nextnode.name,
-                                             nb2id[nextnode.name],
-                                             nextnode_dS))
-                        if nextnode_dS > 0:
-                            age = node_age - \
-                                (1 - nextnode_dS / scaling_dS) * branch_length
-                            #ages[nextnode.name] = age
-                            ages.append([nb2id[nextnode.name], age, "dup"])
-                            nextnodes.extend(nextnode.children)
-                        subtree.pop(nextnode.name)
-
-                # then reset dS to zero
-                subtree[node]['dS'] = 0
-    return ages
-
-
-def bound_average_dS(dNdS, id2nb, fulltree, phyltree):
-    ages = []
-    subtree = {}
-    #for node in fulltree.traverse('postorder'):
-    #    print(id2nb.get(node.name), end=' ')
-    #print()
-    #fulltree.show()
-    for node in fulltree.traverse('postorder'):
-        scname = node.name
-        print_if_verbose("* %3s. %s:" % (id2nb.get(scname), scname), end=' ')
-        if node.is_leaf():
-            taxon = convert_gene2species(scname)
-            subtree[scname] = {'taxon': taxon, 'tmp_dS': 0, 'age': 0} #, 'next_age': 0}
-            #ages[scname] = 0
-            print_if_verbose("Leaf")
-        else:
-            try:
-                taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
-            except AttributeError:
-                raise RuntimeError("Can not match species name in %r" % scname)
-
-            subtree[scname] = {'taxon': taxon}
-            children_taxa = set((subtree[ch.name]['taxon'] for ch in
-                                 node.children))
-
-            if len(children_taxa & set((taxon,))) == 1:
-                # it is a duplication:
-                children_dS = [ch.dS + subtree[ch.name]['tmp_dS'] for ch in
-                                node.children]
-                subtree[scname]['tmp_dS'] = sum(children_dS) / len(children_dS)
-
-                print_if_verbose("Dupl; dS=%s" % subtree[scname]['tmp_dS'])
-                # store the age of the next speciation event.
-                # Since it is a duplication, this should be the same for
-                # children[0] and children[1].
-                # This 'age' will later be modified (rescaled according to dS)
-                subtree[scname]['age'] = subtree[node.children[0].name]['age']
-
-            else:
-                # it is a speciation.
-                print_if_verbose("Spe")
-                # store the age of this taxon
-                node_age = subtree[scname]['age'] = phyltree.ages[taxon]
-                ages.append([scname, node_age, "spe"])
-                # climb up tree and assign an age to each duplication
-                for ch in node.children:
-                    # walk descendants until speciation.
-                    # need to get the age of next speciation and compute the
-                    # time between the two speciation.
-                    # NOTE: could actually have used the phyltree.branches
-                    branch_length = node_age - subtree[ch.name]['age']
-                    dS_genebranch = ch.dS
-                    scaling_dS = subtree[ch.name]['tmp_dS'] + dS_genebranch
-                    print_if_verbose("    climb up to next speciation: " \
-                                      "scaling_dS=%s; br_len=%s" % \
-                                        (scaling_dS, branch_length))
-                    nextnodes = [ch]
-                    while nextnodes:
-                        nextnode = nextnodes.pop(0)
-                        try:
-                            nextnode_dS = subtree[nextnode.name]['tmp_dS']
-                        except KeyError as err:
-                            err.args += ("Error: Node exists twice in the "
-                              "tree. You may need to rerun `prune2family.py`",)
-                            raise
-                        print_if_verbose("    - %2s. %s: dS=%s" % \
-                                            (id2nb.get(nextnode.name),
-                                             nextnode.name,
-                                             nextnode_dS))
-                        if nextnode_dS > 0:
-                            age = node_age - \
-                                (1 - nextnode_dS / scaling_dS) * branch_length
-                            ages.append([nextnode.name, age, "dup"])
-                            nextnodes.extend(nextnode.children)
-                        #print("    Pop: %s" % nextnode.name)
-                        #print("    nextnodes: ", nextnodes)
-                        #print("    next children: ", nextnode.children)
-                        subtree.pop(nextnode.name)
-
-                # then reset dS to zero
-                subtree[scname]['tmp_dS'] = 0
-    return ages
-
-
-def bound_average_dS_2(dNdS, id2nb, fulltree, phyltree):
-    """each dS of a duplication is normalized by the D' + dS, where:
-        - dS: average of branch length leading to next speciation, in dS
-        - D': branch length from the previous speciation to this duplication"""
-    ages = []
-    subtree = {}
-    for node in fulltree.traverse('postorder'):
-        scname = node.name
-        print_if_verbose("* %3s. %s:" % (id2nb.get(scname), scname), end=' ')
-        if node.is_leaf():
-            taxon = convert_gene2species(scname)
-            subtree[scname] = {'taxon': taxon, 'tmp_dS': 0, 'age': 0} #, 'next_age': 0}
-            #ages[scname] = 0
-            print_if_verbose("Leaf")
-        else:
-            try:
-                taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
-            except AttributeError:
-                raise RuntimeError("Can not match species name in %r" % scname)
-
-            subtree[scname] = {'taxon': taxon}
-            #for child in node.children:
-            #    child_name = child.name
-            #    child_taxon = subtree[child_name]
-            children_taxa = set((subtree[ch.name]['taxon'] for ch in
-                                 node.children))
-
-            if len(children_taxa & set((taxon,))) == 1:
-                # it is a duplication:
-                children_dS = [ch.dS + subtree[ch.name]['tmp_dS'] for ch in
-                               node.children]
-                subtree[scname]['tmp_dS'] = sum(children_dS) / len(children_dS)
-
-                print_if_verbose("Dupl; dS=%s" % subtree[scname]['tmp_dS'])
-                # store the age of the next speciation event.
-                # Since it is a duplication, this should be the same for
-                # children[0] and children[1].
-                # This 'age' will later be modified (rescaled according to dS)
-                subtree[scname]['age'] = subtree[node.children[0].name]['age']
-
-            else:
-                # it is a speciation.
-                print_if_verbose("Spe")
-                # store the age of this taxon
-                node_age = subtree[scname]['age'] = phyltree.ages[taxon]
-                ages.append([scname, node_age, "spe"])
-                # climb up tree and assign an age to each duplication
-                for ch in node.children:
-                    ### This is where version _2 is different
-                    # walk descendants until speciation.
-                    # need to get the age of next speciation and compute the
-                    # time between the two speciation.
-                    branch_length = node_age - subtree[ch.name]['age']
-                    print_if_verbose("    climb up to next speciation: " \
-                                      "br_len=%s" % branch_length)
-                    nextnodes = [(ch, ch.dS)]
-                    while nextnodes:
-                        nextnode, next_path_dS = nextnodes.pop(0)
-                        nextnode_dS = subtree[nextnode.name]['tmp_dS']
-                        print_if_verbose("    - %2s. %s: dS(to speciation)=%s"\
-                                         "; dS(from speciation)=%s" % \
-                                            (id2nb.get(nextnode.name),
-                                             nextnode.name,
-                                             nextnode_dS, next_path_dS))
-                        if nextnode_dS > 0:
-                            scaling_dS = next_path_dS + nextnode_dS
-                            age = node_age - \
-                                (1 - nextnode_dS / scaling_dS) * branch_length
-                            #ages[nextnode.name] = age
-                            ages.append([nextnode.name, age, "dup"])
-                            nextnodes.extend((nch, nch.dS + next_path_dS) \
-                                                for nch in nextnode.children)
-                        subtree.pop(nextnode.name)
-
-                # then reset dS to zero
-                subtree[scname]['tmp_dS'] = 0
-    return ages
+#def bound_average_dS(dNdS, nb2id, tree_nbs, phyltree):
+#    """calibrate tree using speciation nodes."""
+#    ages = []
+#    subtree = {}
+#    for n in tree_nbs.traverse('postorder'):
+#        node = n.name
+#        scname = nb2id[node] # scientific name
+#        print_if_verbose("%2s. %s:" % (node, scname), end=' ')
+#        if n.is_leaf():
+#            try:
+#                taxon = convert_gene2species(scname)
+#                leaf_age = 0
+#            except RuntimeError as err:
+#                print('WARNING: Leaf', err, file=sys.stderr)
+#                taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
+#                leaf_age = 
+#
+#            subtree[node] = {'taxon': taxon, 'dS': 0, 'age': leaf_age} #, 'next_age': 0}
+#            #ages[scname] = 0
+#            print_if_verbose("Leaf")
+#        else:
+#            try:
+#                taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
+#            except AttributeError:
+#                raise RuntimeError("Can not match species name in %r" % scname)
+#
+#            subtree[node] = {'taxon': taxon}
+#            # determine if speciation or not
+#            children_taxa = set(subtree[c.name]['taxon'] for c in n.children)
+#            # compute and store average dS to next spe, for each child
+#            children_dS = [subtree[c.name]['dS'] + \
+#                            dNdS[node + '..' + c.name][5] \
+#                            for c in n.children]
+#            if len(children_taxa) == 1:
+#                # It is a duplication: average children_dS
+#                subtree[node]['dS'] = sum(children_dS) / len(children_dS)
+#                print_if_verbose("Dupl; dS=%s" % subtree[node]['dS'])
+#                # store the age of the next speciation event.
+#                # Since it is a duplication, this should be the same for
+#                # children[0] and children[1].
+#                # This 'age' will later be modified (rescaled according to dS)
+#                subtree[node]['age'] = subtree[n.children[0].name]['age']
+#            else:
+#                print_if_verbose("Spe")
+#                # speciation: store the age of this taxon
+#                node_age = subtree[node]['age'] = phyltree.ages[taxon]
+#                ages.append([scname, node_age, "spe"])
+#                # compute average dS to each next speciation.
+#                # update age of each posterior dup
+#                if len(n.children) > 1:
+#                    pass
+#                for c in n.children:
+#                    # walk descendants until speciation.
+#                    # need to get the age of next speciation and compute the
+#                    # time between the two speciation.
+#                    # NOTE: could actually have used the phyltree.branches
+#                    branch_length = node_age - subtree[c.name]['age']
+#                    dS_genebranch = dNdS[node + '..' + c.name][5]
+#                    scaling_dS = subtree[c.name]['dS'] + dS_genebranch
+#                    print_if_verbose("    climb up to next speciation: " \
+#                                      "scaling_dS=%s; br_len=%s" % \
+#                                        (scaling_dS, branch_length))
+#                    nextnodes = [c]
+#                    while nextnodes:
+#                        nextnode = nextnodes.pop(0)
+#                        nextnode_dS = subtree[nextnode.name]['dS']
+#                        print_if_verbose("    - %2s. %s: dS=%s" % \
+#                                            (nextnode.name,
+#                                             nb2id[nextnode.name],
+#                                             nextnode_dS))
+#                        if nextnode_dS > 0:
+#                            age = node_age - \
+#                                (1 - nextnode_dS / scaling_dS) * branch_length
+#                            #ages[nextnode.name] = age
+#                            ages.append([nb2id[nextnode.name], age, "dup"])
+#                            nextnodes.extend(nextnode.children)
+#                        subtree.pop(nextnode.name)
+#
+#                # then reset dS to zero
+#                subtree[node]['dS'] = 0
+#    return ages
+#
+#
+#def bound_average_dS(dNdS, id2nb, fulltree, phyltree):
+#    ages = []
+#    subtree = {}
+#    #for node in fulltree.traverse('postorder'):
+#    #    print(id2nb.get(node.name), end=' ')
+#    #print()
+#    #fulltree.show()
+#    for node in fulltree.traverse('postorder'):
+#        scname = node.name
+#        print_if_verbose("* %3s. %s:" % (id2nb.get(scname), scname), end=' ')
+#        if node.is_leaf():
+#            taxon = convert_gene2species(scname)
+#            subtree[scname] = {'taxon': taxon, 'tmp_dS': 0, 'age': 0} #, 'next_age': 0}
+#            #ages[scname] = 0
+#            print_if_verbose("Leaf")
+#        else:
+#            try:
+#                taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
+#            except AttributeError:
+#                raise RuntimeError("Can not match species name in %r" % scname)
+#
+#            subtree[scname] = {'taxon': taxon}
+#            children_taxa = set((subtree[ch.name]['taxon'] for ch in
+#                                 node.children))
+#
+#            if len(children_taxa & set((taxon,))) == 1:
+#                # it is a duplication:
+#                children_dS = [ch.dS + subtree[ch.name]['tmp_dS'] for ch in
+#                                node.children]
+#                subtree[scname]['tmp_dS'] = sum(children_dS) / len(children_dS)
+#
+#                print_if_verbose("Dupl; dS=%s" % subtree[scname]['tmp_dS'])
+#                # store the age of the next speciation event.
+#                # Since it is a duplication, this should be the same for
+#                # children[0] and children[1].
+#                # This 'age' will later be modified (rescaled according to dS)
+#                subtree[scname]['age'] = subtree[node.children[0].name]['age']
+#
+#            else:
+#                # it is a speciation.
+#                print_if_verbose("Spe")
+#                # store the age of this taxon
+#                node_age = subtree[scname]['age'] = phyltree.ages[taxon]
+#                ages.append([scname, node_age, "spe"])
+#                # climb up tree and assign an age to each duplication
+#                for ch in node.children:
+#                    # walk descendants until speciation.
+#                    # need to get the age of next speciation and compute the
+#                    # time between the two speciation.
+#                    # NOTE: could actually have used the phyltree.branches
+#                    branch_length = node_age - subtree[ch.name]['age']
+#                    dS_genebranch = ch.dS
+#                    scaling_dS = subtree[ch.name]['tmp_dS'] + dS_genebranch
+#                    print_if_verbose("    climb up to next speciation: " \
+#                                      "scaling_dS=%s; br_len=%s" % \
+#                                        (scaling_dS, branch_length))
+#                    nextnodes = [ch]
+#                    while nextnodes:
+#                        nextnode = nextnodes.pop(0)
+#                        try:
+#                            nextnode_dS = subtree[nextnode.name]['tmp_dS']
+#                        except KeyError as err:
+#                            err.args += ("Error: Node exists twice in the "
+#                              "tree. You may need to rerun `prune2family.py`",)
+#                            raise
+#                        print_if_verbose("    - %2s. %s: dS=%s" % \
+#                                            (id2nb.get(nextnode.name),
+#                                             nextnode.name,
+#                                             nextnode_dS))
+#                        if nextnode_dS > 0:
+#                            age = node_age - \
+#                                (1 - nextnode_dS / scaling_dS) * branch_length
+#                            ages.append([nextnode.name, age, "dup"])
+#                            nextnodes.extend(nextnode.children)
+#                        #print("    Pop: %s" % nextnode.name)
+#                        #print("    nextnodes: ", nextnodes)
+#                        #print("    next children: ", nextnode.children)
+#                        subtree.pop(nextnode.name)
+#
+#                # then reset dS to zero
+#                subtree[scname]['tmp_dS'] = 0
+#    return ages
+#
+#
+#def bound_average_dS_2(dNdS, id2nb, fulltree, phyltree):
+#    """each dS of a duplication is normalized by the D' + dS, where:
+#        - dS: average of branch length leading to next speciation, in dS
+#        - D': branch length from the previous speciation to this duplication"""
+#    ages = []
+#    subtree = {}
+#    for node in fulltree.traverse('postorder'):
+#        scname = node.name
+#        print_if_verbose("* %3s. %s:" % (id2nb.get(scname), scname), end=' ')
+#        if node.is_leaf():
+#            taxon = convert_gene2species(scname)
+#            subtree[scname] = {'taxon': taxon, 'tmp_dS': 0, 'age': 0} #, 'next_age': 0}
+#            #ages[scname] = 0
+#            print_if_verbose("Leaf")
+#        else:
+#            try:
+#                taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
+#            except AttributeError:
+#                raise RuntimeError("Can not match species name in %r" % scname)
+#
+#            subtree[scname] = {'taxon': taxon}
+#            #for child in node.children:
+#            #    child_name = child.name
+#            #    child_taxon = subtree[child_name]
+#            children_taxa = set((subtree[ch.name]['taxon'] for ch in
+#                                 node.children))
+#
+#            if len(children_taxa & set((taxon,))) == 1:
+#                # it is a duplication:
+#                children_dS = [ch.dS + subtree[ch.name]['tmp_dS'] for ch in
+#                               node.children]
+#                subtree[scname]['tmp_dS'] = sum(children_dS) / len(children_dS)
+#
+#                print_if_verbose("Dupl; dS=%s" % subtree[scname]['tmp_dS'])
+#                # store the age of the next speciation event.
+#                # Since it is a duplication, this should be the same for
+#                # children[0] and children[1].
+#                # This 'age' will later be modified (rescaled according to dS)
+#                subtree[scname]['age'] = subtree[node.children[0].name]['age']
+#
+#            else:
+#                # it is a speciation.
+#                print_if_verbose("Spe")
+#                # store the age of this taxon
+#                node_age = subtree[scname]['age'] = phyltree.ages[taxon]
+#                ages.append([scname, node_age, "spe"])
+#                # climb up tree and assign an age to each duplication
+#                for ch in node.children:
+#                    ### This is where version _2 is different
+#                    # walk descendants until speciation.
+#                    # need to get the age of next speciation and compute the
+#                    # time between the two speciation.
+#                    branch_length = node_age - subtree[ch.name]['age']
+#                    print_if_verbose("    climb up to next speciation: " \
+#                                      "br_len=%s" % branch_length)
+#                    nextnodes = [(ch, ch.dS)]
+#                    while nextnodes:
+#                        nextnode, next_path_dS = nextnodes.pop(0)
+#                        nextnode_dS = subtree[nextnode.name]['tmp_dS']
+#                        print_if_verbose("    - %2s. %s: dS(to speciation)=%s"\
+#                                         "; dS(from speciation)=%s" % \
+#                                            (id2nb.get(nextnode.name),
+#                                             nextnode.name,
+#                                             nextnode_dS, next_path_dS))
+#                        if nextnode_dS > 0:
+#                            scaling_dS = next_path_dS + nextnode_dS
+#                            age = node_age - \
+#                                (1 - nextnode_dS / scaling_dS) * branch_length
+#                            #ages[nextnode.name] = age
+#                            ages.append([nextnode.name, age, "dup"])
+#                            nextnodes.extend((nch, nch.dS + next_path_dS) \
+#                                                for nch in nextnode.children)
+#                        subtree.pop(nextnode.name)
+#
+#                # then reset dS to zero
+#                subtree[scname]['tmp_dS'] = 0
+#    return ages
 
 
 def rec_average_u(node, scname, subtree, measures=['dS']):
@@ -812,6 +819,17 @@ def save_ages(ages, opened_outfile):
                              + "\n")
 
 def save_fulltree(fulltree, opened_outfile):
+    # first delete nodes with single child, because R Ape cannot read it.
+    for node in fulltree.iter_descendants('postorder'):
+        if len(node.children) == 1:
+            child = node.children[0]
+            #parent = node.up
+            for feature in ['branch_dS', 'branch_dN']:
+                if hasattr(child, feature):
+                    setattr(child, feature,
+                            getattr(child, feature) + getattr(node, feature, np.nan))
+            node.delete(prevent_nondicotomic=False, preserve_branch_length=True)
+
     opened_outfile.write(fulltree.write(features=['type', 'age_dS', 'age_dist',
                                                   'age_dN'],
                                         format=1,
