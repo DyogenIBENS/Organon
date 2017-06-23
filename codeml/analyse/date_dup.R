@@ -17,16 +17,17 @@ load_calibration <- function(agefile) {
   return(ages)
 }
 
-subset_calibration <- function(ages, tree, age_col="age_dist") {
+subset_calibration <- function(ages, tree, age_col="age_dist", leaf_age=0) {
   ntips <- Ntip(tree)
   subcalib_names <- tree$node.label
   subcalib_nodes <- seq_along(subcalib_names) + ntips
-  subcalib_agemin <- ages[subcalib_names, age_col]
+  subcalib_agemin <- ages[subcalib_names, age_col] - leaf_age
+  subcalib_types <- ages[subcalib_names, "type"]
   subcalib <- data.frame(node=subcalib_nodes,
                          age.min=subcalib_agemin,
                          age.max=subcalib_agemin,
                          soft.bounds=FALSE,
-                         row.names=subcalib_names)
+                         row.names=subcalib_names)[subcalib_types == "spe",]
 }
 
 
@@ -125,16 +126,19 @@ chronogram2table <- function(chronogram,
 process_line <- function(line, calibration, outfile, date_func=date_PL,
                          age_col="age_dist", datation.env=new.env()) {
   tree <- read.tree(text=line)
-  subcalib <- subset_calibration(calibration, tree, age_col=age_col)
-  if (nrow(subcalib) < tree$Nnode & all(calibration[tree$tip.label, age_col] == 0)) {
-    return(c("calibrate", tree$node.label[1]))
+  leaf_ages <- calibration[tree$tip.label, age_col]
+  test1 <- all(leaf_ages == leaf_ages[1])
+  subcalib <- subset_calibration(calibration, tree, age_col=age_col, leaf_age=leaf_ages[1])
+  test2 <- nrow(subcalib) < tree$Nnode
+  if (test1 & test2) {
+    return(c("calibrate", tree$node.label[1], test1, test2))
     chronogram <- date_func(tree, calibration=subcalib)
     root.age <- subcalib[tree$node.label[1], "age"]
     dated <- chronogram2table(chronogram, root.age, datation.env=datation.env)
     dated <- cbind(dated, ifelse(dated$name %in% subcalib), "spe", "dup")
     write.table(dated, outfile, append=TRUE, sep='\t')
   } else {
-    return(c("skip", tree$node.label[1]))
+    return(c("skip", tree$node.label[1], test1, test2))
   }
 
 }
