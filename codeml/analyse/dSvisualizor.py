@@ -129,10 +129,13 @@ class DataVisualizor(object):
         self.vertical = False
 
         self.all_ages = pd.read_table(ages_file) #, names=['name','age','type'])
-        splitted_names = self.all_ages.name.str.extract(PAT_TAXON, expand=True)
-        splitted_names.columns = ['taxon', 'genetree', 'suffix']
-        #print(splitted_names.head(50))
-        self.all_ages = pd.concat([self.all_ages, splitted_names], axis=1)
+        if not set(('taxon', 'genetree')) & set(self.all_ages.columns):
+            splitted_names = self.all_ages.name.str.extract(PAT_TAXON, expand=True)
+            splitted_names.columns = ['taxon', 'genetree', 'suffix']
+            splitted_names['taxon'] = splitted_names['taxon'].str.replace('\.', ' ')
+            #print(splitted_names.head(50))
+            self.all_ages = pd.concat([self.all_ages, splitted_names], axis=1)
+
         self.dup_ages = self.all_ages[self.all_ages.type == 'dup'].copy()
 
         if no_edited:
@@ -145,8 +148,8 @@ class DataVisualizor(object):
         print('shape after drop_dup:', self.dup_ages.shape)
         self.dup_ages.reset_index(drop=True, inplace=True)
         self.taxa_ages = self.dup_ages.groupby(['taxon'], sort=False)
-        self.dottaxa = sorted(self.taxa_ages.groups.keys())
-        """A dot is used to separate words (genre.species)"""
+        self.taxa = sorted(self.taxa_ages.groups.keys())
+        #"""A dot is used to separate words (genre.species)"""
         
         #newdata = [taxa_ages.get_group(lab)[age_keys] for lab in labels]
 
@@ -170,10 +173,10 @@ class DataVisualizor(object):
 
     def colorize_taxa(self, alpha=0.5, cmap_name='Dark2'):
         """Create colormap for taxa (add a column to the data + create a dict)"""
-        cmap = plt.get_cmap(cmap_name, len(self.dottaxa))
+        cmap = plt.get_cmap(cmap_name, len(self.taxa))
         self.taxonalpha = alpha
-        self.dottaxon2color = {taxon: cmap(i) for i, taxon in enumerate(self.dottaxa)}
-        self.dup_ages['taxoncolor'] = self.dup_ages.taxon.apply(self.dottaxon2color.get)
+        self.taxon2color = {taxon: cmap(i) for i, taxon in enumerate(self.taxa)}
+        self.dup_ages['taxoncolor'] = self.dup_ages.taxon.apply(self.taxon2color.get)
 
 
     def scatter(self, x, y, xlim=None, ylim=None):
@@ -182,12 +185,12 @@ class DataVisualizor(object):
         #                                     alpha=self.taxonalpha)
         #self.fig = self.ax.figure
         self.fig, self.ax = plt.subplots()
-        for taxon in self.dottaxa:
+        for taxon in self.taxa:
             data = self.taxa_ages.get_group(taxon)
             #print("Taxon: %s\n" % taxon, data.head())
             try:
                 data.plot.scatter(x, y, ax=self.ax,
-                                  color=self.dottaxon2color[taxon],
+                                  color=self.taxon2color[taxon],
                                   alpha=self.taxonalpha, label=taxon)
             except KeyError as err:
                 print(('Data column %r not available for scatter plot. Check '
@@ -207,7 +210,7 @@ class DataVisualizor(object):
         # Here, otherwise it changes my matplotlib rcParams
         from seaborn import violinplot
         self.fig, self.ax = plt.subplots()
-        #for taxon in self.dottaxa:
+        #for taxon in self.taxa:
         #    data = self.taxa_ages.get_group(taxon)
         #if ylim:
         #    ylim = [float(yl) for yl in ylim.split(',')]
@@ -227,14 +230,14 @@ class DataVisualizor(object):
     ### Histogram plotting methods ###
     def make_hist_data(self, taxa=None):
         """Given the selected taxa, return the appropriate data, colors, legend"""
-        label_len = max(len(lab) for lab in self.dottaxa)
+        label_len = max(len(lab) for lab in self.taxa)
         label_fmt = "%%-%ds" % label_len
 
-        taxa = taxa if taxa else self.dottaxa
+        taxa = taxa if taxa else self.taxa
 
         data = [self.taxa_ages.get_group(lab)[self.age_key].dropna() for lab in taxa]
-        colors      = [self.dottaxon2color[lab] for lab in taxa]
-        labs_legend = [label_fmt % lab          for lab in taxa]
+        colors      = [self.taxon2color[lab] for lab in taxa]
+        labs_legend = [label_fmt % lab       for lab in taxa]
         return data, colors, labs_legend
 
 
@@ -242,11 +245,10 @@ class DataVisualizor(object):
         """lineage: species name"""
         nbins = nbins if nbins else self.default_nbins
         
-        taxa = set(self.dottaxa)
+        taxa = set(self.taxa)
 
         if lineage:
-            full_lineage = set(link.replace(' ', '.') for link in 
-                               self.phyltree.dicLinks[self.phyltree.root][lineage])
+            full_lineage = set(self.phyltree.dicLinks[self.phyltree.root][lineage])
             taxa &= full_lineage 
 
         # set up hist_coords, in case `add_edited_prop` is used.
@@ -280,8 +282,7 @@ class DataVisualizor(object):
         Taxa returned by the iterator are space-separated
         """
         print("Loading species tree")
-        root, subtree = self.phyltree.getSubTree([taxon.replace('.', ' ') for 
-                                                  taxon in self.dottaxa])
+        root, subtree = self.phyltree.getSubTree(self.taxa)
 
         # reorder branches in a visually nice manner:
         ladderize(subtree, root)
@@ -304,7 +305,7 @@ class DataVisualizor(object):
         self.hist_coords = {}
         """'species': (x, y) i.e (age, subplot)"""
 
-        self.subs_dottaxa = []
+        self.subs_taxa = []
         """at each index: tuple of taxa appearing on the corresponding subplot"""
 
         self.treeforks = []
@@ -313,29 +314,29 @@ class DataVisualizor(object):
         print(" ---\n Assigning ancestors to subplots:")
         for anc1, anc2list in self.walk_phylsubtree():
             print(label_fmt % anc1, anc2list)
-            dotanc1 = anc1.replace(' ', '.')
+            #dotanc1 = anc1.replace(' ', '.')
             subs = []
             for anc2 in anc2list:
-                dotanc2 = anc2.replace(' ', '.')
-                _, sub = self.hist_coords.get(dotanc2, (None, None))
+                #dotanc2 = anc2.replace(' ', '.')
+                _, sub = self.hist_coords.get(anc2, (None, None))
                 if not sub:
-                    sub = len(self.subs_dottaxa)
-                    self.subs_dottaxa.append(set((dotanc2,)))
-                    self.hist_coords[dotanc2] = (self.phyltree.ages[anc2], sub)
+                    sub = len(self.subs_taxa)
+                    self.subs_taxa.append(set((anc2,)))
+                    self.hist_coords[anc2] = (self.phyltree.ages[anc2], sub)
                 subs.append(sub)
             age_anc1 = self.phyltree.ages[anc1]
             low_sub = max(subs)
             self.treeforks.append((age_anc1, low_sub, min(subs)))
-            self.hist_coords[dotanc1] = (age_anc1, low_sub)
-            self.subs_dottaxa[low_sub].add(dotanc1)
+            self.hist_coords[anc1] = (age_anc1, low_sub)
+            self.subs_taxa[low_sub].add(anc1)
 
-        # remove root from subs_dottaxa:
-        self.subs_dottaxa[low_sub].remove(dotanc1)
+        # remove root from subs_taxa:
+        self.subs_taxa[low_sub].remove(anc1)
 
         print(" ---\n Assigned coordinates (age, subplot)")
         for anc, coords in self.hist_coords.items():
             print(label_fmt % anc, ":", "%3d, %2d" % coords)
-        for i, subdatalabels in enumerate(self.subs_dottaxa):
+        for i, subdatalabels in enumerate(self.subs_taxa):
             print("%2d" %i, ', '.join(subdatalabels))
 
     # Add mouse events: print selected data
@@ -349,7 +350,7 @@ class DataVisualizor(object):
         #               for ltxt in picked_bar.axes.legend_.get_texts()]
 
         # get label (taxon)
-        picked_taxa = self.subs_dottaxa[self.axes.tolist().index(self.picked_bar.axes)]
+        picked_taxa = self.subs_taxa[self.axes.tolist().index(self.picked_bar.axes)]
 
         print("bar x0:", self.picked_bar.get_x())
         print("bar x1:", self.picked_bar.get_x() + self.picked_bar.get_width())
@@ -396,7 +397,7 @@ class DataVisualizor(object):
 
         self.vertical = vertical
 
-        n_subs = len(self.subs_dottaxa)
+        n_subs = len(self.subs_taxa)
         figsize = (15, 11)
 
         if vertical:
@@ -426,10 +427,10 @@ class DataVisualizor(object):
         fig, axes = plt.subplots(nrows, ncols, sharex=sharex, sharey=sharey,
                                  figsize=figsize)
         transfig = fig.transFigure.inverted()
-        cmap = plt.cm.get_cmap("Dark2", len(self.dottaxa))
+        cmap = plt.cm.get_cmap("Dark2", len(self.taxa))
 
         for ax_pos, ax in enumerate(axes):
-            labs        = self.subs_dottaxa[ax_pos]
+            labs        = self.subs_taxa[ax_pos]
             data, colors, labs_legend = self.make_hist_data(labs)
             print("nbins: %r" % nbins, file=sys.stderr)
             print("orientation: %r" % bar_orientation, file=sys.stderr)
@@ -596,8 +597,10 @@ if __name__=='__main__':
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument('ages_file')
     parent_parser.add_argument('outfile', nargs='?')
-    parent_parser.add_argument('-a', '--age-key', default=DEFAULT_AGE_KEY)
-    parent_parser.add_argument('-b', '--nbins', default=DEFAULT_NBINS)
+    parent_parser.add_argument('-a', '--age-key', default=DEFAULT_AGE_KEY,
+                               help='[%(default)s]')
+    parent_parser.add_argument('-b', '--nbins', default=DEFAULT_NBINS,
+                               help='[%(default)s]')
     
     process_edited_parser = parent_parser.add_mutually_exclusive_group()
     # these two options must be given the treeforest file.
