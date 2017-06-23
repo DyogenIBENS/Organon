@@ -298,7 +298,7 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
 def rm_erroneous_ancestors(fulltree, phyltree):
     """Some ancestors with only one child are present in the species phylogeny.
     They must be removed when they have an age of zero"""
-    infinite_dist = 10000
+    infinite_dist = 100
     for node in fulltree.iter_descendants():
         if node.dist > infinite_dist:
             print('WARNING: DETACH node with dist>%d : %s, dist=%d' \
@@ -695,7 +695,7 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
             ### TODO: add parent_name, parent_event
             ages.append([scname] + branch_measures.tolist() +
                         measures_zeros.tolist() +
-                        ["leaf", getattr(node.up, 'name', None)])
+                        ["leaf", getattr(node.up, 'name', None), taxon, fulltree.name])
             print_if_verbose("Leaf")
         else:
             #try:
@@ -747,21 +747,30 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
                 subtree[scname]['speleaves'] = 1
                 ages.append([scname] + branch_measures.tolist() +
                             [node_age] * n_measures +
-                            ["spe", getattr(node.up, 'name', None)])
+                            ["spe", getattr(node.up, 'name', None), taxon, fulltree.name])
 
                 for i, m in enumerate(measures):
                     node.add_feature('age_'+m, node_age)
                 # climb up tree until next speciation and assign an age to
                 # each duplication met on the way
-                if not method2:
-                    scaling_m = subtree[scname]['tmp_m']
-                for ch in node.children:
+                branch_lengths = [node_age - subtree[ch.name]['age'] for ch in node.children]
+                mean_br_len = sum(branch_lengths) / len(branch_lengths)
+
+                for ch, branch_length in zip(node.children, branch_lengths):
+                    ch_taxon = subtree[ch.name]['taxon']
                     ### This is where version _2 is different
                     # walk descendants until speciation.
                     # need to get the age of next speciation and compute the
                     # time between the two speciation.
 
-                    branch_length = node_age - subtree[ch.name]['age']
+                    if not method2:
+                        ### !!! Method1 does not make sense (both sides don't end
+                        ###     at the same speciation date).
+                        ###     Or at least for each child, choose a proportion of
+                        ###     scaling_m corresponding to the relative speciation
+                        ###     distance. TODO.
+                        scaling_m = subtree[scname]['tmp_m'] * branch_length/mean_br_len
+
                     print_if_verbose("    climb up to next speciation: " \
                                      "br_len=%s" % branch_length)
                     # Dynamic list during the climbing:
@@ -793,8 +802,10 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
                                   (1 - nextnode_m/scaling_m) * branch_length
                             #ages[nextnode.name] = age
                             nextnode_measures = subtree[nextnode.name]['br_m'].tolist()
-                            ages.append([nextnode.name] + nextnode_measures
-                                         + age.tolist() + ["dup", nextnode.up.name])
+                            ages.append([nextnode.name] + nextnode_measures + \
+                                        age.tolist() + \
+                                        ["dup", nextnode.up.name, ch_taxon,
+                                         fulltree.name])
                             for i, m in enumerate(measures):
                                 nextnode.add_feature('age_'+m, age[i])
                             # When climbing up to next spe, need to increment
@@ -839,7 +850,7 @@ def save_fulltree(fulltree, opened_outfile):
 
     if fulltree.children:
         opened_outfile.write(fulltree.write(features=['type', 'age_dS',
-                                                        'age_dist', 'age_dN'],
+                                                      'age_dist', 'age_dN'],
                                             format=1,
                                             format_root_node=True) + '\n')
 
@@ -993,7 +1004,8 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
     with Out(outfile, 'w') as out:
         if saveas == 'ages':
             header = ['name'] + ['branch_'+m for m in measures] + \
-                     ['age_'+m for m in measures] + ['type', 'parent']
+                     ['age_'+m for m in measures] + \
+                     ['type', 'parent', 'taxon', 'genetree']
             out.write('\t'.join(header) + '\n')
 
         for i, mlcfile in enumerate(mlcfiles, start=1):
