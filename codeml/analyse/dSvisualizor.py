@@ -87,6 +87,22 @@ def intersect_size(serie, checked_values):
     return float(len(is_edited)) / len(serie)
 
 
+def splitname2taxongenetree(df, name_col="name", index_col=None):
+    if index_col:
+        names = df.index.get_level_values(index_col).to_series()
+        names.index = df.index
+    else:
+        names = df[name_col]
+    splitted_names = names.str.extract(PAT_TAXON, expand=True)
+    splitted_names.columns = ['taxon', 'genetree', 'suffix']
+    splitted_names['taxon'] = splitted_names['taxon'].str.replace('\.', ' ')
+    #print(splitted_names.head(50))
+    named = pd.concat([df, splitted_names], ignore_index=True, axis=1)
+    named.columns = df.columns.tolist() + splitted_names.columns.tolist()
+    named.index = df.index
+    return named
+
+
 class DataVisualizor(object):
 
     ensembl_version = 85
@@ -130,11 +146,7 @@ class DataVisualizor(object):
 
         self.all_ages = pd.read_table(ages_file) #, names=['name','age','type'])
         if not set(('taxon', 'genetree')) & set(self.all_ages.columns):
-            splitted_names = self.all_ages.name.str.extract(PAT_TAXON, expand=True)
-            splitted_names.columns = ['taxon', 'genetree', 'suffix']
-            splitted_names['taxon'] = splitted_names['taxon'].str.replace('\.', ' ')
-            #print(splitted_names.head(50))
-            self.all_ages = pd.concat([self.all_ages, splitted_names], axis=1)
+            self.all_ages = splitname2taxongenetree(self.all_ages, "name")
 
         self.dup_ages = self.all_ages[self.all_ages.type == 'dup'].copy()
 
