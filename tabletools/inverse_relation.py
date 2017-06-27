@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 
+
+from __future__ import print_function
+
+
 """
 Takes a table associating a key to a list of values, 
 and return a table where the new keys are the set of values, and the new values
 are the keys.
 """
+
 
 import argparse
 from datetime import datetime
@@ -115,10 +120,17 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('infile')
     parser.add_argument('outfile')
-    parser.add_argument('-k', '--key-column', type=int, default=0)
-    parser.add_argument('-v', '--value-column', type=int, default=1)
-    parser.add_argument('-S', '--sep', default='\t')
-    parser.add_argument('-s', '--value-sep', default=' ')
+    parser.add_argument('-k', '--key-column', type=int, default=0,
+                        help='Column number (0-based) containing the original'\
+                             ' keys [%(default)s]')
+    parser.add_argument('-v', '--value-column', type=int, default=1,
+                        help='Column number (0-based) containing the original'\
+                             ' values [%(default)s]')
+    parser.add_argument('-S', '--sep', default='\t',
+                        help='Column separator in the infile [%(default)r]')
+    parser.add_argument('-s', '--value-sep', default=' ',
+                        help='Value separator (inside the values column) in ' \
+                             'the infile [space]')
     parser.add_argument('--no-sort', action='store_false', dest='sort')
     parser.add_argument('--no-header', action='store_false', dest='has_header',
                         help='Do not interpret the first line as header')
