@@ -97,8 +97,9 @@ def splitname2taxongenetree(df, name_col="name", index_col=None):
     splitted_names.columns = ['taxon', 'genetree', 'suffix']
     splitted_names['taxon'] = splitted_names['taxon'].str.replace('\.', ' ')
     #print(splitted_names.head(50))
-    named = pd.concat([df, splitted_names], ignore_index=True, axis=1)
-    named.columns = df.columns.tolist() + splitted_names.columns.tolist()
+    concat_cols = [col for col in splitted_names.columns if col not in df.columns]
+    named = pd.concat([df, splitted_names[concat_cols]], ignore_index=True, axis=1)
+    named.columns = df.columns.tolist() + concat_cols
     named.index = df.index
     return named
 
@@ -145,6 +146,7 @@ class DataVisualizor(object):
         self.vertical = False
 
         self.all_ages = pd.read_table(ages_file) #, names=['name','age','type'])
+        ### TODO: if at least one of these is missing.
         if not set(('taxon', 'genetree')) & set(self.all_ages.columns):
             self.all_ages = splitname2taxongenetree(self.all_ages, "name")
 
@@ -642,7 +644,7 @@ if __name__=='__main__':
     
     dictargs = vars(args)
 
-    print(dictargs)
+    #print(dictargs)
 
     run(**dictargs)
     #command = CMD_FUNC[dictargs.pop('command')]
