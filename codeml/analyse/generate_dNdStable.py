@@ -820,6 +820,7 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
                                            format_root_node=True))
                 # then reset measure (dS, dist) to zero
                 subtree[scname]['tmp_m'] = measures_zeros
+    #print_if_verbose(subtree)
     return ages, subtrees
 
 
@@ -1005,7 +1006,7 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
         if saveas == 'ages':
             header = ['name'] + ['branch_'+m for m in measures] + \
                      ['age_'+m for m in measures] + \
-                     ['type', 'parent', 'taxon', 'genetree']
+                     ['type', 'parent', 'taxon', 'subgenetree']
             out.write('\t'.join(header) + '\n')
 
         for i, mlcfile in enumerate(mlcfiles, start=1):
