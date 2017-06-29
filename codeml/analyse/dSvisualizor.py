@@ -446,9 +446,10 @@ class DataVisualizor(object):
         for ax_pos, ax in enumerate(axes):
             labs        = self.subs_taxa[ax_pos]
             data, colors, labs_legend = self.make_hist_data(labs)
+            print("N observations: %s" % ([d.shape for d in data],), file=sys.stderr)
             print("nbins: %r" % nbins, file=sys.stderr)
-            print("orientation: %r" % bar_orientation, file=sys.stderr)
-            print("colors: %s" % colors, file=sys.stderr)
+            #print("orientation: %r" % bar_orientation, file=sys.stderr)
+            #print("colors: %s" % colors, file=sys.stderr)
             print("label: %s" % labs_legend, file=sys.stderr)
             _, bins, _ = ax.hist(data, bins=nbins, histtype='barstacked', rwidth=1,
                                  range=(0, oldest_age),
@@ -613,7 +614,7 @@ if __name__=='__main__':
     parent_parser.add_argument('outfile', nargs='?')
     parent_parser.add_argument('-a', '--age-key', default=DEFAULT_AGE_KEY,
                                help='[%(default)s]')
-    parent_parser.add_argument('-b', '--nbins', default=DEFAULT_NBINS,
+    parent_parser.add_argument('-b', '--nbins', type=int, default=DEFAULT_NBINS,
                                help='[%(default)s]')
     
     process_edited_parser = parent_parser.add_mutually_exclusive_group()
