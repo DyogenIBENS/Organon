@@ -2,9 +2,6 @@
 
 library(ape)
 
-agefile <- "ages/Rodentia_M1_agesdNdSdist.subtreesNoEdit-um2.tsv"
-treefile <- "trees/Rodentia_M1_dist.subtreesNoEdit.fulltree.nwk"
-
 load_calibration <- function(agefile) {
   ages <- read.delim(agefile, row.names=1)
   #calib <- ages[ages$type == "spe", c("age_dist", "type")]
@@ -56,12 +53,13 @@ date_PL <- function(tree, calibration, lambda=1, ...) {
 }
 
 date_NPRS <- function(tree, calibration, ...) {
-  return(chronos(tree, lambda=0, calibration=calibration, ...))
+  return(chronos(tree, lambda=1000, calibration=calibration, ...))
 }
 
-date_MPL <- function(tree, calibration, ...) {
+date_MPL <- function(subtree, calibration, ...) {
   # TODO: split the input tree into subtrees with calibrated leaves
-  return(chronoMPL(tree, ...))
+  if ( !is.binary(subtree) ) subtree <- multi2di(subtree)
+  return(chronoMPL(subtree, ...))
 }
 
 #date_ML <- function(tree, calibration) {
@@ -72,7 +70,7 @@ date_MPL <- function(tree, calibration, ...) {
 ### NOTE: the best lambda value (penalty roughness) must be chosen by
 ###       cross-validation. Testing multiple subtrees to check the prediction on
 ###       the removed nodes
-#date_bestMPL <- function(tree, calibration, minl=0, maxl=2, lstep=0.1) {
+#date_bestPL <- function(tree, calibration, minl=0, maxl=2, lstep=0.1) {
 #  all_chro <- lapply(seq(minl, maxl, lstep), function(lambda) {
 #                        chronos(tree, lambda=lambda, calibration=calibration)})
 #  #all_lambda <- sapply(all_chro, function(chro) {attr(chro, "PHIIC", exact=T)$lambda})
@@ -92,8 +90,10 @@ fill.dates <- function(edgedatum, datation.env=new.env(), scale=1) {
 chronogram2table <- function(chronogram,
                              root.age,
                              leaf.age=0,
-                             datation.env=new.env())
+                             datation.env=new.env(), 
+                             rescale=FALSE)
 {
+  # also see ape::branching.times
   ntips <- Ntip(chronogram)
   rootnb <- ntips + 1
   nnodes <- Nnode(chronogram)
@@ -106,12 +106,11 @@ chronogram2table <- function(chronogram,
                       name=chronogram$node.label,
                       age=numeric(nnodes))
   dated[as.character(rootnb), "age"] <- root.age
-  
   assign("dated", dated, envir=datation.env)
   edge_data <- cbind(chronogram$edge, chronogram$edge.length)
+  scale <- ifelse(rescale, root_age - leaf_age, 1)
   edge_data <- edge_data[edge_data[,2] > ntips,,drop=FALSE]
-
-  apply(edge_data, 1, fill.dates, datation.env) #, scale=(root.age - leaf.age))
+  apply(edge_data, 1, fill.dates, datation.env, scale)
   return(datation.env$dated)
 }
 
@@ -119,6 +118,7 @@ chronogram2table <- function(chronogram,
 process_line <- function(line, calibration, outfile, date_func=date_PL,
                          age_col="age_dist", datation.env=new.env(), ...) {
   count_iter <<- count_iter + 1
+  rescale <- identical(date_func, date_MPL)
   tree <- read.tree(text=line)
   leaf_ages <- calibration[tree$tip.label, age_col]
   test1 <- all(leaf_ages == leaf_ages[1])
@@ -142,7 +142,10 @@ process_line <- function(line, calibration, outfile, date_func=date_PL,
       return(c(as.character(as.vector(e)), tree$node.label[1], test1, test2, test3))
     }
     root.age <- subcalib[tree$node.label[1], "age.min"]
-    dated <- chronogram2table(chronogram, root.age, datation.env=datation.env)
+    
+    dated <- chronogram2table(chronogram, root.age, leaf_ages[1],
+                              datation.env=datation.env,
+                              rescale=rescale)
     dated <- cbind(dated,
                    calibration[as.character(dated$name),
                                c("type", "parent", "taxon", "subgenetree")])
@@ -159,16 +162,46 @@ process_line <- function(line, calibration, outfile, date_func=date_PL,
 
 
 date_all <- function(treefile, agefile, outfile, date_func=date_PL,
-                     age_col="age_dist", test=-1, ...) {
+                     age_col="age_dist", n=-1, ...) {
   require(ape)
   calib <- load_calibration(agefile)
   #alltrees <- read.tree(treefile)
-  allnewick <- scan(treefile, what=character(), n=test)
+  allnewick <- scan(treefile, what=character(), n=n)
   datation.env <- new.env()
   first_write <<- TRUE
   count_iter  <<- 0
   #cat("\n")
-  sapply(allnewick, process_line, calib, outfile, date_func, age_col,
-         datation.env, ..., USE.NAMES=FALSE)
+  r <- sapply(allnewick, process_line, calib, outfile, date_func, age_col,
+              datation.env, ..., USE.NAMES=FALSE)
+  skipped <- sum(r[1,] == "skip")
+  calibrated <- sum(r[1,] == "calibrate")
+  failed <- ncol(r) - skipped - calibrated
+  cat("Calibrated:", calibrated, "Skipped:", skipped, "Failed:", failed, "\n")
+  return(t(r))
 }
 
+
+run <- function() {
+  ## Penalized likelihood
+  agefile <- "ages/Rodentia_M1_agesdNdSdist.subtreesNoEdit-um2.tsv"
+  treefile <- "trees/Rodentia_M1_dist.subtreesNoEdit.fulltree.nwk"
+
+  outfile <- "ages/Rodentia_M1_agesdist.subtreesNoEdit-PL.tsv"
+  x <- date_all(treefile, agefile, outfile, quiet=TRUE)
+
+  outfile <- "ages/Rodentia_M1_agesdist.subtreesNoEdit-PL100.tsv"
+  x100 <- date_all(treefile, agefile, outfile, lambda=100, quiet=TRUE)
+
+  outfile <- "ages/Rodentia_M1_agesdist.subtreesNoEdit-PL100.tsv"
+  x100 <- date_all(treefile, agefile, outfile, lambda=100, quiet=TRUE)
+  # Penalized relaxed
+  outfile <- "ages/Rodentia_M1_agesdist.subtreesNoEdit-PLR.tsv"
+  x_r <- date_all(treefile, agefile, outfile, date_MPL, model='relaxed', quiet=TRUE)
+
+  ## MPL
+  treefile <- "trees/Rodentia_M1_dist.subtreesNoEdit.subtrees.nwk"
+  outfile <- "ages/Rodentia_M1_agesdist.subtreesNoEdit-MPL.tsv"
+
+  xMPL <- date_all(treefile, agefile, "test/dated_mpl.tsv", date_MPL,
+                   se=FALSE, test=FALSE)
+}
