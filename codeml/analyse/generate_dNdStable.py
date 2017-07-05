@@ -665,7 +665,7 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
     n_measures = len(measures)
     # initial measure while passing a speciation for the first time
     measures_zeros = np.zeros(n_measures)
-    is_subtree_leaf = lambda node: (node.type in set(('leaf', 'spe'))) 
+    is_subtree_leaf = lambda node: (not node.is_root() and node.type in set(('leaf', 'spe')))
 
     for node in fulltree.traverse('postorder'):
         scname = node.name
@@ -815,9 +815,15 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
                                     for nch in nextnode.children)
                         subtree.pop(nextnode.name)
 
-                subtrees.append(node.write(features=['type'], format=1,
-                                           is_leaf_fn=is_subtree_leaf,
-                                           format_root_node=True))
+                # copy the node so that it becomes the new root
+                nodecopy = node.copy()
+                speleaves = nodecopy.get_leaves(is_leaf_fn=is_subtree_leaf)
+                for splf in speleaves:
+                    for splfch in splf.children:
+                        splfch.detach()
+                
+                subtrees.append(nodecopy)
+
                 # then reset measure (dS, dist) to zero
                 subtree[scname]['tmp_m'] = measures_zeros
     #print_if_verbose(subtree)
@@ -830,11 +836,8 @@ def save_ages(ages, opened_outfile):
         #                                if not np.isnan(elem) else '')
                              + "\n")
 
-def save_fulltree(fulltree, opened_outfile):
-    # first delete nodes with single child, because R Ape cannot read it.
-    #print("Save_fulltree")
-    #print(fulltree.get_ascii())
-    for node in fulltree.iter_descendants('postorder'):
+def del_singletons(tree):
+    for node in tree.iter_descendants('postorder'):
         #print(node.name, node.children)
         if len(node.children) == 1:
             child = node.children[0]
@@ -846,8 +849,17 @@ def save_fulltree(fulltree, opened_outfile):
             print_if_verbose('DELETE %r before saving' % node.name,
                              file=sys.stderr)
             node.delete(prevent_nondicotomic=False, preserve_branch_length=True)
-    while len(fulltree.children) == 1:
-        fulltree = fulltree.children[0].detach()
+    while len(tree.children) == 1:
+        tree = tree.children[0].detach()
+
+    return tree
+
+
+def save_fulltree(fulltree, opened_outfile):
+    # first delete nodes with single child, because R Ape cannot read it.
+    #print("Save_fulltree")
+    #print(fulltree.get_ascii())
+    fulltree = del_singletons(fulltree)
 
     if fulltree.children:
         opened_outfile.write(fulltree.write(features=['type', 'age_dS',
@@ -858,11 +870,13 @@ def save_fulltree(fulltree, opened_outfile):
 def save_subtrees(subtrees, opened_outfile):
     #for stree in subtrees:
     #    opened_outfile.write(stree.write(features=['type'], format=1) + '\n')
-    opened_outfile.write('\n'.join(subtrees))
+    #opened_outfile.write('\n'.join(subtrees) + '\n')
+    for stree in subtrees:
+        save_fulltree(stree, opened_outfile)
 
 savefunctions = {'ages': save_ages,
                  'fulltree': save_fulltree,
-                 'subtrees': save_subtrees}
+                 'subtrees': save_subtrees} #save_subtrees}
 
 def process_mlc(mlcfile, phyltree, replace_nwk='.mlc'):
     """main command: scale ages based on *dS* (method1)"""
