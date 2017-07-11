@@ -125,8 +125,9 @@ process_line <- function(line, calibration, outfile, date_func=date_PL,
   subcalib <- subset_calibration(calibration, tree, age_col=age_col, leaf_age=leaf_ages[1])
   test2 <- nrow(subcalib) < tree$Nnode
   test3 <- nrow(subcalib) > 0
+  test4 <- all(tree$edge.length > 0)
   cat("\r", count_iter, tree$node.label[1])
-  if (test1 & test2 & test3) {
+  if (test1 & test2 & test3 & test4) {
     chronogram <- tryCatch(date_func(tree, calibration=subcalib, ...),
                             error=function(e) {
                                     cat(" Got Error:")
