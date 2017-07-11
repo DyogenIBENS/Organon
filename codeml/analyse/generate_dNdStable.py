@@ -14,6 +14,8 @@ import LibsDyogen.myPhylTree as PhylTree # my custom python3 version
 
 from select_leaves_from_specieslist import convert_gene2species
 
+from codeml.codemlparser import codeml_parser
+
 
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data85/PhylTree.Ensembl.85.conf"
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS')
@@ -132,23 +134,36 @@ def branch2nb(mlc, fulltree):
     print_if_verbose()
     regex = re.compile(r'^(.*);$')
     regex_lnL = re.compile(r'^lnL\(')
+    regex_w = re.compile(r'^w \(dN/dS\) for branches:')
     # get the line listing all branches
     line = mlc.readline().rstrip()
     while not regex_lnL.match(line):
         line = mlc.readline().rstrip()
     branches_line = mlc.readline().rstrip()
-    branches = [b.split('..') for b in branches_line.split()]
+    branches = branches_line.split()
     # get translation by looking at the newick tree lines.
     # I could also get it by the lines #1: ENS...
+    lengths_line = mlc.readline().rstrip()
+    lengths = [float(l) for l in lengths_line.split()]
+
+    # Get the tree labelled with numbers
     line = mlc.readline().rstrip()
     while not regex.match(line):
         line = mlc.readline().rstrip()
     tree_nbs = ete3.Tree(line)
 
+    # Get the tree with original labels
     line = mlc.readline().rstrip()
     while not regex.match(line):
         line = mlc.readline().rstrip()
     tree_ids = ete3.Tree(line)
+
+    # Get the omega (dN/dS) values
+    line = mlc.readline().rstrip()
+    while not regex_w.match(line):
+        line = mlc.readline().rstrip()
+    omegas = [float(w) for w in regex_w.sub('', line).split()]
+    branch_tw = list(zip(branches, lengths, omegas))
 
     id2nb = dict(zip(tree_ids.get_leaf_names(), tree_nbs.get_leaf_names()))
     nb2id = dict(zip(tree_nbs.get_leaf_names(), tree_ids.get_leaf_names()))
@@ -167,8 +182,9 @@ def branch2nb(mlc, fulltree):
 
     # branches follow the order of the newick string.
     while branches:
-        base, tip = branches.pop()
-        print_if_verbose("%-8s" % (base + '..' + tip), end=' ')
+        br = branches.pop()
+        base, tip = br.split('..')
+        print_if_verbose("%-8s" % br, end=' ')
         # Update the tree_nbs
         base_nb_node = tree_nbs.search_nodes(name=tip)[0].up
         base_nb_node.name = base
@@ -215,17 +231,22 @@ def branch2nb(mlc, fulltree):
     #print_if_verbose(fulltree.get_ascii())
     #printtree(fulltree, features=['nb'])
     #showtree(fulltree)
-    return id2nb, nb2id, tree_nbs
+    return id2nb, nb2id, tree_nbs, branch_tw
 
 
 def get_dNdS(mlc):
     """Parse table of dN/dS from codeml output file.
     
     mlc: filehandle
+
+    WARNING: Numbers are rounded!!! (e.g, only 3 decimals for `t`, 4 for `dS`).
     """
     #reg_dNdS = re.compile(r'dN & dS for each branch')
     reg_dNdS = re.compile(r'\s+branch\s+t\s+N\s+S\s+dN/dS\s+dN\s+dS\s+N\*dN' \
                           r'\s+S\*dS')
+    reg_dStree = re.compile(r'dS tree:$')
+    reg_dNtree = re.compile(r'dN tree:$')
+    
     line = mlc.readline().rstrip()
     while not reg_dNdS.match(line):
         line = mlc.readline().rstrip()
@@ -237,15 +258,34 @@ def get_dNdS(mlc):
         fields = line.split()
         dNdS[fields[0]] = [float(x) for x in fields[1:]]
         line = mlc.readline().rstrip()
-    return dNdS
+
+    line = mlc.readline().rstrip()
+    while not reg_dStree.match(line):
+        line = mlc.readline().rstrip()
+    dStree = mlc.readline().rstrip()
+    
+    line = mlc.readline().rstrip()
+    while not reg_dNtree.match(line):
+        line = mlc.readline().rstrip()
+    dNtree = mlc.readline().rstrip()
+    
+    return dNdS, dStree, dNtree
     
 
 #def set_dS_fulltree(fulltree, id2nb, dNdS):
-def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
+def set_dNdS_fulltree(fulltree, id2nb, dNdS, dStree, dNtree, br_tw,
+                      raise_at_intermediates=True):
     """Add codeml dS on each branch of the complete tree (with missing species
     nodes).
     When a node has a single child: take the branch dS on which it is, 
     and divide proportionnally to each segment dist."""
+    # First, update the dNdS table with the more accurate values br_lengths
+    for br, br_len, br_w in br_tw:
+        dNdS[br][0] = br_len
+        dNdS[br][3] = br_w
+
+    # Then update the dNdS table with the more accurate values in dStree dNtree
+
     for node in fulltree.get_descendants('postorder'): # exclude root
         if len(node.children) != 1:
             parent = node.up
@@ -262,10 +302,12 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
 
             if parent.is_root():
                 # then this is a root with a single children: cannot have dS
+                t_tot = 0
                 dS_tot = 0
                 dN_tot = 0
             else:
                 try:
+                    t_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][0]
                     dS_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][5]
                     dN_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][4]
                 except KeyError as err:
@@ -285,11 +327,14 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
                     dist_tot = 1. # should set to NaN to be sure.
 
                 for inter_node in intermediates + [node]:
+                    inter_node.add_feature('t',
+                                           t_tot * inter_node.dist / dist_tot)
                     inter_node.add_feature('dS',
                                            dS_tot * inter_node.dist / dist_tot)
                     inter_node.add_feature('dN',
                                            dN_tot * inter_node.dist / dist_tot)
             else:
+                node.add_feature('t', t_tot)
                 node.add_feature('dS', dS_tot)
                 node.add_feature('dN', dN_tot)
     
@@ -929,10 +974,10 @@ def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS']):
     rm_erroneous_ancestors(fulltree, phyltree)
     if set(('dN', 'dS')) & set(measures):
         with open(mlcfile) as mlc:
-            id2nb, nb2id, tree_nbs = branch2nb(mlc, fulltree)
-            dNdS = get_dNdS(mlc)
+            id2nb, nb2id, tree_nbs, br_tw = branch2nb(mlc, fulltree)
+            dNdS, dStree, dNtree = get_dNdS(mlc)
 
-        set_dNdS_fulltree(fulltree, id2nb, dNdS)
+        set_dNdS_fulltree(fulltree, id2nb, dNdS, dStree, dNtree, br_tw)
     return fulltree
 
 
@@ -1056,7 +1101,7 @@ if __name__=='__main__':
                         help='Do not compute the table, but save trees in one'\
                             'newick file with the chosen measure as distance')
     parser.add_argument('--measures', nargs='*', default=['dS'],
-                        choices=['dN', 'dS', 'dist'],
+                        choices=['t', 'dN', 'dS', 'dist'],
                         help='which distance measure: dS (from codeml) or ' \
                              'dist (from PhyML)')
     parser.add_argument('-u', '--unweighted', action='store_true', 
