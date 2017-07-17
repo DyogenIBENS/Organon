@@ -103,10 +103,11 @@ def def_showtree(measures, show=None):
     return showtree
 
 
-def load_fulltree(mlcfile, replace_nwk='.mlc'):
+def load_fulltree(mlcfile, replace_nwk='.mlc', replace_by='.nwk'):
     """return the ete3.Tree object corresponding to a given .mlc file.
     Catch errors (file does not exist / wrong format)"""
-    nwkfile = mlcfile.replace(replace_nwk, '.nwk')
+    #nwkfile = mlcfile.replace(replace_nwk, '.nwk')
+    nwkfile = re.sub(replace_nwk, replace_by, mlcfile)
     try:
         return ete3.Tree(nwkfile, format=1)
     except ete3.parser.newick.NewickError as e:
@@ -923,9 +924,9 @@ savefunctions = {'ages': save_ages,
                  'fulltree': save_fulltree,
                  'subtrees': save_subtrees} #save_subtrees}
 
-def process_mlc(mlcfile, phyltree, replace_nwk='.mlc'):
+def process_mlc(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk'):
     """main command: scale ages based on *dS* (method1)"""
-    fulltree = load_fulltree(mlcfile, replace_nwk)
+    fulltree = load_fulltree(mlcfile, replace_nwk, replace_by)
     rm_erroneous_ancestors(fulltree, phyltree)
     with open(mlcfile) as mlc:
         id2nb, nb2id, tree_nbs = branch2nb(mlc, fulltree)
@@ -938,9 +939,9 @@ def process_mlc(mlcfile, phyltree, replace_nwk='.mlc'):
     showtree(fulltree)
     return ages
 
-def process_mlc2(mlcfile, phyltree, replace_nwk='.mlc'):
+def process_mlc2(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk'):
     """main command: scale ages based on *dS* (method2)"""
-    fulltree = load_fulltree(mlcfile, replace_nwk)
+    fulltree = load_fulltree(mlcfile, replace_nwk, replace_by)
     rm_erroneous_ancestors(fulltree, phyltree)
     with open(mlcfile) as mlc:
         id2nb, nb2id, tree_nbs = branch2nb(mlc, fulltree)
@@ -960,17 +961,18 @@ def process_nwk(mlcfile, phyltree, replace_nwk='.mlc'):
     raise NotImplementedError
 
 
-def process_nwk2(mlcfile, phyltree, replace_nwk='.mlc'):
+def process_nwk2(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk'):
     """main command: scale ages based on *dist* (method1)"""
-    fulltree = load_fulltree(mlcfile, replace_nwk)
+    fulltree = load_fulltree(mlcfile, replace_nwk, replace_by)
     rm_erroneous_ancestors(fulltree, phyltree)
     ages = bound_average_2(fulltree, phyltree, measures=['dist'])
     showtree(fulltree)
     return ages
 
 
-def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS']):
-    fulltree = load_fulltree(mlcfile, replace_nwk)
+def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
+                   measures=['dS']):
+    fulltree = load_fulltree(mlcfile, replace_nwk, replace_by)
     rm_erroneous_ancestors(fulltree, phyltree)
     if set(('dN', 'dS')) & set(measures):
         with open(mlcfile) as mlc:
@@ -996,9 +998,9 @@ def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS']):
 
     
 #def process_toages(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
-def process(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
-            method2=False, unweighted=False):
-    fulltree = setup_fulltree(mlcfile, phyltree, replace_nwk, measures)
+def process(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
+            measures=['dS'], method2=False, unweighted=False):
+    fulltree = setup_fulltree(mlcfile, phyltree, replace_nwk, replace_by, measures)
     
     ages, subtrees = bound_average(fulltree, phyltree, measures=measures,
                                    unweighted=unweighted, method2=method2)
@@ -1032,7 +1034,8 @@ class Out(object):
 
 def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
          measures=['dS'], unweighted=False, verbose=False, show=None,
-         replace_nwk='.mlc', ignore_errors=False, saveas='ages'):
+         replace_nwk='.mlc', replace_by='.nwk', ignore_errors=False,
+         saveas='ages'):
     nb_mlc = len(mlcfiles)
     
     # "compile" some functions to avoid redondant tests ("if verbose: ...")
@@ -1049,6 +1052,7 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
           "     method2  %s\n" % method2,
           "     unweighted %s\n" % unweighted,
           "     replace_nwk %s\n" % replace_nwk,
+          "     replace_by  %s\n" % replace_by,
           "     ignore_errors %s\n" % ignore_errors)
     
 
@@ -1073,8 +1077,8 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
             print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_mlc, percentage, mlcfile),
                   end=' ')
             try:
-                result = process(mlcfile, phyltree, replace_nwk, measures,
-                                 method2=method2, unweighted=unweighted)
+                result = process(mlcfile, phyltree, replace_nwk, replace_by, 
+                                 measures, method2=method2, unweighted=unweighted)
                 save_result(result[saveas_i], out)
             except BaseException as err:
                 print()
@@ -1100,7 +1104,8 @@ if __name__=='__main__':
                         const='subtrees', default='ages',
                         help='Do not compute the table, but save trees in one'\
                             'newick file with the chosen measure as distance')
-    parser.add_argument('--measures', nargs='*', default=['dS'],
+    parser.add_argument('--measures', nargs='*',
+                        default=['t', 'dN', 'dS', 'dist'],
                         choices=['t', 'dN', 'dS', 'dist'],
                         help='which distance measure: dS (from codeml) or ' \
                              'dist (from PhyML)')
@@ -1110,9 +1115,11 @@ if __name__=='__main__':
                         help='print progression along tree')
     parser.add_argument('--show', choices=['gui', 'notebook'],
                         help='start the interactive ete3 tree browser')
-    parser.add_argument('-r', '--replace-nwk', default='.mlc',
-                        help='string to be replaced by .nwk to find the tree'\
-                               ' file [%(default)s]')
+    parser.add_argument('-r', '--replace-nwk', default='\.mlc$',
+                        help='string to be replaced by REPLACE_BY to find the'\
+                               ' tree file [%(default)s]')
+    parser.add_argument('-R', '--replace-by', default='.nwk',
+                        help='replacement string file [%(default)s]')
     parser.add_argument("-i", "--ignore-errors", action="store_true", 
                         help="On error, print the error and continue the loop.")
     args = parser.parse_args()

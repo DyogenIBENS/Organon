@@ -33,6 +33,7 @@ OPTIONS
     -b  Disable the use of `unbuffer` in front of the command line
         (will delay stdout messages).
     -q  Quiet mode.
+    -s  Keep the output in its separate subdirectory.
 '
 ### PARSE COMMAND LINE ###
 
@@ -43,8 +44,9 @@ OPTIND=1         # Reset in case getopts has been used previously in the shell.
 valgrind=0
 buffer=0
 quiet=0
+subdir=0
 
-while getopts "h?vbq" opt; do
+while getopts "h?vbqs" opt; do
 	case "$opt" in
 	h|\?)
 		echo "$help"
@@ -55,6 +57,8 @@ while getopts "h?vbq" opt; do
 	b)  buffer=1
 		;;
 	q)  quiet=1
+		;;
+	s)  subdir=1
 		;;
 	esac
 done
@@ -165,27 +169,29 @@ fi
 
 ### Rename, move and clean up ###
 if [ ${PIPESTATUS[0]} -eq 0 ]; then
-	for f in "2NG.dS" "2NG.dN" "2NG.t" "rub" "rst" "rst1" "lnf" "4fold.nuc"; do
-		mv $f ../${genetree}_$f
-	done
+	if [ $subdir -eq 0 ]; then
+		for f in "2NG.dS" "2NG.dN" "2NG.t" "rub" "rst" "rst1" "lnf" "4fold.nuc"; do
+			mv $f ../${genetree}_$f
+		done
 	
-	# remove the temporary control file
-	rm "$genetree.$ctlext"
-	# remove symbolic links (to seqfile and treefile)
-	#find -type l -delete
-	rm seqfile.phy treefile.nwk
-	
-	# move the result file if present in the output directory
-	#maybeoutfile=$(basename $outfile)
-	#if [ -f $maybeoutfile ]; then
-	#	# check if need overwriting an existing file
-	#	#if [ -f ../$maybeoutfile ]; then ;fi
-	#	mv $maybeoutfile ../$maybeoutfile
-	#fi
-	mv outfile.mlc "$outfile"
+		# remove the temporary control file
+		rm "$genetree.$ctlext"
+		# remove symbolic links (to seqfile and treefile)
+		#find -type l -delete
+		rm seqfile.phy treefile.nwk
+		
+		# move the result file if present in the output directory
+		#maybeoutfile=$(basename $outfile)
+		#if [ -f $maybeoutfile ]; then
+		#	# check if need overwriting an existing file
+		#	#if [ -f ../$maybeoutfile ]; then ;fi
+		#	mv $maybeoutfile ../$maybeoutfile
+		#fi
+		mv outfile.mlc "$outfile"
 
-	cd ..
-	rmdir $genetree/ #|| echo >&2 "$!"
+		cd ..
+		rmdir $genetree/ #|| echo >&2 "$!"
+	fi
 else
 	echo "codeml failed!" >&2
 	exit 1
