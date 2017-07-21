@@ -39,6 +39,8 @@ from glou_duphist import dfw_descendants_generalized, ladderize
 
 # Change all black to dark grey
 grey10 = '#1a1a1a'
+grey45 = '#737373'
+grey80 = '#CCCCCC'
 mpl.rcParams['text.color'] = grey10
 mpl.rcParams['axes.edgecolor'] = grey10
 mpl.rcParams['axes.labelcolor'] = grey10
@@ -46,15 +48,16 @@ mpl.rcParams['axes.spines.top'] = False
 mpl.rcParams['axes.spines.right'] = False
 mpl.rcParams['xtick.color'] = grey10
 mpl.rcParams['ytick.color'] = grey10
-mpl.rcParams['grid.color'] = grey10
+mpl.rcParams['grid.color'] = grey80
+mpl.rcParams['grid.linestyle'] = ':'
 mpl.rcParams['patch.edgecolor'] = grey10
 mpl.rcParams['boxplot.flierprops.markeredgecolor'] = grey10
 mpl.rcParams['boxplot.capprops.color'] = grey10
-mpl.rcParams['legend.facecolor'] = '#777777'
+mpl.rcParams['legend.facecolor'] = grey45
 mpl.rcParams['legend.framealpha'] = 0.2
 #mpl.rcParams['legend.edgecolor'] = grey10
 mpl.rcParams['savefig.facecolor'] = 'none'
-mpl.rcParams['savefig.frameon'] = False  #background frame transparent
+#mpl.rcParams['savefig.frameon'] = False  #background frame transparent
 #mpl.rcParams['savefig.transparent'] = True # all background transparent
                                             # (including ggplot2 style)
 #mpl.style.use('ggplot')
