@@ -26,7 +26,7 @@ def load_synonyms(namesdmp, wanted='synonym'):
 
 
 def main(namesdmp, taxa, wanted='synonym', oneline=False):
-    print(len(taxa), taxa, file=sys.stderr)
+    #print(len(taxa), taxa, file=sys.stderr)
 
     if not taxa:
         # read from stdin
@@ -47,7 +47,7 @@ def main(namesdmp, taxa, wanted='synonym', oneline=False):
             if synonyms:
                 print('\n'.join(['%s\t%s' % (taxon, syn) for syn in synonyms]))
     
-    print(len(taxa), taxa, file=sys.stderr)
+    #print(len(taxa), taxa, file=sys.stderr)
 
     for taxon in taxa:
         try:
