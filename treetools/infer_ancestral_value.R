@@ -99,7 +99,7 @@ plot_triangle <- function(tree, by, ...) {
   }
 }
 
-collapse_groups <- function(tree, by) {
+polytomize_by <- function(tree, by) {
   ### `clades` is a column whose rownames match exactly the tip.labels
   ### FIXME
   ntips = Ntip(tree)
@@ -112,6 +112,16 @@ collapse_groups <- function(tree, by) {
   return(polytomictree)
 }
 
+collapse_by <- function(tree, by) {
+  dup <- duplicated(by)
+  todelete <- which(dup)
+  #for (group in unique(by)) {
+  #  group_tips <- which(by == group)
+  #}
+  tree <- drop.tip(tree, todelete)
+  tree$tip.label <- as.character(by[!dup])
+  return(tree)
+}
 
 rodents_params <- list(treefile="~/ws2/databases/GL_rodentsALL.nwk",
                        valuefile="~/ws2/databases/GL_rodentsALL-values.tsv",
