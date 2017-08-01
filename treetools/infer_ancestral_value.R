@@ -99,15 +99,17 @@ plot_triangle <- function(tree, by, ...) {
   }
 }
 
-collapse_clades <- function(tree, clades) {
+collapse_groups <- function(tree, by) {
   ### `clades` is a column whose rownames match exactly the tip.labels
   ### FIXME
-  cladetree <- tree
-  for (clade in unique(clades)) {
-    leaves <- which(clade == clades)
-    cladetree <- drop.tip(cladetree, leaves)
+  ntips = Ntip(tree)
+  for (group in unique(by)) {
+    edges <- which.edge(tree, which(group == by))
+    tree$edge.length[edges] <- -1
   }
-  return(cladetree)
+  polytomictree <- di2multi(tree, tol=-0.5)
+  polytomictree$edge.length[polytomictree$edge.length < 0] <- 0
+  return(polytomictree)
 }
 
 
