@@ -52,7 +52,7 @@ hide_edges <- function(tree, by) {
 renamebyclade <- function(tree, by) {
   # Rename tips by the clade name (only the first tip belonging has the name)
   # Useful for plotting
-  dupfam <- duplicated(by)
+  dupfam <- duplicated(rev(by)) # reverse because tips are plotted bottom to top
   tree$tip.label <- as.character(by)
   #by[dupfam]
   tree$tip.label[dupfam] <- ""
@@ -101,7 +101,6 @@ plot_triangle <- function(tree, by, ...) {
 
 polytomize_by <- function(tree, by) {
   ### `clades` is a column whose rownames match exactly the tip.labels
-  ### FIXME
   ntips = Ntip(tree)
   for (group in unique(by)) {
     edges <- which.edge(tree, which(group == by))
@@ -109,7 +108,7 @@ polytomize_by <- function(tree, by) {
   }
   polytomictree <- di2multi(tree, tol=-0.5)
   polytomictree$edge.length[polytomictree$edge.length < 0] <- 0
-  return(polytomictree)
+  return(renamebyclade(polytomictree, by))
 }
 
 collapse_by <- function(tree, by) {
@@ -119,8 +118,8 @@ collapse_by <- function(tree, by) {
   #  group_tips <- which(by == group)
   #}
   tree <- drop.tip(tree, todelete)
-  tree$tip.label <- as.character(by[!dup])
-  return(tree)
+  #tree$tip.label <- as.character(by[!dup])
+  return(renamebyclade(tree, by))
 }
 
 rodents_params <- list(treefile="~/ws2/databases/GL_rodentsALL.nwk",
