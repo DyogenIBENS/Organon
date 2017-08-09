@@ -1,14 +1,17 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """Convert any Ensembl protein ID to gene ID and vice-versa
 EXAMPLE:
     ./prot2gene ~/ws2/DUPLI_data85/gene_info/%s_gene_info.tsv <fastafiles>
 """
 
+from __future__ import print_function
+
 import re
 import sys
 import os.path
 import argparse
+from copy import deepcopy
 from bz2 import BZ2File
 from multiprocessing import Pool
 
@@ -19,92 +22,105 @@ def myopen(filename, *args, **kwargs):
         return open(filename, *args, **kwargs)
 
 
-def convert_prot2species(modernID):
-    prot2sp = { #'Y': 'Saccharomyces cerevisiae',  # there are C.elegans prot with 'Y' too
-                'Q0': 'Saccharomyces cerevisiae',
-                'FB': 'Drosophila melanogaster',
-                #'WBGene0': 'Caenorhabditis elegans',  # No consensus
-                'ENSCINP': 'Ciona intestinalis',
-                'ENSCSAV': 'Ciona savignyi',
-                'ENSCSAP': 'Chlorocebus sabaeus',
-                'ENSPMAP': 'Petromyzon marinus',
-                'ENSXETP': 'Xenopus tropicalis',
-                'ENSPSIP': 'Pelodiscus sinensis',
-                'ENSGALP': 'Gallus gallus',
-                'ENSMGAP': 'Meleagris gallopavo',
-                'ENSTGUP': 'Taeniopygia guttata',
-                'ENSFALP': 'Ficedula albicollis',
-                'ENSAPLP': 'Anas platyrhynchos',
-                'ENSACAP': 'Anolis carolinensis',
-                'ENSOANP': 'Ornithorhynchus anatinus',
-                'ENSMEUP': 'Macropus eugenii',
-                'ENSSHAP': 'Sarcophilus harrisii',
-                'ENSMODP': 'Monodelphis domestica',
-                'ENSLAFP': 'Loxodonta africana',
-                'ENSETEP': 'Echinops telfairi',
-                'ENSPCAP': 'Procavia capensis',
-                'ENSDNOP': 'Dasypus novemcinctus',
-                'ENSCHOP': 'Choloepus hoffmanni',
-                'ENSSARP': 'Sorex araneus',
-                'ENSEEUP': 'Erinaceus europaeus',
-                'ENSMLUP': 'Myotis lucifugus',
-                'ENSPVAP': 'Pteropus vampyrus',
-                'ENSTTRP': 'Tursiops truncatus',
-                'ENSBTAP': 'Bos taurus',
-                'ENSOARP': 'Ovis aries',
-                'ENSVPAP': 'Vicugna pacos',
-                'ENSSSCP': 'Sus scrofa',
-                'ENSECAP': 'Equus caballus',
-                'ENSMPUP': 'Mustela putorius furo',
-                'ENSAMEP': 'Ailuropoda melanoleuca',
-                'ENSCAFP': 'Canis lupus familiaris',
-                'ENSFCAP': 'Felis catus',
-                'ENSTBEP': 'Tupaia belangeri',
-                'ENSPANP': 'Papio anubis',
-                'ENSMMUP': 'Macaca mulatta',
-                'ENSPPYP': 'Pongo abelii',
-                'ENSGGOP': 'Gorilla gorilla gorilla',
-                'ENSPTRP': 'Pan troglodytes',
-                'ENSP000':    'Homo sapiens',       # ENSG
-                'ENSNLEP': 'Nomascus leucogenys',
-                'ENSCJAP': 'Callithrix jacchus',
-                'ENSTSYP': 'Tarsius syrichta',
-                'ENSOGAP': 'Otolemur garnettii',
-                'ENSMICP': 'Microcebus murinus',
-                'ENSOPRP': 'Ochotona princeps',
-                'ENSOCUP': 'Oryctolagus cuniculus',
-                'ENSCPOP': 'Cavia porcellus',
-                'ENSRNOP': 'Rattus norvegicus',
-                'ENSMUSP': 'Mus musculus',
-                'ENSSTOP': 'Ictidomys tridecemlineatus',
-                'ENSDORP': 'Dipodomys ordii',
-                'ENSLACP': 'Latimeria chalumnae',
-                'ENSLOCP': 'Lepisosteus oculatus',
-                'ENSGACP': 'Gasterosteus aculeatus',
-                'ENSTNIP': 'Tetraodon nigroviridis',
-                'ENSTRUP': 'Takifugu rubripes',
-                'ENSONIP': 'Oreochromis niloticus',
-                'ENSORLP': 'Oryzias latipes',
-                'ENSPFOP': 'Poecilia formosa',
-                'ENSXMAP': 'Xiphophorus maculatus',
-                'ENSGMOP': 'Gadus morhua',
-                'ENSAMXP': 'Astyanax mexicanus',
-                'ENSDARP': 'Danio rerio'}
+PROT2SP = {85:
+           { #'Y': 'Saccharomyces cerevisiae',  # there are C.elegans prot with 'Y' too
+            'Q0': 'Saccharomyces cerevisiae',
+            'FB': 'Drosophila melanogaster',
+            #'WBGene0': 'Caenorhabditis elegans',  # No consensus
+            'ENSCINP': 'Ciona intestinalis',
+            'ENSCSAV': 'Ciona savignyi',
+            'ENSCSAP': 'Chlorocebus sabaeus',
+            'ENSPMAP': 'Petromyzon marinus',
+            'ENSXETP': 'Xenopus tropicalis',
+            'ENSPSIP': 'Pelodiscus sinensis',
+            'ENSGALP': 'Gallus gallus',
+            'ENSMGAP': 'Meleagris gallopavo',
+            'ENSTGUP': 'Taeniopygia guttata',
+            'ENSFALP': 'Ficedula albicollis',
+            'ENSAPLP': 'Anas platyrhynchos',
+            'ENSACAP': 'Anolis carolinensis',
+            'ENSOANP': 'Ornithorhynchus anatinus',
+            'ENSMEUP': 'Macropus eugenii',
+            'ENSSHAP': 'Sarcophilus harrisii',
+            'ENSMODP': 'Monodelphis domestica',
+            'ENSLAFP': 'Loxodonta africana',
+            'ENSETEP': 'Echinops telfairi',
+            'ENSPCAP': 'Procavia capensis',
+            'ENSDNOP': 'Dasypus novemcinctus',
+            'ENSCHOP': 'Choloepus hoffmanni',
+            'ENSSARP': 'Sorex araneus',
+            'ENSEEUP': 'Erinaceus europaeus',
+            'ENSMLUP': 'Myotis lucifugus',
+            'ENSPVAP': 'Pteropus vampyrus',
+            'ENSTTRP': 'Tursiops truncatus',
+            'ENSBTAP': 'Bos taurus',
+            'ENSOARP': 'Ovis aries',
+            'ENSVPAP': 'Vicugna pacos',
+            'ENSSSCP': 'Sus scrofa',
+            'ENSECAP': 'Equus caballus',
+            'ENSMPUP': 'Mustela putorius furo',
+            'ENSAMEP': 'Ailuropoda melanoleuca',
+            'ENSCAFP': 'Canis lupus familiaris',
+            'ENSFCAP': 'Felis catus',
+            'ENSTBEP': 'Tupaia belangeri',
+            'ENSPANP': 'Papio anubis',
+            'ENSMMUP': 'Macaca mulatta',
+            'ENSPPYP': 'Pongo abelii',
+            'ENSGGOP': 'Gorilla gorilla gorilla',
+            'ENSPTRP': 'Pan troglodytes',
+            'ENSP000':    'Homo sapiens',       # ENSG
+            'ENSNLEP': 'Nomascus leucogenys',
+            'ENSCJAP': 'Callithrix jacchus',
+            'ENSTSYP': 'Tarsius syrichta',
+            'ENSOGAP': 'Otolemur garnettii',
+            'ENSMICP': 'Microcebus murinus',
+            'ENSOPRP': 'Ochotona princeps',
+            'ENSOCUP': 'Oryctolagus cuniculus',
+            'ENSCPOP': 'Cavia porcellus',
+            'ENSRNOP': 'Rattus norvegicus',
+            'ENSMUSP': 'Mus musculus',
+            'ENSSTOP': 'Ictidomys tridecemlineatus',
+            'ENSDORP': 'Dipodomys ordii',
+            'ENSLACP': 'Latimeria chalumnae',
+            'ENSLOCP': 'Lepisosteus oculatus',
+            'ENSGACP': 'Gasterosteus aculeatus',
+            'ENSTNIP': 'Tetraodon nigroviridis',
+            'ENSTRUP': 'Takifugu rubripes',
+            'ENSONIP': 'Oreochromis niloticus',
+            'ENSORLP': 'Oryzias latipes',
+            'ENSPFOP': 'Poecilia formosa',
+            'ENSXMAP': 'Xiphophorus maculatus',
+            'ENSGMOP': 'Gadus morhua',
+            'ENSAMXP': 'Astyanax mexicanus',
+            'ENSDARP': 'Danio rerio'}
+           }
+
+PROT2SP[86] = deepcopy(PROT2SP[85])
+PROT2SP[86].update(**{'MGP_SPR': 'Mus spretus'})  # TODO: check the protein id
+
+PROT2SP[87] = deepcopy(PROT2SP[86])
+PROT2SP[87].update(**{'ENSTSYP': 'Carlito syrichta'})
+
+PROT2SP[88] = PROT2SP[87]
+
+def convert_prot2species(modernID, ensembl_version=85, default=None):
     try:
-        return prot2sp[modernID[:7]]
+        return PROT2SP[ensembl_version][modernID[:7]]
     except KeyError:
         try:
             # Saccharomyces cerevisiae (Q0) or Drosophila melanogaster
-            return prot2sp[modernID[:2]]
+            return PROT2SP[ensembl_version][modernID[:2]]
         except KeyError:
             if re.match('Y[A-Z]', modernID):
                 return 'Saccharomyces cerevisiae'
+            elif default:
+                return default
             else:
-                return 'Caenorhabditis elegans'
+                raise
 
 
 def grep_prot(filename, protID, cprot=2, cgene=0):
-    #print cprot, cgene
+    #print(cprot, cgene)
     with myopen(filename) as IN:
         for line in IN:
             fields = line.rstrip('\r\n').split('\t')
@@ -134,7 +150,7 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
                       cgene=0, shorten_species=False, force_overwrite=False,
                       verbose=1, strict=False):
     if verbose:
-        print fastafile
+        print(fastafile)
     genetree, ext = os.path.splitext(fastafile)
     if ext == '.bz2': genetree, ext = os.path.splitext(genetree)
     genetreedir, genetreefile = os.path.split(genetree)
@@ -142,9 +158,9 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
     outfile = outputformat.format(genetreefile)
     if os.path.exists(outfile):
         if force_overwrite:
-            print >>sys.stderr, "(Overwriting %s)" % outfile
+            print("(Overwriting %s)" % outfile, file=sys.stderr)
         else:
-            print >>sys.stderr, "%s exists. Skipping." % outfile
+            print("%s exists. Skipping." % outfile, file=sys.stderr)
             return
 
     # avoid duplicate genes
@@ -175,7 +191,7 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
                     if found[geneID] > 1:
                         geneID += ".%d" % found[geneID]
                 if verbose > 1:
-                    print "%s -> %s" % (protID, geneID)
+                    print("%s -> %s" % (protID, geneID))
                 OUT.write('>' + geneID + '\n')
             else:
                 OUT.write(line)
@@ -225,8 +241,7 @@ if __name__=='__main__':
     pool = Pool(processes=args.cores)
     if args.fromfile:
         if len(args.fastafiles) > 1:
-            print >>sys.stderr, "Error: only one 'fastafiles' allowed with "\
-                    "--fromfile. See help"
+            print("Error: only one 'fastafiles' allowed with --fromfile. See help", file=sys.stderr)
             sys.exit(1)
         else:
             with open(args.fastafiles[0]) as ff:
