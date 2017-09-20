@@ -52,7 +52,7 @@ hide_edges <- function(tree, by) {
 renamebyclade <- function(tree, by) {
   # Rename tips by the clade name (only the first tip belonging has the name)
   # Useful for plotting
-  dupfam <- duplicated(rev(by)) # reverse because tips are plotted bottom to top
+  dupfam <- rev(duplicated(rev(by))) # reverse because tips are plotted bottom to top
   tree$tip.label <- as.character(by)
   #by[dupfam]
   tree$tip.label[dupfam] <- ""
@@ -67,7 +67,7 @@ plot_triangle <- function(tree, by, ...) {
   edge.width <- hide_edges(tree, by)
   
   # Step 2: plot the tree with the hidden edges
-  treecopy <- renamebyclade(tree)
+  treecopy <- renamebyclade(tree, by)
   plot(treecopy, show.tip.label=TRUE, edge.width=edge.width, ...)
   last.phylo.plot <- get("last_plot.phylo", envir=.PlotPhyloEnv)
 
@@ -122,7 +122,35 @@ collapse_by <- function(tree, by) {
   return(renamebyclade(tree, by))
 }
 
+ancestors <- function(tree, node, to=(Ntip(tree)+1), names=TRUE) {
+  # List the ancestors (names or numbers) between `node` and `to`.
+  alllabels <- c(tree$tip.label, tree$node.label)
+  print(c(node, to))
+  print(which(node == alllabels))
+  if (!is.numeric(node)) {node <- which(node == alllabels)[0]}
+  print(which(node == alllabels))
+  print(c(node, to))
+  if (!is.numeric(to)) {to <- which(to == alllabels)[0]}
+  print(c(node, to))
+
+  parents <- integer(0)
+
+  #print(to)
+  while (node != to) {
+    parents <- c(parents, node)
+    node <- tree$edge[tree$edge[,2] == node, 1]
+  }
+  parents <- c(parents, node)
+  if (names) {parents <- alllabels[parents]}
+  return(parents)
+}
+
 rodents_params <- list(treefile="~/ws2/databases/GL_rodentsALL.nwk",
                        valuefile="~/ws2/databases/GL_rodentsALL-values.tsv",
                        cladefile="~/ws2/databases/GL_rodentsALL-clades.tsv")
 
+format_stabletraitsout <- function(tree, brlensfile) {
+  brlens <- read.delim(brlensfile, header=T)
+  #branches <- strsplit(as.character(brlens$Branch), "->")
+  # edges should be in the same order
+}
