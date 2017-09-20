@@ -145,12 +145,55 @@ ancestors <- function(tree, node, to=(Ntip(tree)+1), names=TRUE) {
   return(parents)
 }
 
-rodents_params <- list(treefile="~/ws2/databases/GL_rodentsALL.nwk",
-                       valuefile="~/ws2/databases/GL_rodentsALL-values.tsv",
-                       cladefile="~/ws2/databases/GL_rodentsALL-clades.tsv")
 
 format_stabletraitsout <- function(tree, brlensfile) {
   brlens <- read.delim(brlensfile, header=T)
   #branches <- strsplit(as.character(brlens$Branch), "->")
   # edges should be in the same order
+}
+
+
+rodents_params <- list(treefile="~/ws2/anctraits/GL_rodentsALL.nwk",
+                       valuefile="~/ws2/anctraits/GL_rodentsALL-values.tsv",
+                       cladefile="~/ws2/anctraits/GL_rodentsALL-clades.tsv",
+                       brlensfile="~/ws2/anctraits/stabletraitsout/GL_rodents.brlens",
+                       brlensfileBM="~/ws2/anctraits/stabletraitsout/GL_rodents_BM.brlens",
+                       ancstatesfile="~/ws2/anctraits/stabletraitsout/GL_rodents.ancstates",
+                       ancstatesfileBM="~/ws2/anctraits/stabletraitsout/GL_rodents_BM.ancstates",
+                       treefileST="~/ws2/anctraits/stabletraitsout/GL_rodents.tree")
+
+# Example use:
+if (F) {
+  w <- 12 # plot width
+  h <- 36 #      height
+
+  # Estimation using ape::ace (phylogenetic independent contrasts)
+  ttree <- read.tree("GL_rodentsALL.taxa.nwk")
+  ttreefam <- renamebyclade(ttree, clade.data$family)
+
+  ancGL.pic <- ace(gl[,1], ttree, method="pic")
+  
+  edge.color.pic <- colorizevalues(ancGL.pic$ace)
+  pdf("~/ws2/anctraits/GL_rodents_treeplot-pic.pdf", width=w, height=h)
+  plot(ttreefam, edge.color=edge.color.pic, main="PIC estimate", cex=0.5)
+  dev.off()
+
+  # Estimation from StableTraits
+  treest <- read.tree(rodents_params$treefileST)
+  treestfam <- renamebyclade(treest, clade.data$family)
+
+  st_rates <- read.delim(rodents_params$brlensfile, header=T)
+  st_anc <- read.delim(rodents_params$ancstatesfile, header=T)
+  st_ancBM <- read.delim(rodents_params$ancstatesfileBM, header=T)
+
+  edge.color.anc <- colorizevalues(st_anc$Median[4:2752])
+  edge.color.ancBM <- colorizevalues(st_ancBM$Median[4:2752])
+
+  pdf("~/ws2/anctraits/GL_rodents_treeplot-STBM.pdf", width=w, height=h)
+  plot(treest, edge.color=edge.color.ancBM, main="Brownian with StableTraits",
+       cex=0.5)
+  dev.off()
+  pdf("~/ws2/anctraits/GL_rodents_treeplot-ST.pdf", width=w, height=h)
+  plot(treest, edge.color=edge.color.anc, main="StableTraits", cex=0.5)
+  dev.off()
 }
