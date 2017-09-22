@@ -196,4 +196,6 @@ if (F) {
   pdf("~/ws2/anctraits/GL_rodents_treeplot-ST.pdf", width=w, height=h)
   plot(treest, edge.color=edge.color.anc, main="StableTraits", cex=0.5)
   dev.off()
+
+  # or display with phytools::contMap
 }
