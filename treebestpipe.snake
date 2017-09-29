@@ -14,16 +14,20 @@ Steps:
 
 """
 
+SPTREENAME = config.setdefault('sptreename', 'timetree.taxadots')
+
 rule al2seq:
 	input: "{genefam}_genes.fa"
 	output: "{outdir}/{genefam}_cdna.fa"
 	shell:
+		"sed '/^[^>]/s/-//g' {input} > {output}"
 
 rule translate:
 	input: rules.al2seq.output
 	output: "{outdir}/{genefam}_prot.fa"
 	shell:
-		"~glouvel/scripts/evosite3d/translate_dna.py {input} {output}"
+		"~glouvel/scripts/seqtools/fasta_translate.py {input} {output}"
+		#"~glouvel/scripts/evosite3d/translate_dna.py {input} {output}"
 
 rule shorten_prot:
 	input: rules.translate.output
@@ -38,9 +42,9 @@ rule shorten_cdna:
 		r"sed -r 's/^(>\w+).*$/\1/' {input} > {output}"
 
 rule align:
-	input: rules.shorten.output
+	input: rules.shorten_prot.output
 	output:
-		aln="{outdir}/tcoffee/{genefam}_protaln.fa"
+		aln="{outdir}/tcoffee/{genefam}_protaln.fa",
 		tree="{outdir}/tcoffee/{genefam}_newtree.nwk"
 	shell:
 		"t_coffee {input} -type=PROTEIN -method mafftgins_msa, muscle_msa, kalign_msa -mode=mcoffee -output=fasta_aln -outfile={output.aln} -newtree={output.tree}"
@@ -62,7 +66,7 @@ rule specify:
 rule treebest:
 	input:
 		aln=rules.specify.output,
-		sp="{outdir}/{genefam}_{sptreename}.nwk"
+		sp="{{outdir}}/{{genefam}}_{0}.nwk".format(SPTREENAME)
 	output: "{outdir}/treebest/{genefam}_best.nwk"
 		"treebest best -f {input.sp} {input.aln} -o {output}"
 
@@ -77,6 +81,4 @@ rule reshape4codeml:
 	output: "{outdir}/treebest/{genefam}_best_codeml.nwk"
 	shell:
 		"~glouvel/scripts/codeml/reshape_tree.py {input} {output}"
-
-
 
