@@ -2,9 +2,8 @@
 Steps:
 
 - extract the sequences from the existing alignment: `_cdna.fa`
-  - shorten names: `_cdna.short.fa`
+- shorten names: `_cdna.short.fa`
 - translate:     `_prot.fa`
-- shorten names: `_prot.short.fa`
 - t-coffee:      `_protaln.fa`, `_newtree.nwk`
 - backtrans:     `_backtrans.mfa`
 - specify:       `_backtrans-sp.mfa`
@@ -22,27 +21,21 @@ rule al2seq:
 	shell:
 		"sed '/^[^>]/s/-//g' {input} > {output}"
 
-rule translate:
-	input: rules.al2seq.output
-	output: "{outdir}/{genefam}_prot.fa"
-	shell:
-		"~glouvel/scripts/seqtools/fasta_translate.py {input} {output}"
-		#"~glouvel/scripts/evosite3d/translate_dna.py {input} {output}"
-
-rule shorten_prot:
-	input: rules.translate.output
-	output: "{outdir}/{genefam}_prot.short.fa"
-	shell:
-		r"sed -r 's/^(>\w+).*$/\1/' {input} > {output}"
-
-rule shorten_cdna:
+rule shorten:
 	input: rules.al2seq.output
 	output: "{outdir}/{genefam}_cdna.short.fa"
 	shell:
 		r"sed -r 's/^(>\w+).*$/\1/' {input} > {output}"
 
+rule translate:
+	input: rules.shorten.output
+	output: "{outdir}/{genefam}_prot.fa"
+	shell:
+		"~glouvel/scripts/seqtools/fasta_translate.py {input} {output}"
+		#"~glouvel/scripts/evosite3d/translate_dna.py {input} {output}"
+
 rule align:
-	input: rules.shorten_prot.output
+	input: rules.translate.output
 	output:
 		aln="{outdir}/tcoffee/{genefam}_protaln.fa",
 		tree="{outdir}/tcoffee/{genefam}_newtree.nwk"
@@ -52,7 +45,7 @@ rule align:
 rule backtrans:
 	input:
 		aa_aln=rules.align.output.aln,
-		nt_seq=rules.shorten_cdna.output
+		nt_seq=rules.shorten.output
 	output: "{outdir}/treebest/{genefam}_backtrans.mfa"
 	shell:
 		"treebest backtrans {input.aa_aln} {input.nt_seq} > {output}"
@@ -66,8 +59,10 @@ rule specify:
 rule treebest:
 	input:
 		aln=rules.specify.output,
-		sp="{{outdir}}/{{genefam}}_{0}.nwk".format(SPTREENAME)
+		sp="{{genefam}}_{0}.nwk".format(SPTREENAME)
+		#sp="{genefam}_timetree.taxadots.nwk"
 	output: "{outdir}/treebest/{genefam}_best.nwk"
+	shell:
 		"treebest best -f {input.sp} {input.aln} -o {output}"
 
 rule treebest2genomicus:
