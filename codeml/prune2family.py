@@ -2,6 +2,10 @@
 
 from __future__ import print_function
 
+"""Extract all gene subtrees rooted at a given ancestral taxon.
+Also add missing speciation nodes."""
+
+
 import re
 import sys
 import os.path
@@ -248,12 +252,26 @@ def get_mrca(parent_sp, children_sp, diclinks):
             break
         else:
             mrca = next_parents[0]
-    return mrca
+    try:
+        return mrca
+    except UnboundLocalError as err:
+        err.args = (err.args[0] + " (%s, %s)" %(parent_sp, children_sp), )
+        raise
 
 
 def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                               fix_suffix=True, force_mrca=False,
-                              ensembl_version=ENSEMBL_VERSION):
+                              ensembl_version=ENSEMBL_VERSION, treebest=False):
+    if treebest:
+        print_if_verbose("Reading from TreeBest format", file=sys.stderr)
+        get_species    = lambda node: (node.S, node.name.split('_')[0])
+        split_ancestor = lambda node: (node.S, node.name) 
+    else:
+        get_species = lambda node: (convert_gene2species(node.name,
+                                                         ensembl_version),
+                                    node.name)
+        split_ancestor = lambda node: split_species_gene(node.name, ancgene2sp)
+
     print_if_verbose("* Insert missing nodes:")
     ### Insert childs *while* iterating.
     ### Beware not to iterate on these new nodes:
@@ -264,7 +282,7 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
         # so you will iterate over your inserted children otherwise.
         node_children = copy(node.children)
         if node_children:
-            parent_sp, parent_gn = split_species_gene(node.name, ancgene2sp)
+            parent_sp, parent_gn = split_ancestor(node)
             ### Delete this node if species is not recognized
             if parent_sp is None:
                 print("WARNING: taxon not found in %r. Deleting node." %
@@ -280,15 +298,14 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                 print_if_verbose("  - child %r" % child.name)
                 if child.is_leaf():
                     try:
-                        ancestor = convert_gene2species(child.name, ensembl_version)
-                        genename = child.name
+                        ancestor, genename = get_species(child)
                     except RuntimeError as err:
                         print("WARNING: Leaf %r not in an extant species" % \
                               child.name,
                               file=sys.stderr)
-                        ancestor, genename = split_species_gene(child.name, ancgene2sp)
+                        ancestor, genename = split_ancestor(child)
                 else:
-                    ancestor, genename = split_species_gene(child.name, ancgene2sp)
+                    ancestor, genename = split_ancestor(child)
                 if ancestor not in diclinks:
                     print("WARNING: taxon %r absent from phylogeny. "
                           "Deleting node %r." % (ancestor, genename),
@@ -514,10 +531,11 @@ def with_dup(leafnames):
 
 
 def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
-        diclinks, ages=None, fix_suffix=True, force_mrca=False,
+        diclinks, treebest=False, ages=None, fix_suffix=True, force_mrca=False,
         latest_ancestor=False, ensembl_version=ENSEMBL_VERSION, outdir='.',
         only_dup=False, one_leaf=False, dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
+    #print("treebest = %s" % treebest, file=sys.stderr)
     outfiles_set = set() # check whether I write twice to the same outfile
     try:
         tree = ete3.Tree(treefile, format=1)
@@ -525,7 +543,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
         err.args = (err.args[0] + 'ERROR with treefile %r' % treefile,)
         raise
     insert_species_nodes_back(tree, ancgene2sp, diclinks, ages, fix_suffix,
-                              force_mrca, ensembl_version)
+                              force_mrca, ensembl_version, treebest)
     print_if_verbose("* Searching for ancestors:")
     for ancestor, ancestorlist in ancestorlists.items():
         print_if_verbose(ancestor)
@@ -587,8 +605,8 @@ def save_subtrees_process(params):
 
 
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
-                           outsub=None, only_dup=False, one_leaf=False,
-                           fix_suffix=True, force_mrca=False,
+                           outsub=None, treebest=False, only_dup=False,
+                           one_leaf=False, fix_suffix=True, force_mrca=False,
                            latest_ancestor=False, dry_run=False,
                            ignore_errors=False,
                            ensembl_version=ENSEMBL_VERSION):
@@ -629,6 +647,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       ancestor_regexes,
                       ancgene2sp,
                       diclinks,
+                      treebest,
                       ages,
                       fix_suffix,
                       force_mrca,
@@ -666,7 +685,7 @@ def parse_treefiles(treefiles_file):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("treefile")
     parser.add_argument("ancestors", nargs='+')
     parser.add_argument("--fromfile", action="store_true", help="read treefile"\
@@ -675,6 +694,8 @@ if __name__ == '__main__':
     parser.add_argument("-s", "--outsub", help="alternative splitting " \
                         "character to remove the extension from the basename "\
                         "of the treefile (used by '{0}' in --outdir).")
+    parser.add_argument('-t', '--treebest', action='store_true',
+                        help='input trees are in TreeBest output format')
     parser.add_argument("--only-dup", action="store_true",
                         help="do not extract trees that don't have at least "\
                              "one duplication")

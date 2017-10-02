@@ -4,15 +4,15 @@
 """
 Draw a gene tree inside a species tree.
 
-USAGE:
-
-./genetree_drawer.py <genetreefile>
-
-ARGUMENTS:
-  - outputfile:   pdf file, or '-'. If '-', will use Qt to display the figure.
-  - genetreefile: must be a genetree (nwk format with internal nodes labelling)
-                  reconciled with species tree.
 """
+# USAGE:
+# 
+#     ./genetree_drawer.py <genetreefile>
+# 
+# ARGUMENTS:
+#   - outputfile:   pdf file, or '-'. If '-', will use Qt to display the figure.
+#   - genetreefile: must be a genetree (nwk format with internal nodes labelling)
+#                   reconciled with species tree.
 
 import sys
 import os
@@ -38,7 +38,8 @@ from codeml.select_leaves_from_specieslist import convert_gene2species
 
 ENSEMBL_VERSION = 85
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS')
-
+PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
+               "PhylTree.Ensembl.{0}.conf"
 ### Matplotlib graphical parameters ###
 grey10 = '#1a1a1a'
 mpl.rcParams['figure.figsize'] = [11.7, 8.27] # a4
@@ -88,6 +89,18 @@ def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
     return taxon
 
 
+def get_taxon_treebest(node, *args):
+    """get the taxon of a gene node, using a treebest output tree.
+    
+    *args are not used, they are here for compatibility with `get_taxon`"""
+    try:
+        return node.S
+    except AttributeError:
+        print(node.name)
+        print(node)
+        raise
+
+
 ### Unused function
 def get_taxa_set(etegenetree, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
     taxa_set = set()
@@ -105,11 +118,13 @@ def walk_phylsubtree(phyltree, taxa):
 
     Taxa returned by the iterator are space-separated.
     """
-    root, subtree = phyltree.getSubTree(taxa)
-    #if lower_root and phyltree.parent.get(root):
-    #    newroot = phyltree.parent[root].name
-    #    subtree[newroot] = [root]
-    #    root = newroot
+    if "root" in taxa:
+        root = "root"
+        taxa.remove("root")
+        oldroot, subtree = phyltree.getSubTree(taxa)
+        subtree[root] = [oldroot]
+    else:
+        root, subtree = phyltree.getSubTree(taxa)
 
     # reorder branches in a visually nice manner:
     ladderize(subtree, root)
@@ -124,8 +139,6 @@ def iter_species_coords(phyltree, taxa, angle_style=0):
     Yield (parent name, parent_xy, child name, child_xy).
     
     Just the topology. Branch lengths are ignored.
-
-    lower_root: add the ancestor of the actual root to the figure.
     """
     coords = {}
     y0 = 0
@@ -181,9 +194,11 @@ class GenetreeDrawer(object):
                    "PhylTree.Ensembl.{0}.conf"
     
     def __init__(self, phyltreefile=None, ensembl_version=None,
-                 colorize_clades=None, commonname=False, latinname=False):
+                 colorize_clades=None, commonname=False, latinname=False, 
+                 treebest=False):
         if ensembl_version: self.ensembl_version = ensembl_version
         if phyltreefile: self.phyltreefile = phyltreefile
+        self.get_taxon = get_taxon_treebest if treebest else get_taxon
         self.commonname = commonname
         self.latinname = latinname
 
@@ -228,7 +243,7 @@ class GenetreeDrawer(object):
         self.genetree = ete3.Tree(filename, format=format)
         self.genetree.ladderize()
         # add only the meaningful taxa (not those with one child and age = 0)
-        root = get_taxon(self.genetree, self.ancgene2sp, self.ensembl_version)
+        root = self.get_taxon(self.genetree, self.ancgene2sp, self.ensembl_version)
         alldescendants = self.phyltree.allDescendants[root]
         self.taxa = set()
         for taxon in alldescendants:
@@ -236,16 +251,21 @@ class GenetreeDrawer(object):
                     self.phyltree.ages[taxon] == 0):
                 self.taxa.add(taxon)
         # Add the branch leading to the current root (if duplications in this branch)
-        lower_root = self.phyltree.parent[root].name
-        # This check is not especially necessary.
-        while len(self.phyltree.items.get(lower_root, [])) == 1 \
-                and self.phyltree.ages[lower_root] == 0:
-            lower_root = self.phyltree.parent[lower_root].name
+        lower_root_node = self.phyltree.parent.get(root)
+        if lower_root_node:
+            lower_root = lower_root_node.name
+            # This check is not especially necessary.
+            while len(self.phyltree.items.get(lower_root, [])) == 1 \
+                    and self.phyltree.ages[lower_root] == 0:
+                lower_root = self.phyltree.parent[lower_root].name
+        else:
+            lower_root = "root"
 
         self.taxa.add(lower_root)
 
         rerooted_genetree = ete3.TreeNode(name=self.genetree.name.replace(root,
                                                                 lower_root))
+        rerooted_genetree.add_feature('S', lower_root)
         rerooted_genetree.add_child(child=self.genetree)
         self.genetree = rerooted_genetree
 
@@ -270,6 +290,7 @@ class GenetreeDrawer(object):
         ax0.axis('off')
 
         ymin = 0
+        show_cov = False
         for parent, (px, py), child, (cx, cy) in iter_species_coords(self.phyltree,
                                                                      self.taxa,
                                                                      angle_style):
@@ -291,8 +312,12 @@ class GenetreeDrawer(object):
                 cx += 0.1 # Add some padding
             # data-specific coloring (low-coverage)
             alpha = 1
-            if child in self.phyltree.lstEsp6X: alpha = 0.6
-            if child in self.phyltree.lstEsp2X: alpha = 0.3
+            if child in getattr(self.phyltree, "lstEsp6X", ()):
+                alpha = 0.6
+                show_cov = True
+            elif child in getattr(self.phyltree, "lstEsp2X", ()):
+                alpha = 0.3
+                show_cov = True
 
             bgcolor = self.colorize_species.get(child, '#ffffff00')
 
@@ -315,17 +340,19 @@ class GenetreeDrawer(object):
                  fontstyle='italic', family='serif')
         
         # Add legend in case of colorized_clades
-        legend_cov = ax0.legend(handles=self.legend_coverage,
-                                loc="upper left",
-                                bbox_to_anchor=(0, 1),
-                                title="Sequencing coverage",
-                                prop={'size': 'x-small', 'family': 'serif', 'style': 'italic'},
-                                handlelength=0,
-                                facecolor='inherit')
-        for label, line in zip(legend_cov.get_texts(), legend_cov.get_lines()):
-            label.set_alpha(line.get_alpha())
-            #label.set_style('italic')
-            #label.set_family('serif')
+        if show_cov:
+            legend_cov = ax0.legend(handles=self.legend_coverage,
+                                    loc="upper left",
+                                    bbox_to_anchor=(0, 1),
+                                    title="Sequencing coverage",
+                                    prop={'size': 'x-small', 'family': 'serif',
+                                          'style': 'italic'},
+                                    handlelength=0,
+                                    facecolor='inherit')
+            for label, line in zip(legend_cov.get_texts(), legend_cov.get_lines()):
+                label.set_alpha(line.get_alpha())
+                #label.set_style('italic')
+                #label.set_family('serif')
 
         if self.legend_clades:
             ax0.legend(handles=self.legend_clades,
@@ -362,7 +389,7 @@ class GenetreeDrawer(object):
             # set up a *unique* node ID, to avoid relying on node.name.
             node.id = nodeid
 
-            taxon = get_taxon(node, self.ancgene2sp, self.ensembl_version)
+            taxon = self.get_taxon(node, self.ancgene2sp, self.ensembl_version)
             taxon_gene_coords = self.gene_coords.setdefault(taxon, [])
 
             if node.is_leaf():
@@ -376,7 +403,8 @@ class GenetreeDrawer(object):
             else:
                 children_taxa = set(interspecies_trees[ch.id]['taxon'] for ch
                                     in node.children)
-                if len(children_taxa) == 1 and len(node.children) > 1:
+                if (getattr(node, 'D', None) is not None and node.D == 'Y') or\
+                   (len(children_taxa) == 1 and len(node.children) > 1):
                     # It is a duplication
                     children_ys   = []
                     children_ndup = []
@@ -624,14 +652,17 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 
 
 def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
-        colorize_clades=None, commonname=False, latinname=False):
+        phyltreefile=None, colorize_clades=None, commonname=False,
+        latinname=False, treebest=False):
     #global plt
 
     figsize = None
-    gd = GenetreeDrawer(ensembl_version=ensembl_version,
+    gd = GenetreeDrawer(phyltreefile=phyltreefile,
+                        ensembl_version=ensembl_version,
                         colorize_clades=colorize_clades,
                         commonname=commonname,
-                        latinname=latinname)
+                        latinname=latinname,
+                        treebest=treebest)
     if outfile != '-':
         pdf = PdfPages(outfile)
         figsize = (8.2, 11.7)
@@ -661,12 +692,18 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__,
                         formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('outfile')
-    parser.add_argument('genetrees', nargs='*')
+    parser.add_argument('outfile', help=("pdf file, or '-'. If '-', will use "
+                                         "Qt to display the figure."))
+    parser.add_argument('genetrees', nargs='*', help=("must be a genetree (nwk"
+        " format with internal nodes labelling) reconciled with species tree, "
+        " or a genetree formatted like `TreeBest` output."))
     parser.add_argument('--fromfile', action='store_true',
                         help='take genetree paths and description from a file')
     parser.add_argument('-e', '--ensembl-version', type=int,
                         default=ENSEMBL_VERSION)
+    parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE,
+                        help='species tree in phyltree or newick format')
+    
     parser.add_argument('-a', '--angle-style', type=int, choices=[0,1,2],
                         default=0,
                         help=("0: parent node y = mean of children nodes y\n"
@@ -681,6 +718,9 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--colorize-clade', action='append',
                         dest='colorize_clades',
                         help='species in these clades will have a specific color')
+    parser.add_argument('-t', '--treebest', action='store_true',
+                        help='The input genetree is a treebest output')
+    
     #parser.add_argument('-m', '--multiple-pdfs', action='store_true',
     #                    help='output one pdf file per genetree. [NOT implemented]')
     args = parser.parse_args()
