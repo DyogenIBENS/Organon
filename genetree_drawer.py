@@ -139,7 +139,7 @@ def walk_phylsubtree(phyltree, taxa):
         root, subtree = phyltree.getSubTree(taxa)
 
     # reorder branches in a visually nice manner:
-    ladderize(subtree, root)
+    ladderize(subtree, root) #, light_on_top=False)
     get_children = lambda tree, node: tree.get(node, [])
     dfw = dfw_descendants_generalized(subtree, get_children,
                                       include_leaves=False, queue=[root])
