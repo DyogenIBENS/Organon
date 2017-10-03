@@ -14,6 +14,7 @@ Steps:
 """
 
 SPTREENAME = config.setdefault('sptreename', 'timetree.taxadots')
+GTREENAME = config.setdefault('gtreename', '') # SMCHD1
 
 rule al2seq:
 	input: "{genefam}_genes.fa"
@@ -69,7 +70,7 @@ rule treebest2genomicus:
 	input: rules.treebest.output
 	output: "{outdir}/treebest/{genefam}_best_fulltree.nwk"
 	shell:
-		"~glouvel/scripts/treetools/treebest2genomicus.py {input} '' {output}"
+		"~glouvel/scripts/treetools/treebest2genomicus.py {input} %r {output}".format(GTREENAME)
 
 rule reshape4codeml:
 	input: rules.treebest2genomicus.output
