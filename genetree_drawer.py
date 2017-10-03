@@ -34,12 +34,17 @@ import LibsDyogen.myPhylTree as PhylTree
 
 from glou_duphist import dfw_descendants_generalized, ladderize
 from codeml.select_leaves_from_specieslist import convert_gene2species
+from prot2gene import convert_prot2species
+from seqtools.specify import load_conversion
 
 
 ENSEMBL_VERSION = 85
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS')
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
                "PhylTree.Ensembl.{0}.conf"
+
+UCSC_CONVERSION = load_conversion()
+
 ### Matplotlib graphical parameters ###
 grey10 = '#1a1a1a'
 mpl.rcParams['figure.figsize'] = [11.7, 8.27] # a4
@@ -64,6 +69,7 @@ mpl.rcParams['savefig.frameon'] = False  #background frame transparent
 #mpl.rcParams['savefig.transparent'] = True # all background transparent
                                             # (including ggplot2 style)
 #mpl.style.use('ggplot')
+
 def get_common_name(phyltree, latin_name):
     """Get the common species name from the latin one"""
     for name in phyltree.commonNames[latin_name]:
@@ -80,7 +86,13 @@ def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
             - node is a leaf (e.g ENSMUSG00...)
             - node is internal (e.g Mus.musculusENSGT...)"""
     if node.is_leaf():
-        taxon = convert_gene2species(node.name, ensembl_version)
+        try:
+            taxon = convert_gene2species(node.name, ensembl_version)
+        except RuntimeError:
+            try:
+                taxon = convert_prot2species(node.name, ensembl_version)
+            except KeyError:
+                taxon = UCSC_CONVERSION[re.match('[A-Za-z0-9]+', node.name).group()]
     else:
         try:
             taxon = ancgene2sp.match(node.name).group(1).replace('.', ' ')
@@ -225,7 +237,7 @@ class GenetreeDrawer(object):
                 self.colorize_species.update(**{sp: cmap(i) for sp in 
                                                 self.phyltree.species[clade]})
 
-        self.ancgene2sp = re.compile(r'('
+        self.ancgene2sp = re.compile(r'(' + r'root|'
                         + r'|'.join(list(self.phyltree.listSpecies) +
                                     sorted(self.phyltree.listAncestr,
                                            key=lambda a: len(a),
@@ -327,7 +339,7 @@ class GenetreeDrawer(object):
                     common_name = get_common_name(self.phyltree, child)
                     if self.commonname:
                         child = common_name
-                    else:
+                    elif common_name:
                         child += ', %s' % common_name
 
             ax0.text(cx, cy, child, ha=ha, va=va, fontsize='x-small',

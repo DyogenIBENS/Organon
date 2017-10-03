@@ -16,14 +16,17 @@ from copy import copy
 
 import ete3
 import LibsDyogen.myPhylTree as PhylTree
-#from codeml.select_leaves_from_specieslist import convert_gene2species
+
+# The 3 following imports are just so messy. TODO: write a unique conversion
+# function, and/or centralize these functions in a single script.
 from select_leaves_from_specieslist import convert_gene2species
+from prot2gene import convert_prot2species
+from seqtools.specify import load_conversion
 
 
 ENSEMBL_VERSION = 85
 PHYLTREE_FMT = "/users/ldog/alouis/ws2/GENOMICUS_SVN/data{0}/PhylTree.Ensembl.{0}.conf"
 NEW_DUP_SUFFIX = re.compile(r'\.[A-Za-z`]+$')
-
 ANCGENE_START = 'ENSGT'
 ANCGENE2SP_PATTERN = r'([A-Z][A-Za-z_.-]+)(%s.*)$'
 ANCGENE2SP = re.compile(ANCGENE2SP_PATTERN % ANCGENE_START)
@@ -55,6 +58,22 @@ def print_if_verbose(*args, **kwargs):
 #                        err.args += ("ERROR: Invalid nodename %r" % nodename,)
 #                        raise
 #    return nodename[:idx].replace('.', ' '), nodename[idx:]
+UCSC_CONVERSION = load_conversion()
+
+def ultimate_seq2sp(seqname, ensembl_version=ENSEMBL_VERSION):
+    """From a sequence name, find the corresponding species.
+    Recognizes Ensembl gene IDs, Ensembl protein IDs, and also UCSC assembly
+    names such as 'loxAfr3'"""
+    try:
+        sp = convert_gene2species(seqname, ensembl_version)
+    except RuntimeError:
+        try:
+            sp = convert_prot2species(seqname, ensembl_version)
+        except KeyError:
+            assembly = re.match('[A-Za-z0-9]+', seqname).group()
+            sp = UCSC_CONVERSION[assembly]
+    return sp
+
 
 def split_species_gene(nodename, ancgene2sp):
     match = ancgene2sp.match(nodename)
@@ -263,12 +282,11 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                               fix_suffix=True, force_mrca=False,
                               ensembl_version=ENSEMBL_VERSION, treebest=False):
     if treebest:
-        print_if_verbose("Reading from TreeBest format", file=sys.stderr)
+        print_if_verbose("  Reading from TreeBest format", file=sys.stderr)
         get_species    = lambda node: (node.S, node.name.split('_')[0])
         split_ancestor = lambda node: (node.S, node.name) 
     else:
-        get_species = lambda node: (convert_gene2species(node.name,
-                                                         ensembl_version),
+        get_species = lambda node: (ultimate_seq2sp(node.name, ensembl_version),
                                     node.name)
         split_ancestor = lambda node: split_species_gene(node.name, ancgene2sp)
 
@@ -299,7 +317,7 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                 if child.is_leaf():
                     try:
                         ancestor, genename = get_species(child)
-                    except RuntimeError as err:
+                    except KeyError as err:
                         print("WARNING: Leaf %r not in an extant species" % \
                               child.name,
                               file=sys.stderr)
@@ -502,6 +520,7 @@ def search_by_ancestorlist(tree, ancestorlist, latest_ancestor=False):
     ancestorlist. If `latest_ancestor` is True, return the most recent nodes
     belonging to one of these ancestors."""
     if not latest_ancestor:
+        #print("")
         def stop_at_any_ancestor(node):
             return any(node.name.startswith(anc) for anc in ancestorlist)
     else:
@@ -526,7 +545,8 @@ def save_subtrees_byspecieslist(tree, specieslist, outdir='.'):
 
 
 def with_dup(leafnames):
-    leafspecies = [convert_gene2species(leaf) for leaf in leafnames]
+    #leafspecies = [convert_gene2species(leaf) for leaf in leafnames]
+    leafspecies = [ultimate_seq2sp(leaf) for leaf in leafnames]
     return (len(leafspecies) > len(set(leafspecies)))
 
 
@@ -695,7 +715,8 @@ if __name__ == '__main__':
                         "character to remove the extension from the basename "\
                         "of the treefile (used by '{0}' in --outdir).")
     parser.add_argument('-t', '--treebest', action='store_true',
-                        help='input trees are in TreeBest output format')
+                        help='input trees are in TreeBest output format ' \
+                             '[Experimental!]')
     parser.add_argument("--only-dup", action="store_true",
                         help="do not extract trees that don't have at least "\
                              "one duplication")
