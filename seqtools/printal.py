@@ -130,8 +130,9 @@ def printal(infile):
 
     ruler = makeruler(length)
     print(' '*name_len + pad + ruler)
+    namefmt = '%%%ds' % name_len
     for record in align:
-        print(record.id + pad + colorizerecord(record) + RESET)
+        print(namefmt % record.id + pad + colorizerecord(record) + RESET)
 
 
 if __name__ == '__main__':
