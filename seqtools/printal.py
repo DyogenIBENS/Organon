@@ -115,8 +115,9 @@ def makeruler(length, base=1):
 def colorizerecord(record):
     return ''.join(nucl2col.get(nucl, RESET)+nucl for nucl in record.seq)
 
+#def printblock(records, namefmt, pad):
 
-def printal(infile):
+def printal(infile, wrap=False):
     ### TODO: wrap to column width
     pad = 4*' '
     unit_delim = '.'
@@ -129,10 +130,37 @@ def printal(infile):
     name_len = max(len(record.id) for record in align)
 
     ruler = makeruler(length)
-    print(' '*name_len + pad + ruler)
     namefmt = '%%%ds' % name_len
-    for record in align:
-        print(namefmt % record.id + pad + colorizerecord(record) + RESET)
+
+    try:
+        if wrap:
+            from subprocess import check_output
+            ncols = int(check_output(['tput', 'cols']))
+            block_width = ncols - name_len - len(pad)
+            assert block_width > 0, \
+                "Can't wrap on %d columns because sequence names use %d columns" %\
+                (ncols, name_len + pad)
+            #print(ncols, name_len)
+
+            for block in range(length // block_width + 1):
+                start, stop = (block*block_width, (block+1)*block_width)
+                #print(start, stop)
+                print(' '*name_len + pad + ruler[start:stop])
+                for record in align:
+
+                    print(namefmt % record.id + pad + \
+                            colorizerecord(record[start:stop]) + RESET)
+                print('')
+
+        else:
+            print(' '*name_len + pad + ruler)
+            for record in align:
+                print(namefmt % record.id + pad + colorizerecord(record) + RESET)
+    except BrokenPipeError as err:
+        #from os import devnull
+        #with open(devnull, 'w') as dn:
+        #    print(err, file=dn)
+        pass
 
 
 if __name__ == '__main__':
@@ -140,6 +168,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('infile')
+    parser.add_argument('-w', '--wrap', action='store_true', 
+                        help='Wrap output to terminal width')
     
     args = parser.parse_args()
     printal(**vars(args))
