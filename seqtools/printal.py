@@ -120,8 +120,8 @@ def colorizerecord(record):
 def printal(infile, wrap=False):
     ### TODO: wrap to column width
     pad = 4*' '
-    unit_delim = '.'
-    five_delim = '|'
+    #unit_delim = '.'
+    #five_delim = '|'
 
     with open(infile) as al:
         align = AlignIO.read(al, format=filename2format(infile))
