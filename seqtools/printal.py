@@ -4,6 +4,7 @@
 
 """Print an alignment to stdout, with colors."""
 
+import sys
 import os.path
 import argparse
 
@@ -49,7 +50,7 @@ nucl2col = {'A': BG_RED,
 ext2fmt = {'.fa':    'fasta',
            '.fasta': 'fasta',
            '.mfa':   'fasta', 
-           '.phy':   'phylip'}
+           '.phy':   'phylip-relaxed'}
 
 
 def filename2format(filename):
@@ -117,14 +118,14 @@ def colorizerecord(record):
 
 #def printblock(records, namefmt, pad):
 
-def printal(infile, wrap=False):
+def printal(infile, wrap=False, format=None, slice=None):
     ### TODO: wrap to column width
     pad = 4*' '
     #unit_delim = '.'
     #five_delim = '|'
 
-    with open(infile) as al:
-        align = AlignIO.read(al, format=filename2format(infile))
+    #with open(infile) as al:
+    align = AlignIO.read(infile, format=(format or filename2format(infile)))
 
     length = align.get_alignment_length()
     name_len = max(len(record.id) for record in align)
@@ -142,15 +143,26 @@ def printal(infile, wrap=False):
                 (ncols, name_len + pad)
             #print(ncols, name_len)
 
-            for block in range(length // block_width + 1):
+            if slice:
+                slstart, slend = [int(pos) for pos in slice.split(':')]
+                length = slend - slstart
+            else:
+                slstart, slend = 0, length+1
+
+            nblocks = length // block_width + 1
+            for block in range(nblocks):
                 start, stop = (block*block_width, (block+1)*block_width)
+                start += slstart
+                stop = min(stop, slend)
+
                 #print(start, stop)
                 print(' '*name_len + pad + ruler[start:stop])
                 for record in align:
 
                     print(namefmt % record.id + pad + \
                             colorizerecord(record[start:stop]) + RESET)
-                print('')
+                if block < nblocks-1:
+                    print('')
 
         else:
             print(' '*name_len + pad + ruler)
@@ -167,9 +179,15 @@ if __name__ == '__main__':
     #printwheels()
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('infile')
-    parser.add_argument('-w', '--wrap', action='store_true', 
-                        help='Wrap output to terminal width')
+    parser.add_argument('infile', nargs='?', default=sys.stdin,
+                        type=argparse.FileType('r'))
+    parser.add_argument('-L', '--nowrap', action='store_false', dest='wrap',
+                        help='Do not wrap output to terminal width')
+    #parser.add_argument('-w', '--wrap', action='store_true', 
+    #                    help='Wrap output to terminal width')
+    parser.add_argument('-f', '--format', help='Force format usage.' \
+                        ' Can be any format accepted by Bio.alignIO')
+    parser.add_argument('-s', '--slice', help='select positions (start:end)')
     
     args = parser.parse_args()
     printal(**vars(args))
