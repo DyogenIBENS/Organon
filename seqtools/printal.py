@@ -144,16 +144,17 @@ def printal(infile, wrap=False, format=None, slice=None):
             #print(ncols, name_len)
 
             if slice:
-                slstart, slend = [int(pos) for pos in slice.split(':')]
+                # -1 because coords are taken in base 1
+                slstart, slend = [int(pos)-1 for pos in slice.split(':')]
                 length = slend - slstart
             else:
-                slstart, slend = 0, length+1
+                slstart, slend = 0, length
 
             nblocks = length // block_width + 1
             for block in range(nblocks):
                 start, stop = (block*block_width, (block+1)*block_width)
                 start += slstart
-                stop = min(stop, slend)
+                stop = min(stop + slstart, slend)
 
                 #print(start, stop)
                 print(' '*name_len + pad + ruler[start:stop])
@@ -187,7 +188,8 @@ if __name__ == '__main__':
     #                    help='Wrap output to terminal width')
     parser.add_argument('-f', '--format', help='Force format usage.' \
                         ' Can be any format accepted by Bio.alignIO')
-    parser.add_argument('-s', '--slice', help='select positions (start:end)')
+    parser.add_argument('-s', '--slice',
+                        help='select positions (start:end). 1-based, end excluded')
     
     args = parser.parse_args()
     printal(**vars(args))
