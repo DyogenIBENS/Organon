@@ -19,6 +19,8 @@ YELLOW       = "\033[33m"
 BLUE         = "\033[34m"
 MAGENTA      = "\033[35m"
 CYAN         = "\033[36m"
+GREY         = "\033[0;37m"
+DGREY        = "\033[0;90m"
 BOLD_RED     = "\033[1;31m"
 BOLD_GREEN   = "\033[1;32m"
 BOLD_YELLOW  = "\033[1;33m"
@@ -45,11 +47,13 @@ BG_COL = "\033[48;5;%dm"
 nucl2col = {'A': BG_RED,
             'T': BG_BLUE,
             'G': BG_YELLOW,
-            'C': BG_GREEN}
+            'C': BG_GREEN,
+            'N': GREY,
+            '-': DGREY}
 
 ext2fmt = {'.fa':    'fasta',
            '.fasta': 'fasta',
-           '.mfa':   'fasta', 
+           '.mfa':   'fasta',
            '.phy':   'phylip-relaxed'}
 
 
@@ -114,7 +118,7 @@ def makeruler(length, base=1):
 
 
 def colorizerecord(record):
-    return ''.join(nucl2col.get(nucl, RESET)+nucl for nucl in record.seq)
+    return ''.join(nucl2col.get(nucl, '')+nucl+RESET for nucl in record.seq)
 
 #def printblock(records, namefmt, pad):
 
@@ -125,7 +129,7 @@ def printal(infile, wrap=False, format=None, slice=None):
     #five_delim = '|'
 
     #with open(infile) as al:
-    align = AlignIO.read(infile, format=(format or filename2format(infile)))
+    align = AlignIO.read(infile, format=(format or filename2format(infile.name)))
 
     length = align.get_alignment_length()
     name_len = max(len(record.id) for record in align)
