@@ -1099,11 +1099,11 @@ if __name__=='__main__':
     parser.add_argument('-t', '--tofulltree', dest='saveas', action='store_const',
                         const='fulltree', default='ages',
                         help='Do not compute the table, but save trees in one'\
-                            'newick file with the chosen measure as distance')
+                            ' newick file with the chosen measure as distance')
     parser.add_argument('-s', '--tosubtrees', dest='saveas', action='store_const',
                         const='subtrees', default='ages',
                         help='Do not compute the table, but save trees in one'\
-                            'newick file with the chosen measure as distance')
+                            ' newick file with the chosen measure as distance')
     parser.add_argument('--measures', nargs='*',
                         default=['t', 'dN', 'dS', 'dist'],
                         choices=['t', 'dN', 'dS', 'dist'],
