@@ -78,7 +78,9 @@ def myannotate(timetree, ncbi):
 
 def name_ancestors(timetreefile, to_table=False):
     print('Loading data', file=sys.stderr)
-    timetree = PhyloTree(timetreefile, format=1)
+    ### /!\ quoted_node_names only from ete3 v3.1.1
+    timetree = PhyloTree(timetreefile, format=1,
+                         quoted_node_names=True)
     ncbi = NCBITaxa()
     
 
@@ -86,7 +88,14 @@ def name_ancestors(timetreefile, to_table=False):
                                                     timetree.get_leaf_names()])
     
     for leaf in timetree.get_leaves():
-        leaf.add_feature('taxid', name2taxid[leaf.name.replace('_', ' ')][0])
+        try:
+            leaf.add_feature('taxid', name2taxid[leaf.name.replace('_', ' ')][0])
+        except KeyError:
+            print('WARNING: species %r not found' % leaf.name,
+                  file=sys.stderr)
+            leaf.delete(prevent_nondicotomic=True,
+                        preserve_branch_length=True)
+
 
     # TODO: use ncbi.annotate_tree
     print('Placing common ancestors', file=sys.stderr)
