@@ -50,7 +50,9 @@ def myannotate(timetree, ncbi):
     seen = set()
     for node in timetree.traverse('postorder'):
         if node.is_leaf():
-            node.add_feature('taxid', name2taxid[node.name.replace('_', ' ')][0])
+            taxids = name2taxid[node.name.replace('_', ' ')]
+            assert len(taxids) == 1
+            node.add_feature('taxid', taxids[0])
         else:
             try:
                 lineages = [ncbi.get_lineage(ch.taxid) for ch in node.children]
@@ -96,8 +98,6 @@ def name_ancestors(timetreefile, to_table=False):
             leaf.delete(prevent_nondicotomic=True,
                         preserve_branch_length=True)
 
-
-    # TODO: use ncbi.annotate_tree
     print('Placing common ancestors', file=sys.stderr)
     ncbi.annotate_tree(timetree, 'taxid')
     #myannotate(timetree, ncbi)

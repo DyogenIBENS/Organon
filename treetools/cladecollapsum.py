@@ -24,6 +24,29 @@ import ete3
 from itertools import chain
 
 
+def match_duplicate_taxid(taxids, node, taxid2name):
+    """Find the correct taxid corresponding to node name, by comparing the node
+    ancestors with the taxid lineage."""
+    lineages = ncbi.get_lineage_translator(taxids)
+    named_lin = {t: set(taxid2name.get(lt) for lt in lin) for t,lin \
+                                        in lineages.items()}
+    ancestors = [n.name for n in node.get_ancestors()]
+
+    # Find the correct taxid: the one whose lineage (ncbi) matches
+    # first to the most recent ancestor (in tree).
+
+    match = None
+    while not match:
+        anc = ancestors.pop()
+        for taxid, nl in named_lin.items():
+            if anc in nl:
+                match = taxid
+                print('Choose %s' % taxid, file=sys.stderr)
+                break
+
+    return match
+
+
 def main(inputtree, outbase, rank='family'):
     tree = ete3.PhyloTree(inputtree, format=1, quoted_node_names=False)
 
@@ -37,36 +60,25 @@ def main(inputtree, outbase, rank='family'):
     taxid2rank = ncbi.get_rank(chain(*name2taxid.values()))
     taxid2name = ncbi.get_taxid_translator(chain(*name2taxid.values()))
     
+    # Could also simply annotate the tree using ncbi.annotate_tree
+    ncbi.annotate_tree(tree, 'taxid')
+
     def is_leaf_fn(node):
-        """Stop at given rank"""
-        taxids = name2taxid.get(node.name)
-        if taxids is not None:
-            if len(taxids) > 1:
-                print('WARNING: non unique name %r: %s.' % (node.name, taxids),
-                      end=' ', file=sys.stderr)
-                lineages = ncbi.get_lineage_translator(taxids)
-                named_lin = {t: set(taxid2name.get(lt) for lt in lin) for t,lin \
-                                                    in lineages.items()}
-                ancestors = [n.name for n in node.get_ancestors()]
+        return node.rank == rank
 
-                # Find the correct taxid: the one whose lineage (ncbi) matches
-                # first to the most recent ancestor (in tree).
+    #def is_leaf_fn(node):
+    #    """Stop at given rank"""
+    #    taxids = name2taxid.get(node.name)
+    #    if taxids is not None:
+    #        if len(taxids) > 1:
+    #            print('WARNING: non unique name %r: %s.' % (node.name, taxids),
+    #                  end=' ', file=sys.stderr)
+    #            taxids = [match_duplicate_taxid(taxids, node, name2taxid)]
 
-                match = None
-                while not match:
-                    anc = ancestors.pop()
-                    for taxid, nl in named_lin.items():
-                        if anc in nl:
-                            match = taxid
-                            print('Choose %s' % taxid, file=sys.stderr)
-                            break
-
-                taxids = [match]
-
-            noderank = taxid2rank[taxids[0]]
-            return noderank == rank
-        else:
-            return False
+    #        noderank = taxid2rank[taxids[0]]
+    #        return noderank == rank
+    #    else:
+    #        return False
     
     #subtrees = []
 
@@ -83,6 +95,7 @@ def main(inputtree, outbase, rank='family'):
             #for child in node.children:
             #    node.remove_child(child)
             size = len(node)
+            ### NOTE: divide by stem or crown age??
             _, age = node.get_farthest_leaf()
             div_rate = float(size) / age if age else ''
             
