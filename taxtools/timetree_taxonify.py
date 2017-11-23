@@ -113,7 +113,6 @@ def name_ancestors(timetreefile, to_table=False):
             if not node.is_leaf():
                 print(node.oldname + '\t' + getattr(node, 'sci_name', ''))
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('timetreefile')
