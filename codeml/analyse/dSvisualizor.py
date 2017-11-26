@@ -27,7 +27,7 @@ import bz2
 import pickle
 import argparse
 import matplotlib as mpl
-mpl.use('TkAgg', warn=False) # for figures to show up when the script is called from the shell
+mpl.use('Qt4Agg', warn=False) # for figures to show up when the script is called from the shell
 import matplotlib.pyplot as plt
 #plt.ion()
 import numpy as np
@@ -552,6 +552,9 @@ class DataVisualizor(object):
 def run(command, ages_file, phyltreefile=None, outfile=None, lineage=None,
         show_edited=None, no_edited=False, age_key=DEFAULT_AGE_KEY,
         nbins=DEFAULT_NBINS, vertical=False, x=None, y=None, xlim=None, ylim=None):
+
+    if outfile:
+        plt.switch_backend("Agg")
 
     dv = DataVisualizor(ages_file, no_edited=no_edited, age_key=age_key)
     
