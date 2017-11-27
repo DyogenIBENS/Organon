@@ -18,6 +18,7 @@
 """
 
 import sys
+import os.path
 import argparse
 import ete3 # Will use PhyloTree, NCBITaxa
 import numpy as np
@@ -104,8 +105,10 @@ def def_group_feature_rate(stem_or_crown="crown"):
 
 
 def main(inputtree, outbase, rank='family', div=True, features=None,
-         stem_or_crown="crown", byage=None, bylist=None):
-    """byage: collapse any node of age <= byage"""
+         stem_or_crown="crown", byage=None, bylist=None, bysize=None):
+    """byage: collapse any node of age <= byage
+       bylist: read list of nodes from file
+       bysize: collapse oldest nodes with size < bysize"""
     group_feature_rate = def_group_feature_rate(stem_or_crown)
 
     tree = ete3.PhyloTree(inputtree, format=1, quoted_node_names=False)
@@ -115,10 +118,13 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
             nodelist = set(l.rstrip() for l in s)
         def is_leaf_fn(node):
             return node.name in nodelist
-    if byage:
+    elif byage:
         def is_leaf_fn(node):
             _, age = node.get_farthest_leaf()
             return age <= byage
+    elif bysize:
+        def is_leaf_fn(node):
+            return len(node) <= bysize
     else:
         print("Loading taxonomy", file=sys.stderr)
         ncbi = ete3.NCBITaxa()
@@ -157,11 +163,19 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
                 return False
     
     subtrees = []
-    columns = ['clade%g' % byage if byage else rank, 'size', 'age']
+    columns = ['clade%g' % byage if byage else rank, 'size', 'branches', 'age']
+               #'crown_age', 'stem_age']
     if div: columns.append('div_rate')
     if features: columns.extend(features)
 
-    outsuffix = 'age%g' % byage if byage else rank 
+    if byage:
+        outsuffix = 'age%g' % byage
+    elif bylist:
+        outsuffix = 'list' + os.path.splitext(os.path.basename(bylist))[0]
+    elif bysize:
+        outsuffix = 'size%d' % bysize
+    else:
+        outsuffix = rank 
     with open(outbase + '-%s.tsv' % outsuffix, 'w') as outtsv, \
          open(outbase + '-%s.subtrees.nwk' % outsuffix, 'w') as outsub:
 
@@ -172,11 +186,11 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
             
             # Collapse
             size = len(node)
-            ### NOTE: divide by stem or crown age??
+            branches = len(node.get_descendants())
             _, age = node.get_farthest_leaf()
             if stem_or_crown == 'stem':
                 age += node.dist
-            values = [node.name, size, age]
+            values = [node.name, size, branches, age]
             if div:
                 div_rate = float(size) / age if age else ''
                 values.append(div_rate)
@@ -197,21 +211,22 @@ if __name__ == '__main__':
     parser.add_argument('inputtree')
     parser.add_argument('outbase',
                         help='basename for the 2 output files (.tsv, .nwk)')
-    parser.add_argument('-r', '--rank', default='family',
-                        choices=RANKS,
-                        help='taxonomic rank to collapse [%(default)s]')
     parser.add_argument('--nodiv', dest='div', action='store_false',
                         help='Do not compute diversification values')
-    parser.add_argument('-s', '--stem', dest='stem_or_crown', default='crown',
+    parser.add_argument('-S', '--stem', dest='stem_or_crown', default='crown',
                         action='store_const', const='stem',
                         help='include stem branch')
     parser.add_argument('-f', '--features', nargs='+',
                         help='compute the average rate of these features')
     method_parser = parser.add_mutually_exclusive_group()
+    method_parser.add_argument('-r', '--rank', default='family', choices=RANKS,
+                        help='taxonomic rank to collapse [%(default)s]')
     method_parser.add_argument('-a', '--byage', type=float,
-                        help='collapse by age instead of rank (if age < byage)')
+                        help='collapse oldest clades with age <= byage')
     method_parser.add_argument('-l', '--bylist',
                         help='collapse by a list of node names (file)')
+    method_parser.add_argument('-s', '--bysize', type=int,
+                        help='collapse oldest clades with size <= bysize')
     
     
     args = parser.parse_args()
