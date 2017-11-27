@@ -35,9 +35,12 @@ def match_duplicate_taxid(taxids, node, taxid2name, ncbi):
     ancestors = [n.name for n in node.get_ancestors()]
     
     descendants = [n.name for n in node.iter_leaves()]
-    dtaxids = ncbi.get_name_translator(descendants)
+    dname2taxids = ncbi.get_name_translator(descendants)
+    _, dtaxids = dname2taxids.popitem()
+    while len(dtaxids) > 1:
+        _, dtaxids = dname2taxids.popitem()
     #dlineages = ncbi.get_lineage_translator(chain(*dtaxids.values()))
-    dlineage0 = ncbi.get_lineage(dtaxids[descendants[0]][0])
+    dlineage0 = ncbi.get_lineage(dtaxids[0])
 
     candidates = sorted(taxids,
                     key=lambda t: dlineage0.index(t) if t in dlineage0 else -1)
@@ -56,8 +59,12 @@ def match_duplicate_taxid(taxids, node, taxid2name, ncbi):
     #        raise
     #    for taxid, nl in named_lin.items():
     #        if anc in nl:
-    #            match = taxid
-    #            break
+    #            if not match:
+    #                match = taxid
+    #            else:
+    #                raise RuntimeError("Can't decide because previous "\
+    #                                   "ancestor is in multiple lineages.")
+    #            #break
 
     print('Choose %s' % match, file=sys.stderr)
     return match
