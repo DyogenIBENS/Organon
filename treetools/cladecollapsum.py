@@ -71,6 +71,18 @@ def match_duplicate_taxid(taxids, node, taxid2name, ncbi):
     return match
 
 
+def get_valid_tax_children(node, name2taxid):
+    """return the list of node descendants such that all of them are in the
+    taxonomy (name2taxid)."""
+    nodelist = []
+    for child in node.children:
+        if child.name.replace('_', ' ') in name2taxid:
+            nodelist.append(child)
+        else:
+            nodelist.extend(get_valid_tax_children(child, name2taxid))
+    return nodelist
+
+
 def def_group_feature_rate(stem_or_crown="crown"):
     """Return the computation function for either crown or stem group."""
     if stem_or_crown == "stem":
@@ -120,53 +132,59 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
     tree = ete3.PhyloTree(inputtree, format=1, quoted_node_names=False)
 
     if bylist:
+        rank = None
         with open(bylist) as s:
-            nodelist = set(l.rstrip() for l in s)
+            nodelist = set(l.rstrip().split('\t')[0] for l in s)
         def is_leaf_fn(node):
             return node.name in nodelist
     elif byage:
+        rank = None
         def is_leaf_fn(node):
             _, age = node.get_farthest_leaf()
             return age <= byage
     elif bysize:
+        rank = None
         def is_leaf_fn(node):
             return len(node) <= bysize
-    else:
+    
+    if rank or div:
         print("Loading taxonomy", file=sys.stderr)
         ncbi = ete3.NCBITaxa()
 
-        name2taxid = ncbi.get_name_translator([node.name for node in \
-                                                        tree.traverse()])
+        name2taxid = ncbi.get_name_translator(
+                            [node.name.replace('_', ' ') if node.is_leaf() \
+                                else node.name for node in tree.traverse()])
         # Won't return anything for names not found
 
-        taxid2rank = ncbi.get_rank(chain(*name2taxid.values()))
-        taxid2name = ncbi.get_taxid_translator(chain(*name2taxid.values()))
-        
-        # Could also simply annotate the tree using ncbi.annotate_tree
-        #ncbi.annotate_tree(tree, 'taxid')
+        if rank:
+            taxid2rank = ncbi.get_rank(chain(*name2taxid.values()))
+            taxid2name = ncbi.get_taxid_translator(chain(*name2taxid.values()))
+            
+            # Could also simply annotate the tree using ncbi.annotate_tree
+            #ncbi.annotate_tree(tree, 'taxid')
 
-        #def is_leaf_fn(node):
-        #    return node.rank == rank
+            #def is_leaf_fn(node):
+            #    return node.rank == rank
 
-        def is_leaf_fn(node):
-            """Stop at given rank"""
-            taxids = name2taxid.get(node.name)
-            if taxids is not None:
-                if len(taxids) > 1:
-                    print('WARNING: non unique name %r: %s.' % (node.name, taxids),
-                          end=' ', file=sys.stderr)
-                    taxids = [match_duplicate_taxid(taxids, node, taxid2name, ncbi)]
+            def is_leaf_fn(node):
+                """Stop at given rank"""
+                taxids = name2taxid.get(node.name)
+                if taxids is not None:
+                    if len(taxids) > 1:
+                        print('WARNING: non unique name %r: %s.' % (node.name, taxids),
+                              end=' ', file=sys.stderr)
+                        taxids = [match_duplicate_taxid(taxids, node, taxid2name, ncbi)]
 
-                # Non inclusive method (must be *exactly* rank, not above):
-                #noderank = taxid2rank[taxids[0]]
-                #return noderank == rank
-                # Must be included in the rank:
-                lineage = ncbi.get_lineage(taxids[0])
-                ranks = set(ncbi.get_rank(lineage).values())
-                #print('- %s:' % node.name, ' '.join(ranks), file=sys.stderr)
-                return rank in ranks
-            else:
-                return False
+                    # Non inclusive method (must be *exactly* rank, not above):
+                    #noderank = taxid2rank[taxids[0]]
+                    #return noderank == rank
+                    # Must be included in the rank:
+                    lineage = ncbi.get_lineage(taxids[0])
+                    ranks = set(ncbi.get_rank(lineage).values())
+                    #print('- %s:' % node.name, ' '.join(ranks), file=sys.stderr)
+                    return rank in ranks
+                else:
+                    return False
     
     outsuffix = 'stem' if stem_or_crown == 'stem' else ''
 
@@ -180,7 +198,7 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
         outsuffix += rank
 
     columns = [outsuffix, 'size', 'branches', 'age'] #'crown_age', 'stem_age']
-    if div: columns.append('div_rate')
+    if div: columns.extend(('div_rate', 'sp_sampling'))
     if features: columns.extend(features)
 
     with open(outbase + '-%s.tsv' % outsuffix, 'w') as outtsv, \
@@ -188,6 +206,7 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
 
         outtsv.write('\t'.join(columns) + '\n')
         
+        print("Iterating over found clades", file=sys.stderr)
         for node in tree.iter_leaves(is_leaf_fn):
             outsub.write(node.write(features, format=1, format_root_node=True) + '\n')
             
@@ -199,8 +218,42 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
                 age += node.dist
             values = [node.name, size, branches, age]
             if div:
-                div_rate = float(size) / age if age else ''
-                values.append(div_rate)
+                div_rate = float(size) / age if age else np.NaN
+                try:
+                    nodetaxids = name2taxid[node.name.replace('_', ' ')]
+                    if len(nodetaxids) > 1:
+                        nodetaxids = [match_duplicate_taxid(taxids, node,
+                                                            taxid2name, ncbi)]
+
+                except KeyError:
+                    # This clade isn't in the taxonomy (example: Atlantogenata)
+                    # take descendant nodes and join them
+                    valid_tax_children = get_valid_tax_children(node, name2taxid)
+                    vtc_names = [vtc.name.replace(' ', '_') for vtc in valid_tax_children]
+
+                    print('WARNING: %r not found in NCBI Taxonomy. Merging the'
+                          ' node children %s to get the descendant counts.' \
+                          % (node.name, vtc_names), file=sys.stderr)
+                    
+                    nodetaxids = []
+                    for vtc_n, vtc in zip(vtc_names, valid_tax_children):
+                        vtc_taxids = name2taxid[vtc_n]
+                        if len(vtc_taxids) == 1:
+                            nodetaxids.append(vtc_taxids[0])
+                        else:
+                            nodetaxids.append(match_duplicate_taxid(vtc_taxids,
+                                                      vtc, taxid2name, ncbi))
+
+                try:
+                    ncbi_sp = list(chain(ncbi.get_descendant_taxa(nt,
+                                                    rank_limit='species') \
+                                         for nt in nodetaxids))
+                                                    #collapse_subspecies=True))
+                except:
+                    print(node.name, nodetaxids, file=sys.stderr)
+                    raise
+                sp_sampling = float(size) / len(ncbi_sp)
+                values.extend((div_rate, sp_sampling))
 
             if features:
                 ft_rates = group_feature_rate(node, features)
