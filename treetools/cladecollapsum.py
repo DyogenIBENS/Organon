@@ -85,12 +85,18 @@ def def_group_feature_rate(stem_or_crown="crown"):
         tot_ft = np.zeros(len(features))
 
         for descendant in iter_group(node):
-            if node.dist > 0:
-                tot_dist += node.dist
+            #if node.name == 'Carnivora': print('-', descendant.name)
+            if descendant.dist > 0:
+                tot_dist += descendant.dist
                 try:
-                    tot_ft += np.array([float(getattr(node, ft)) for ft in features])
+                    tot_ft += np.array([float(getattr(descendant, ft)) for ft in features])
+                    #if node.name == 'Carnivora':
+                    #    print(features)
+                    #    print(np.array([float(getattr(descendant, ft)) for ft in features]))
+                    #    print(tot_ft)
+                    #    print('tot_dist:', tot_dist)
                 except TypeError:
-                    print([getattr(node, ft) for ft in features], file=sys.stderr)
+                    print([getattr(descendant, ft) for ft in features], file=sys.stderr)
                     raise
                 except AttributeError:
                     print(node.name, 'root:', node.is_root(),
