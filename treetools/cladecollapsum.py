@@ -168,20 +168,21 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
             else:
                 return False
     
-    subtrees = []
-    columns = ['clade%g' % byage if byage else rank, 'size', 'branches', 'age']
-               #'crown_age', 'stem_age']
+    outsuffix = 'stem' if stem_or_crown == 'stem' else ''
+
+    if byage:
+        outsuffix += 'age%g' % byage
+    elif bylist:
+        outsuffix += 'list' + os.path.splitext(os.path.basename(bylist))[0]
+    elif bysize:
+        outsuffix += 'size%d' % bysize
+    else:
+        outsuffix += rank
+
+    columns = [outsuffix, 'size', 'branches', 'age'] #'crown_age', 'stem_age']
     if div: columns.append('div_rate')
     if features: columns.extend(features)
 
-    if byage:
-        outsuffix = 'age%g' % byage
-    elif bylist:
-        outsuffix = 'list' + os.path.splitext(os.path.basename(bylist))[0]
-    elif bysize:
-        outsuffix = 'size%d' % bysize
-    else:
-        outsuffix = rank 
     with open(outbase + '-%s.tsv' % outsuffix, 'w') as outtsv, \
          open(outbase + '-%s.subtrees.nwk' % outsuffix, 'w') as outsub:
 
