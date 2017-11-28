@@ -198,7 +198,7 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
         outsuffix += rank
 
     columns = [outsuffix, 'size', 'branches', 'age'] #'crown_age', 'stem_age']
-    if div: columns.extend(('div_rate', 'sp_sampling'))
+    if div: columns.extend(('div_rate', 'ncbi_sp_sampling'))
     if features: columns.extend(features)
 
     with open(outbase + '-%s.tsv' % outsuffix, 'w') as outtsv, \
@@ -245,9 +245,9 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
                                                       vtc, taxid2name, ncbi))
 
                 try:
-                    ncbi_sp = list(chain(ncbi.get_descendant_taxa(nt,
+                    ncbi_sp = list(chain(*(ncbi.get_descendant_taxa(nt,
                                                     rank_limit='species') \
-                                         for nt in nodetaxids))
+                                           for nt in nodetaxids)))
                                                     #collapse_subspecies=True))
                 except:
                     print(node.name, nodetaxids, file=sys.stderr)
