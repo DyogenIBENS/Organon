@@ -24,8 +24,11 @@ import ete3 # Will use PhyloTree, NCBITaxa
 import numpy as np
 
 from itertools import chain
+from diversete import div_gamma
+
 
 RANKS = ['kingdom', 'subkingdom', 'phylum', 'subphylum', 'superclass', 'class', 'subclass', 'infraclass', 'superorder', 'order', 'suborder', 'infraorder', 'parvorder', 'superfamily', 'family', 'subfamily', 'genus', 'subgenus', 'species', 'subspecies']
+
 
 def match_duplicate_taxid(taxids, node, taxid2name, ncbi):
     """Find the correct taxid corresponding to node name, by comparing the node
@@ -198,7 +201,7 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
         outsuffix += rank
 
     columns = [outsuffix, 'size', 'branches', 'age'] #'crown_age', 'stem_age']
-    if div: columns.extend(('div_rate', 'ncbi_sp_sampling'))
+    if div: columns.extend(('div_rate', 'gamma', 'ncbi_sp_sampling'))
     if features: columns.extend(features)
 
     with open(outbase + '-%s.tsv' % outsuffix, 'w') as outtsv, \
@@ -219,6 +222,8 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
             values = [node.name, size, branches, age]
             if div:
                 div_rate = float(size) / age if age else np.NaN
+                gamma_stat = div_gamma(node)
+
                 try:
                     nodetaxids = name2taxid[node.name.replace('_', ' ')]
                     if len(nodetaxids) > 1:
@@ -244,16 +249,12 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
                             nodetaxids.append(match_duplicate_taxid(vtc_taxids,
                                                       vtc, taxid2name, ncbi))
 
-                try:
-                    ncbi_sp = list(chain(*(ncbi.get_descendant_taxa(nt,
-                                                    rank_limit='species') \
-                                           for nt in nodetaxids)))
-                                                    #collapse_subspecies=True))
-                except:
-                    print(node.name, nodetaxids, file=sys.stderr)
-                    raise
+                ncbi_sp = list(chain(*(ncbi.get_descendant_taxa(nt,
+                                                rank_limit='species') \
+                                       for nt in nodetaxids)))
+                                                #collapse_subspecies=True))
                 sp_sampling = float(size) / len(ncbi_sp)
-                values.extend((div_rate, sp_sampling))
+                values.extend((div_rate, gamma_stat, sp_sampling))
 
             if features:
                 ft_rates = group_feature_rate(node, features)
