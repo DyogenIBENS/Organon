@@ -8,6 +8,7 @@
     - constant rate BD fit
     - gamma statistic"""
 
+#from sys import stderr
 import numpy as np
 
 
@@ -20,7 +21,7 @@ def tot_branch_len(tree):
 def recurse_birth_events(node, root_dist=0, leaf_as_death=True):
     """Given a tree node, recursively yield (age of birth, number of newborns)
     for all descendants."""
-    #if not (not leaf_as_death and not children):
+    # not (not leaf_as_death and not children):
     if leaf_as_death or node.children:
         yield [root_dist, len(node.children) - 1]
 
@@ -117,10 +118,19 @@ def div_gamma(tree):
     n = len(tree)
     T = get_cum_tot_branch_len(tree)[1:n]
     #print(T)
+    try:
+        Ttot = T[-1]
+    except IndexError:
+        #print("div_gamma WARNING: tree has only one node", file=stderr)
+        return np.NaN
 
+    try:
+        gamma_denom = Ttot * np.sqrt(1. / (12 * (n-2)))
+    except ZeroDivisionError:
+        # Tree must have more than 2 leaves
+        return np.NaN
 
-    gamma_denom = T[-1] * np.sqrt(1. / (12 * (n-2)))
-    gamma_num =  T[:-1].mean() - T[-1]/2.
+    gamma_num =  T[:-1].mean() - Ttot/2.
     
     g = gamma_num / gamma_denom
     return g
