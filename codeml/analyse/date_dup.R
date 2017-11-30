@@ -35,7 +35,7 @@ subset_calibration <- function(ages, tree, age_col="age_dist", leaf_age=0) {
 
 # Available dating methods:
 #  - chronos: penalized likelihood
-#  - chronos(phy, lambda=0): NPRS
+#  - chronos(phy, lambda=Inf): NPRS
 #  - chronosMPL: Mean Path Length, Britton et al
 
 date_line <- function(line) {
@@ -167,7 +167,7 @@ date_all <- function(treefile, agefile, outfile, date_func=date_PL,
   require(ape)
   calib <- load_calibration(agefile)
   #alltrees <- read.tree(treefile)
-  allnewick <- scan(treefile, what=character(), n=n)
+  allnewick <- scan(treefile, what=character(), n=n, sep="\n")
   datation.env <- new.env()
   first_write <<- TRUE
   count_iter  <<- 0
