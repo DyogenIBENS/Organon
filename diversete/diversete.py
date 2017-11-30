@@ -102,8 +102,19 @@ def get_cum_tot_branch_len(tree):
     return ltt_steps.prod(axis=0).cumsum()
 
 
-def is_ultrametric(tree):
-    return len(set(tree.get_distance(leaf) for leaf in tree)) == 1
+def get_root_dist(node, root_dist=0):
+    if not node.children:
+        yield root_dist
+
+    else:
+        for child in node.children:
+            for descendant_dist in get_root_dist(child, root_dist+child.dist):
+                yield descendant_dist
+
+
+def is_ultrametric(tree, ndigits=2):
+    #return len(set(round(tree.get_distance(leaf), ndigits) for leaf in tree)) == 1
+    return len(set(round(d, ndigits) for d in get_root_dist(tree))) == 1
     #for node in tree.traverse('postorder'):
 
 
@@ -113,7 +124,7 @@ def div_gamma(tree):
     # check that branch lengths are meaningful
     # TODO: check that tree is bifurcating?
     if not is_ultrametric(tree):
-        raise(TypeError("tree must be ultrametric"))
+        raise(ValueError("Tree: %r is not ultrametric" % tree.name))
 
     n = len(tree)
     T = get_cum_tot_branch_len(tree)[1:n]
