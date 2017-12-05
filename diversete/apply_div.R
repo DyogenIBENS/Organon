@@ -1,5 +1,6 @@
 #!/usr/bin/env Rscript
 
+library(parallel)
 library(ape)
 library(geiger)
 library(RPANDA)
@@ -154,7 +155,10 @@ if( !interactive() ) {
   subtrees <- read.tree(text=subtreelines, keep.multi=TRUE)
   names(subtrees) <- sapply(subtrees, function(tree){tree$node.label[1]})
 
-  div_stats <- sapply(subtrees, get_div_stats, clade.data)
+  #div_stats <- sapply(subtrees, get_div_stats, clade.data)
+  cl <- makeForkCluster(max(1, detectCores()-2))
+  div_stats <- parSapply(cl, subtrees, get_div_stats, clade.data)
+  stopCluster(cl)
 }
 
 
