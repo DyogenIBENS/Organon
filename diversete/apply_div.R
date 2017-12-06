@@ -8,19 +8,23 @@ library(diversitree)
 
 if( interactive() ) {
   subtreefile <- "/users/ldog/glouvel/ws2/databases/timetree/Opisthokonta-listens90size10.subtrees.nwk"
-  tablefile <- "/users/ldog/glouvel/ws2/databases/timetree/Opisthokonta-listens90size10.tsv"
-  args <- c(subtreefile, tablefile)
+  divtablefile <- "/users/ldog/glouvel/ws2/databases/timetree/Opisthokonta-listens90size10.tsv"
+  duptablefile <- "/users/ldog/glouvel/ws2/DUPLI_data90/event_rates-size10.tsv"
+  args <- c(subtreefile, divtablefile, duptablefile)
 } else {
   args <- commandArgs(trailingOnly=TRUE)
   subtreefile <- args[1]
 }
 
 if(length(args)>1) {
-  tablefile  <- args[2]
-  clade.data <- read.delim(tablefile, row.names=1, header=TRUE)
+  divtablefile  <- args[2]
+  duptablefile  <- args[3]
+  clade.div.data <- read.delim(divtablefile, row.names=1, header=TRUE)
+  clade.dup.data <- read.delim(duptablefile, row.names=1, header=TRUE)
 } else {
-  #tablefile <- NULL
-  clade.data <- NULL
+  #divtablefile <- NULL
+  clade.div.data <- NULL
+  clade.dup.data <- NULL
 }
 
 fix_single_nodes <- function(lines){
@@ -153,13 +157,29 @@ if( !interactive() ) {
   subtreelines <- subtreelines[not_single_node_lines]
 
   subtrees <- read.tree(text=subtreelines, keep.multi=TRUE)
+  subtrees <- subtrees[sapply(subtrees, Ntip) > 2]
   names(subtrees) <- sapply(subtrees, function(tree){tree$node.label[1]})
 
   #div_stats <- sapply(subtrees, get_div_stats, clade.data)
   cl <- makeForkCluster(max(1, detectCores()-2))
-  div_stats <- parSapply(cl, subtrees, get_div_stats, clade.data)
+  div_stats <- data.frame(t(parSapply(cl, subtrees, get_div_stats, clade.div.data,
+                                      SIMPLIFY=TRUE))
   stopCluster(cl)
-}
+  setwd("~glouvel/ws2/DUPLI_data90/div-VS-dup/div_stats.tsv")
+  write.table(div_stats, "div_stats.tsv", sep='\t', quote=F)
+  write.table(all_stats, "all_stats.tsv", sep='\t', quote=F)
 
+  #merge(div_stats, clade.dup.data)
+  # TODO: convert names from one dataset to names in the other. e.g Atlantogenata
+  clade.converter <- read.delim("~/ws2/DUPLI_data90/ens90size10.txt",
+                                row.names=1, header=FALSE)
+  rownames.dup.data <- rownames(clade.dup.data)
+  rownames(clade.dup.data) <- ifelse(is.na(clade.converter[rownames.dup.data,1]),
+                                     rownames.dup.data,
+                                     clade.converter[rownames.dup.data,1])
+  common.clades <- intersect(rownames(div_stats), rownames(clade.dup.data))
+  all_stats <- cbind(div_stats[common.clades,], clade.dup.data[common.clades,])
+  
+}
 
 
