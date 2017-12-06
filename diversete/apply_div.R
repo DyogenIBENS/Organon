@@ -79,7 +79,9 @@ summary_posterior <- function(samples, paramname, probaname="p",
   post_density <- density(samples[,paramname])
   best <- post_density$x[which.max(dlam$y)]
   CI <- quantile(samples[,paramname], CIrange)
-  return(list(best=best, CI=CI))
+  out <- list(best=best, CI=CI)
+  #names(out) <- if(outname){paste0(outname, ".", c("best", "CI"))}{outname}
+  return(out)
 }
 
 
@@ -121,31 +123,31 @@ get_div_stats <- function(tree, metadata) {
   # With incomplete sampling
   BD_2 <- fit_bd(tree, tot_time, cst.rate, cst.rate, out$b0, out$d0, sampling_f,
                  cst.lamb=TRUE, cst.mu=TRUE)
-  out$b1 <- BD_1$lamb_par
-  out$d1 <- BD_1$mu_par
-  out$b2 <- BD_2$lamb_par
-  out$d2 <- BD_2$mu_par
+  out$ml.b1 <- BD_1$lamb_par
+  out$ml.d1 <- BD_1$mu_par
+  out$ml.sampl.b2 <- BD_2$lamb_par
+  out$ml.sampl.d2 <- BD_2$mu_par
   # In diversitree (MCMC)
   cat("Diversitree..", file=stderrf)
   bd_func <- make.bd(tree)
-  bd_func_2 <- make.bd(tree, sampling.f=sampling_f)
+  bd_func_sampl <- make.bd(tree, sampling.f=sampling_f)
   # Max-likelihood
   # TODO: catch warnings (improper likelihood convergence)
   cat("ML...", file=stderrf)
   BD_3 <- find.mle(bd_func, c(out$b0, out$d0), method="optim") #condition.surv=F
-  BD_4 <- find.mle(bd_func_2, c(out$b0, out$d0), method="optim")
+  BD_4 <- find.mle(bd_func_sampl, c(out$b0, out$d0), method="optim")
   # MCMC
   cat("MCMC...\n", file=stderrf)
   samples_5 <- mcmc(bd_func, as.numeric(c(out$b0, out$d0)), nsteps=10000, print.every=0,
                     w=c(0.1, 0.1))
-  samples_6 <- mcmc(bd_func_2, as.numeric(c(out$b0, out$d0)), nsteps=10000, print.every=0,
+  samples_6 <- mcmc(bd_func_sampl, as.numeric(c(out$b0, out$d0)), nsteps=10000, print.every=0,
                     w=c(0.1, 0.1))
 
-  out <- c(out, coef(BD_3), coef(BD_4),
-           summary_posterior(samples_5, 'lambda'),
-           summary_posterior(samples_5, 'mu'),
-           summary_posterior(samples_6, 'lambda'),
-           summary_posterior(samples_6, 'mu'))
+  out <- c(out, ml2=coef(BD_3), ml2.sampl=coef(BD_4),
+           mcmc=summary_posterior(samples_5, 'lambda'),
+           mcmc=summary_posterior(samples_5, 'mu'),
+           mcmc.sampl=summary_posterior(samples_6, 'lambda'),
+           mcmc.sampl=summary_posterior(samples_6, 'mu'))
 
   return(unlist(out))
 }
@@ -167,7 +169,6 @@ if( !interactive() ) {
   stopCluster(cl)
   setwd("~glouvel/ws2/DUPLI_data90/div-VS-dup/div_stats.tsv")
   write.table(div_stats, "div_stats.tsv", sep='\t', quote=F)
-  write.table(all_stats, "all_stats.tsv", sep='\t', quote=F)
 
   #merge(div_stats, clade.dup.data)
   # TODO: convert names from one dataset to names in the other. e.g Atlantogenata
@@ -179,7 +180,25 @@ if( !interactive() ) {
                                      clade.converter[rownames.dup.data,1])
   common.clades <- intersect(rownames(div_stats), rownames(clade.dup.data))
   all_stats <- cbind(div_stats[common.clades,], clade.dup.data[common.clades,])
+  all_stats$allDup <- all_stats$tandemDup + all_stats$dispDup
+  all_stats$allnew <- all_stats$allDup + all_stats$birth
+  write.table(all_stats, "all_stats.tsv", sep='\t', quote=F)
+
+  # Now the phylogenetic correlation
+  maintree <- read.tree("~/ws2/DUPLI_data90/event_rates-size10.nwk")
+  maintreedi <- multi2di(maintree)
+  # First ensure the correspondance between maintree$tip.label and
+  # rownames(all_stats):
+  cat("Ignoring the following branches of the tree:\n")
+  print(setdiff(maintree$tip.label, rownames(all_stats)))
+  cat("Ignoring the following data from all_stats:\n")
+  print(setdiff(rownames(all_stats), maintree$tip.label))
+
+  # match both data:
+  maindata <- geiger::treedata(maintreedi, all_stats)
   
+
+
 }
 
 
