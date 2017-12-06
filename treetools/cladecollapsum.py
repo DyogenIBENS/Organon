@@ -125,32 +125,98 @@ def def_group_feature_rate(stem_or_crown="crown"):
     return group_feature_rate
 
 
-def main(inputtree, outbase, rank='family', div=True, features=None,
-         stem_or_crown="crown", byage=None, bylist=None, bysize=None):
+def make_is_leaf_fn(byrank='', byage=None, bylist=None, bysize=None,
+                    name2taxid=None, taxid2name=None):
+    if not any((byrank, byage, bylist, bysize)):
+        raise(ValueError('Specify at least one condition'))
+
+    func_list = []
+
+    if bylist:
+        byrank = None
+        with open(bylist) as s:
+            nodelist = set(l.rstrip().split('\t')[0] for l in s)
+        def is_leaf_fn_bylist(node):
+            return node.name in nodelist
+        func_list.append(is_leaf_fn_bylist)
+
+    if byage:
+        byrank = None
+        def is_leaf_fn_byage(node):
+            _, age = node.get_farthest_leaf()
+            return age <= byage
+        func_list.append(is_leaf_fn_byage)
+
+    if bysize:
+        byrank = None
+        def is_leaf_fn_bysize(node):
+            return len(node) <= bysize
+        func_list.append(is_leaf_fn_bysize)
+    
+    if byrank:# or div:
+        if name2taxid is None or taxid2name is None:
+            raise ValueError('A name2taxid and taxid2name dictionaries are '\
+                             'required when byrank is used')
+
+        # Could also simply annotate the tree using ncbi.annotate_tree
+        #ncbi.annotate_tree(tree, 'taxid')
+
+        #def is_leaf_fn(node):
+        #    return node.rank == rank
+
+        def is_leaf_fn_byrank(node):
+            """Stop at given rank"""
+            taxids = name2taxid.get(node.name)
+            if taxids is not None:
+                if len(taxids) > 1:
+                    print('WARNING: non unique name %r: %s.' % (node.name, taxids),
+                          end=' ', file=sys.stderr)
+                    taxids = [match_duplicate_taxid(taxids, node, taxid2name, ncbi)]
+
+                # Non inclusive method (must be *exactly* rank, not above):
+                #noderank = taxid2rank[taxids[0]]
+                #return noderank == byrank
+                # Must be included in the rank:
+                lineage = ncbi.get_lineage(taxids[0])
+                ranks = set(ncbi.get_rank(lineage).values())
+                #print('- %s:' % node.name, ' '.join(ranks), file=sys.stderr)
+                return byrank in ranks
+            else:
+                return False
+
+        func_list.append(is_leaf_fn_byrank)
+
+    def is_leaf_fn(node):
+        return any(fn(node) for fn in func_list)
+
+    return is_leaf_fn
+
+
+def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
+         byrank='', byage=None, bylist=None, bysize=None):
     """byage: collapse any node of age <= byage
        bylist: read list of nodes from file
        bysize: collapse oldest nodes with size < bysize"""
     group_feature_rate = def_group_feature_rate(stem_or_crown)
 
     tree = ete3.PhyloTree(inputtree, format=1, quoted_node_names=False)
-
-    if bylist:
-        rank = None
-        with open(bylist) as s:
-            nodelist = set(l.rstrip().split('\t')[0] for l in s)
-        def is_leaf_fn(node):
-            return node.name in nodelist
-    elif byage:
-        rank = None
-        def is_leaf_fn(node):
-            _, age = node.get_farthest_leaf()
-            return age <= byage
-    elif bysize:
-        rank = None
-        def is_leaf_fn(node):
-            return len(node) <= bysize
     
-    if rank or div:
+    outsuffix = '-stem' if stem_or_crown == 'stem' else ''
+
+    if byrank:
+        outsuffix += '-%s' % byrank
+    if byage:
+        outsuffix += '-age%g' % byage
+    if bylist:
+        outsuffix += '-list' + os.path.splitext(os.path.basename(bylist))[0]
+    if bysize:
+        outsuffix += '-size%d' % bysize
+
+    columns = [outsuffix, 'size', 'branches', 'age'] #'crown_age', 'stem_age']
+    if div: columns.extend(('div_rate', 'gamma', 'ncbi_sp_sampling'))
+    if features: columns.extend(features)
+
+    if byrank or div:
         print("Loading taxonomy", file=sys.stderr)
         ncbi = ete3.NCBITaxa()
 
@@ -159,53 +225,17 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
                                 else node.name for node in tree.traverse()])
         # Won't return anything for names not found
 
-        if rank:
-            taxid2rank = ncbi.get_rank(chain(*name2taxid.values()))
-            taxid2name = ncbi.get_taxid_translator(chain(*name2taxid.values()))
-            
-            # Could also simply annotate the tree using ncbi.annotate_tree
-            #ncbi.annotate_tree(tree, 'taxid')
-
-            #def is_leaf_fn(node):
-            #    return node.rank == rank
-
-            def is_leaf_fn(node):
-                """Stop at given rank"""
-                taxids = name2taxid.get(node.name)
-                if taxids is not None:
-                    if len(taxids) > 1:
-                        print('WARNING: non unique name %r: %s.' % (node.name, taxids),
-                              end=' ', file=sys.stderr)
-                        taxids = [match_duplicate_taxid(taxids, node, taxid2name, ncbi)]
-
-                    # Non inclusive method (must be *exactly* rank, not above):
-                    #noderank = taxid2rank[taxids[0]]
-                    #return noderank == rank
-                    # Must be included in the rank:
-                    lineage = ncbi.get_lineage(taxids[0])
-                    ranks = set(ncbi.get_rank(lineage).values())
-                    #print('- %s:' % node.name, ' '.join(ranks), file=sys.stderr)
-                    return rank in ranks
-                else:
-                    return False
-    
-    outsuffix = 'stem' if stem_or_crown == 'stem' else ''
-
-    if byage:
-        outsuffix += 'age%g' % byage
-    elif bylist:
-        outsuffix += 'list' + os.path.splitext(os.path.basename(bylist))[0]
-    elif bysize:
-        outsuffix += 'size%d' % bysize
+        #if rank:
+        #taxid2rank = ncbi.get_rank(chain(*name2taxid.values()))
+        taxid2name = ncbi.get_taxid_translator(chain(*name2taxid.values()))
     else:
-        outsuffix += rank
+        name2taxid, taxid2name = None, None
+        
+    is_leaf_fn = make_is_leaf_fn(byrank, byage, bylist, bysize,
+                                 name2taxid, taxid2name)
 
-    columns = [outsuffix, 'size', 'branches', 'age'] #'crown_age', 'stem_age']
-    if div: columns.extend(('div_rate', 'gamma', 'ncbi_sp_sampling'))
-    if features: columns.extend(features)
-
-    with open(outbase + '-%s.tsv' % outsuffix, 'w') as outtsv, \
-         open(outbase + '-%s.subtrees.nwk' % outsuffix, 'w') as outsub:
+    with open(outbase + '%s.tsv' % outsuffix, 'w') as outtsv, \
+         open(outbase + '%s.subtrees.nwk' % outsuffix, 'w') as outsub:
 
         outtsv.write('\t'.join(columns) + '\n')
         
@@ -262,7 +292,7 @@ def main(inputtree, outbase, rank='family', div=True, features=None,
 
             outtsv.write('\t'.join(str(v) for v in values) + '\n')
 
-    tree.write(outfile=(outbase + '-%s.nwk' % outsuffix), format=1,
+    tree.write(outfile=(outbase + '%s.nwk' % outsuffix), format=1,
                is_leaf_fn=is_leaf_fn, format_root_node=True)
 
 
@@ -279,9 +309,11 @@ if __name__ == '__main__':
                         help='include stem branch')
     parser.add_argument('-f', '--features', nargs='+',
                         help='compute the average rate of these features')
-    method_parser = parser.add_mutually_exclusive_group()
-    method_parser.add_argument('-r', '--rank', default='family', choices=RANKS,
-                        help='taxonomic rank to collapse [%(default)s]')
+    #method_parser = parser.add_mutually_exclusive_group()
+    method_parser = parser.add_argument_group('Collapsing conditions',
+                                              '(combined by OR operator)')
+    method_parser.add_argument('-r', '--byrank', default='', choices=RANKS,
+                        help='taxonomic rank to collapse [%(default)r]')
     method_parser.add_argument('-a', '--byage', type=float,
                         help='collapse oldest clades with age <= byage')
     method_parser.add_argument('-l', '--bylist',
