@@ -72,7 +72,8 @@ rule treebest:
 
 rule treebest2genomicus:
     # Reformat the newick tree from TreeBest:
-    #   - add internal node labels following Genomicus ancGenes notation.
+    #   - add internal node labels: taxon name + Genomicus ancGenes notation.
+    #   - strip the species name from the leaf labels
 	input: rules.treebest.output
 	output: "{outdir}/treebest/{genefam}_best_fulltree.nwk"
 	shell:
