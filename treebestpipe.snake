@@ -1,5 +1,6 @@
 """Pipeline to realign an ensembl alignment and run treebest to get a new reconciliation
-Steps:
+
+Steps (and their output):
 
 - extract the sequences from the existing alignment: `_cdna.fa`
 - shorten names: `_cdna.short.fa`
@@ -17,23 +18,25 @@ SPTREENAME = config.setdefault('sptreename', 'timetree.taxadots')
 GTREENAME = config.setdefault('gtreename', '') # SMCHD1
 
 rule al2seq:
+    # Simply removes dashes '-' in the sequence (from fasta format)
 	input: "{genefam}_genes.fa"
 	output: "{outdir}/{genefam}_cdna.fa"
 	shell:
 		"sed '/^[^>]/s/-//g' {input} > {output}"
 
 rule shorten:
+    # In the fasta sequence IDs, removes everything after the first space.
 	input: rules.al2seq.output
 	output: "{outdir}/{genefam}_cdna.short.fa"
 	shell:
 		r"sed -r 's/^(>\w+).*$/\1/' {input} > {output}"
 
 rule translate:
+    # Translate DNA to protein
 	input: rules.shorten.output
 	output: "{outdir}/{genefam}_prot.fa"
 	shell:
 		"~glouvel/scripts/seqtools/fasta_translate.py {input} {output}"
-		#"~glouvel/scripts/evosite3d/translate_dna.py {input} {output}"
 
 rule align:
 	input: rules.translate.output
@@ -52,6 +55,8 @@ rule backtrans:
 		"treebest backtrans {input.aa_aln} {input.nt_seq} > {output}"
 
 rule specify:
+    # Append corresponding species names to the sequence ID, following TreeBest
+    # notation.
 	input: rules.backtrans.output
 	output: "{outdir}/treebest/{genefam}_backtrans-sp.mfa"
 	shell:
@@ -61,18 +66,20 @@ rule treebest:
 	input:
 		aln=rules.specify.output,
 		sp="{{genefam}}_{0}.nwk".format(SPTREENAME)
-		#sp="{genefam}_timetree.taxadots.nwk"
 	output: "{outdir}/treebest/{genefam}_best.nwk"
 	shell:
 		"treebest best -f {input.sp} {input.aln} -o {output}"
 
 rule treebest2genomicus:
+    # Reformat the newick tree from TreeBest:
+    #   - add internal node labels following Genomicus ancGenes notation.
 	input: rules.treebest.output
 	output: "{outdir}/treebest/{genefam}_best_fulltree.nwk"
 	shell:
 		"~glouvel/scripts/treetools/treebest2genomicus.py {input} %r {output}".format(GTREENAME)
 
 rule reshape4codeml:
+    # Reformat the newick tree to make readable by codeml.
 	input: rules.treebest2genomicus.output
 	output: "{outdir}/treebest/{genefam}_best_codeml.nwk"
 	shell:
