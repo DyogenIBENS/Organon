@@ -1,6 +1,7 @@
 #!/usr/bin/env Rscript
 
 library(ape)
+library(geiger)
 library(scales)
 
 infer_anc <- function(treefile, valuefile) {
@@ -38,8 +39,25 @@ prune <- function(tree, nodes) {
   return(di2multi(tree, tol=-0.5))
 }
 
+get_descendant_groups <- function(tree, ancestors) {
+  # Label leaves with the name of the chosen ancestral node.
+  # ancestors: a list of ancestral nodes.
+  anc_tip_labels <- tree$tip.label
+  for(anc in ancestors) {
+    node_num <- which(anc == tree$node.label) + Ntip(tree)
+    if(length(node_num)) {
+      tip_pos <- which(tree$tip.label %in% tips(tree, node_num))
+      anc_tip_labels[tip_pos] <- anc
+    } else {
+      warning("Node not found: ", anc, call.=FALSE)
+    }
+  }
+  return(anc_tip_labels)
+}
+
 
 hide_edges <- function(tree, by) {
+  # by: vector/factor of the same lengths as Ntip(tree), grouping leaves.
   edge.width <- rep(1, nrow(tree$edge))
   for(group in unique(by)){
     group_tips <- which(group == by)
@@ -61,6 +79,10 @@ renamebyclade <- function(tree, by) {
 
 
 plot_triangle <- function(tree, by, ...) {
+  # 
+  # by: tip labels (groupings) of the same length as Ntip(tree)
+  # ... Arguments to be passed to `plot.phylo`
+  
   # Adapted from https://stackoverflow.com/a/34405198/4614641
   #groups <- c("A", "B", "C", "D")
 
