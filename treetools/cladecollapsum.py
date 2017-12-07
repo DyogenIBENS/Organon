@@ -212,7 +212,7 @@ def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
     if bysize:
         outsuffix += '-size%d' % bysize
 
-    columns = [outsuffix, 'size', 'branches', 'age'] #'crown_age', 'stem_age']
+    columns = [outsuffix, 'size', 'branches', 'age', 'tot_len'] #'crown_age', 'stem_age']
     if div: columns.extend(('div_rate', 'gamma', 'ncbi_sp_sampling'))
     if features: columns.extend(features)
 
@@ -247,9 +247,11 @@ def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
             size = len(node)
             branches = len(node.get_descendants())
             _, age = node.get_farthest_leaf()
+            tot_len = sum(d.dist for d in node.iter_descendants())
             if stem_or_crown == 'stem':
                 age += node.dist
-            values = [node.name, size, branches, age]
+                tot_len += node.dist
+            values = [node.name, size, branches, age, tot_len]
             if div:
                 div_rate = float(size) / age if age else np.NaN
                 gamma_stat = div_gamma(node)
