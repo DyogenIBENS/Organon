@@ -238,8 +238,14 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
     # avoid duplicate genes
     found = {}
     unknowns = 0
+    
+    if sys.version_info.major == 3 and fastafile.endswith('.bz2'):
+        iter_lines = lambda F: (line.decode() for line in F)
+    else:
+        iterlines = lambda F: F
+
     with myopen(fastafile) as IN, myopen(outfile, 'w') as OUT:
-        for line in IN:
+        for line in iter_lines(IN):
             if line[0] == '>':
                 protID = line[1:].split('/')[0]
                 geneID = convert_prot2gene(protID, gene_info, cprot, cgene,
