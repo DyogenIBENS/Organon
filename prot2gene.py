@@ -22,6 +22,9 @@ def myopen(filename, *args, **kwargs):
     else:
         return open(filename, *args, **kwargs)
 
+ENSEMBL_VERSION = 85
+
+CELEGANS_REG = re.compile(r'^([234]R|A[CH]|B[0E]|C[0-5C-E]|cT|[DFHKMRTWY][0-9CHYT]|E[0_EG]|JC|LL|SS|Z[CK]|V[BCFHMWYZ]|P[AD]).*')
 
 PROT2SP = {85:
            { #'Y': 'Saccharomyces cerevisiae',  # there are C.elegans prot with 'Y' too
@@ -203,8 +206,9 @@ def grep_gene(filename, geneID, cprot=2, cgene=0):
                 return fields[cprot]
 
 
-def convert_prot2gene(protID, gene_info, cprot=2, cgene=0, shorten_species=False):
-    sp = convert_prot2species(protID)
+def convert_prot2gene(protID, gene_info, cprot=2, cgene=0, shorten_species=False,
+                      ensembl_version=ENSEMBL_VERSION):
+    sp = convert_prot2species(protID, ensembl_version)
     if shorten_species:
         spsplit = sp.split()
         sp2 = spsplit[0][0].lower() + spsplit[-1]
@@ -214,7 +218,8 @@ def convert_prot2gene(protID, gene_info, cprot=2, cgene=0, shorten_species=False
 
 
 def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2,
-                      cgene=0, shorten_species=False, force_overwrite=False,
+                      cgene=0, shorten_species=False,
+                      ensembl_version=ENSEMBL_VERSION, force_overwrite=False,
                       verbose=1, strict=False):
     if verbose:
         print(fastafile)
@@ -238,7 +243,7 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
             if line[0] == '>':
                 protID = line[1:].split('/')[0]
                 geneID = convert_prot2gene(protID, gene_info, cprot, cgene,
-                                            shorten_species)
+                                           shorten_species, ensembl_version)
                 #if not geneID and protID.startswith('ENSCSAP'):
                 #    protID = protID.replace('ENSCSAP', 'ENSCSAVP')
                 #    geneID = convert_prot2gene(protID)
@@ -296,6 +301,9 @@ if __name__=='__main__':
                         help="column for protein [%(default)s]")
     parser.add_argument("--cgene", type=int, default=0, metavar='INT',
                         help="column for gene [%(default)s]")
+    parser.add_argument('-e', '--ensembl-version', type=int,
+                        default=ENSEMBL_VERSION, help='[%(default)s]')
+    
     ##TODO: argument to trow error if conversion not found
     parser.add_argument("--strict", action='store_true',
                         help="Exit at first failed conversion")
@@ -325,6 +333,7 @@ if __name__=='__main__':
                         args.cprot,
                         args.cgene,
                         args.shorten_species,
+                        args.ensembl_version,
                         args.force_overwrite,
                         args.verbose,
                         args.strict) for f in fastafiles)
