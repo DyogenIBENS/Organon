@@ -14,6 +14,7 @@ import argparse
 from copy import deepcopy
 from bz2 import BZ2File
 from multiprocessing import Pool
+from glob import glob
 
 def myopen(filename, *args, **kwargs):
     if filename.endswith('.bz2'):
@@ -27,6 +28,7 @@ PROT2SP = {85:
             'Q0': 'Saccharomyces cerevisiae',
             'FB': 'Drosophila melanogaster',
             #'WBGene0': 'Caenorhabditis elegans',  # No consensus
+            '': 'Caenorhabditis elegans', # just so that the values reflect all species.
             'ENSCINP': 'Ciona intestinalis',
             'ENSCSAV': 'Ciona savignyi',
             'ENSCSAP': 'Chlorocebus sabaeus',
@@ -101,22 +103,87 @@ PROT2SP[86].update(**{'MGP_SPR': 'Mus spretus'})  # TODO: check the protein id
 PROT2SP[87] = deepcopy(PROT2SP[86])
 PROT2SP[87].update(**{'ENSTSYP': 'Carlito syrichta'})
 
-PROT2SP[88] = PROT2SP[87]
+PROT2SP[90] = PROT2SP[88] = PROT2SP[87]
 
-def convert_prot2species(modernID, ensembl_version=85, default=None):
+PROT2SP[90].update({'ENSMEUP': 'Notamacropus eugenii', # Update of Macropus e.
+                    'ENSCAPP': 'Cavia aperea',
+                    'ENSCLAP': 'Chinchilla lanigera',
+                    'ENSCGRP00001': 'Cricetulus griseus CHOK1GS',
+                    'ENSCGRP00000': 'Cricetulus griseus Crigri', # !!!!
+                    'ENSFDAP':      'Fukomys damarensis',
+                    'ENSHGLP00000': 'Heterocephalus glaber female',
+                    'ENSHGLP00100': 'Heterocephalus glaber male',
+                    'ENSJJAP': 'Jaculus jaculus',
+                    'ENSMAUP': 'Mesocricetus auratus',
+                    'ENSMOCP': 'Microtus ochrogaster',
+                    'MGP_CAR': 'Mus caroli',
+                    'MGP_Pah': 'Mus pahari',
+                    'ENSNGAP': 'Nannospalax galili',
+                    'ENSODEP': 'Octodon degus',
+                    'ENSPEMP': 'Peromyscus maniculatus bairdii'})
+
+def convert_prot2species(modernID, ensembl_version=ENSEMBL_VERSION, default=None):
+    if ensembl_version >= 90:
+        try:
+            return PROT2SP[ensembl_version][modernID[:12]]
+        except KeyError:
+            pass
     try:
         return PROT2SP[ensembl_version][modernID[:7]]
     except KeyError:
         try:
             # Saccharomyces cerevisiae (Q0) or Drosophila melanogaster
             return PROT2SP[ensembl_version][modernID[:2]]
-        except KeyError:
+        except KeyError as err:
             if re.match('Y[A-Z]', modernID):
                 return 'Saccharomyces cerevisiae'
-            elif default:
+            elif CELEGANS_REG.match(modernID):
+                return 'Caenorhabditis elegans'
+            elif default is not None:
                 return default
             else:
+                err.args = (err.args[0] + \
+                            ' (protein: %s, Ens.%d)' % (modernID, ensembl_version),)
                 raise
+
+
+# My first ever unit-test!
+def test_convert_prot2species(ensembl_version, default, gene_info, cprot=2):
+    """test the above function for every modernID"""
+    # Check rejection of wrong strings
+    for wrong in ('xululul', '0000000', 'ENSXXXP', 'ENSG000'):
+        predicted_sp = convert_prot2species(wrong, ensembl_version, False)
+        assert predicted_sp is False, "%r predicted %r" % (wrong, predicted_sp)
+
+    # Check every valid prot ID in the given files
+    splist_module = set(PROT2SP[ensembl_version].values())
+    sp_from_filename = re.compile(gene_info.replace('%s', '([A-Za-z0-9.]+)'))
+    gene_info_files = glob(gene_info.replace('%s', '*'))
+    assert gene_info_files, "No files found, check your path."
+    splist_file = set(sp_from_filename.match(fn).group(1).replace('.', ' ') \
+                        for fn in gene_info_files)
+
+    if not splist_module == splist_file:
+        raise AssertionError('Differences in lists of species:\n' +
+                             'module (%d): %s\n' % (len(splist_module),
+                                                    splist_module - splist_file) +
+                             'files  (%d): %s' % (len(splist_file),
+                                                  splist_file - splist_module))
+    for sp in splist_file:
+        filename = gene_info % sp.replace(' ', '.')
+        print("Checking %s in %r" % (sp, os.path.basename(filename)), file=sys.stderr)
+        # Check that each species protein return the correct species.
+        with myopen(filename) as IN:
+            for line in IN:
+                prot = line.rstrip('\r\n').split('\t')[cprot]
+                try:
+                    predicted_sp = convert_prot2species(prot, ensembl_version, default)
+                    assert sp == predicted_sp, "%s: %r ≠ %r" % (prot, sp, predicted_sp)
+                except KeyError as err:
+                    err.args = err.args[:-1] + \
+                               (err.args[-1] + ' '.join((sp, prot, "Not found")),)
+                    raise
+    return True
 
 
 def grep_prot(filename, protID, cprot=2, cgene=0):
