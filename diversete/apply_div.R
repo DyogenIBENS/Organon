@@ -6,10 +6,17 @@ library(geiger)
 library(RPANDA)
 library(diversitree)
 
+#param_name <- "listens90size10"
+param_str <- "age150size10"
+param_suffix <- paste0("listens90", param_str)
+source_dir <- "/users/ldog/glouvel/ws2/databases/timetree/"
+
 if( interactive() ) {
-  subtreefile <- "/users/ldog/glouvel/ws2/databases/timetree/Opisthokonta-listens90size10.subtrees.nwk"
-  divtablefile <- "/users/ldog/glouvel/ws2/databases/timetree/Opisthokonta-listens90size10.tsv"
-  duptablefile <- "/users/ldog/glouvel/ws2/DUPLI_data90/event_rates-size10.tsv"
+  subtreefile <- paste0(source_dir, "Opisthokonta-", param_suffix,
+                        ".subtrees.nwk")
+  divtablefile <- paste0(source_dir, "Opisthokonta-", param_suffix, ".tsv")
+  duptablefile <- paste0("/users/ldog/glouvel/ws2/DUPLI_data90/event_rates-",
+                         param_str, ".tsv")
   args <- c(subtreefile, divtablefile, duptablefile)
 } else {
   args <- commandArgs(trailingOnly=TRUE)
