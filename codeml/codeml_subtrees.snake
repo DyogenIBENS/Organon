@@ -30,7 +30,7 @@ GENETREES = config.setdefault('genetrees', ['ENSGT00850000133333'])
 # in get_subtrees_ancestor_pre, do you want to include files where a .mlc exists?
 
 SUBTREEDIR = config.setdefault('subtreedir', 'subtrees')
-BASE_CTL = config.setdefault('base_ctl', 'base0.ctl')
+#BASE_CTL = config.setdefault('base_ctl', 'base0.ctl')
 REDO = config.setdefault('redo', False)
 if isinstance(REDO, str) and REDO in ('True', 'False'):
 	REDO = eval(REDO)
@@ -176,7 +176,7 @@ rule fasta2phylip:
 rule make_ctl:
 	input:
 		#ctl="base0.ctl",
-		ctl="{model}.ctl",
+		ctl="ctl/{model}.ctl",
 		phy=rules.fasta2phylip.output,
 		tree=rules.reshape_tree.output
 	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.ctl"
