@@ -714,14 +714,14 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--ensembl-version', type=int,
                         default=ENSEMBL_VERSION)
     parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE,
-                        help='species tree in phyltree or newick format')
+                        help='species tree in phyltree or newick format [%(default)s]')
     
     parser.add_argument('-a', '--angle-style', type=int, choices=[0,1,2],
                         default=0,
-                        help=("0: parent node y = mean of children nodes y\n"
-                              "1: branches always at 45 degrees\n"
+                        help=("0: parent node y = mean of children nodes;\n"
+                              "1: branches always at 45 degrees;\n"
                               "2: parent node positioned at x-1 but branch "
-                              "angles are equal"))
+                              "angles are equal."))
     parser.add_argument('--commonname', action='store_true', 
                         help='Species common names only')
     parser.add_argument('--latinname', action='store_true', 
