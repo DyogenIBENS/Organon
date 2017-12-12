@@ -187,16 +187,17 @@ def make_is_leaf_fn(byrank='', byage=None, bylist=None, bysize=None,
         func_list.append(is_leaf_fn_byrank)
 
     def is_leaf_fn(node):
-        return any(fn(node) for fn in func_list)
+        return all(fn(node) for fn in func_list)
 
     return is_leaf_fn
 
 
 def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
          byrank='', byage=None, bylist=None, bysize=None):
-    """byage: collapse any node of age <= byage
-       bylist: read list of nodes from file
-       bysize: collapse oldest nodes with size < bysize"""
+    """byrank: when the rank is included in or equal to 'byrank';
+       byage:  collapse any node of age <= byage;
+       bylist: read list of nodes from file;
+       bysize: collapse oldest nodes with size < bysize."""
     group_feature_rate = def_group_feature_rate(stem_or_crown)
 
     tree = ete3.PhyloTree(inputtree, format=1, quoted_node_names=False)
@@ -212,7 +213,16 @@ def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
     if bysize:
         outsuffix += '-size%d' % bysize
 
-    columns = [outsuffix, 'size', 'branches', 'age', 'tot_len'] #'crown_age', 'stem_age']
+    outnames = {'tsv':      (outbase + '%s.tsv' % outsuffix),
+                'subtrees': (outbase + '%s.subtrees.nwk' % outsuffix),
+                'tree':     (outbase + '%s.nwk' % outsuffix)}
+
+    for out in outnames.values():
+        if os.path.exists(out):
+            print("%r already exists, quitting" % out, file=sys.stderr)
+            return 1
+    
+    columns = [outsuffix.lstrip('-'), 'size', 'branches', 'age', 'tot_len'] #'crown_age', 'stem_age']
     if div: columns.extend(('div_rate', 'gamma', 'ncbi_sp_sampling'))
     if features: columns.extend(features)
 
@@ -234,8 +244,8 @@ def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
     is_leaf_fn = make_is_leaf_fn(byrank, byage, bylist, bysize,
                                  name2taxid, taxid2name)
 
-    with open(outbase + '%s.tsv' % outsuffix, 'w') as outtsv, \
-         open(outbase + '%s.subtrees.nwk' % outsuffix, 'w') as outsub:
+    with open(outnames['tsv'], 'w') as outtsv, \
+         open(outnames['subtrees'], 'w') as outsub:
 
         outtsv.write('\t'.join(columns) + '\n')
         
@@ -294,7 +304,7 @@ def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
 
             outtsv.write('\t'.join(str(v) for v in values) + '\n')
 
-    tree.write(outfile=(outbase + '%s.nwk' % outsuffix), format=1,
+    tree.write(outfile=outnames['tree'], format=1,
                is_leaf_fn=is_leaf_fn, format_root_node=True)
 
 
@@ -313,7 +323,7 @@ if __name__ == '__main__':
                         help='compute the average rate of these features')
     #method_parser = parser.add_mutually_exclusive_group()
     method_parser = parser.add_argument_group('Collapsing conditions',
-                                              '(combined by OR operator)')
+                                              '(combined by AND operator)')
     method_parser.add_argument('-r', '--byrank', default='', choices=RANKS,
                         help='taxonomic rank to collapse [%(default)r]')
     method_parser.add_argument('-a', '--byage', type=float,
@@ -325,4 +335,4 @@ if __name__ == '__main__':
     
     
     args = parser.parse_args()
-    main(**vars(args))
+    sys.exit(main(**vars(args)))
