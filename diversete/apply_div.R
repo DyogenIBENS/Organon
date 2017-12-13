@@ -202,12 +202,23 @@ if( !interactive() ) {
 
   #merge(div_stats, clade.dup.data)
   # TODO: convert names from one dataset to names in the other. e.g Atlantogenata
-  clade.converter <- read.delim("~/ws2/DUPLI_data90/ens90size10.txt",
-                                row.names=1, header=FALSE)
+  clade.converter <- read.delim(paste0(source_dir, dup_path, "ens90", param_str,
+                                       ".txt"),
+                                header=FALSE, col.names=c('div', 'dup'),
+                                as.is=TRUE)
+  # complete missing values:
+  no.dup.name <- clade.converter$dup == ''
+  clade.converter$dup[no.dup.name] <- gsub('_', ' ',
+                                           clade.converter$div[no.dup.name])
+  no.div.name <- clade.converter$div == ''
+  clade.converter$div[no.div.name] <- gsub(' ', '_',
+                                           clade.converter$dup[no.div.name])
+  
+  # Convert
   rownames.dup.data <- rownames(clade.dup.data)
-  rownames(clade.dup.data) <- ifelse(is.na(clade.converter[rownames.dup.data,1]),
-                                     rownames.dup.data,
-                                     clade.converter[rownames.dup.data,1])
+  rownames(clade.dup.data) <- clade.converter$div[match(rownames.dup.data,
+                                                        clade.converter$dup)]
+  # Compare
   common.clades <- intersect(rownames(div_stats), rownames(clade.dup.data))
   all_stats <- cbind(div_stats[common.clades,], clade.dup.data[common.clades,])
   all_stats$allDup <- all_stats$tandemDup + all_stats$dispDup
@@ -215,7 +226,13 @@ if( !interactive() ) {
   write.table(all_stats, paste0("all_stats-", param_suffix, ".tsv"), sep='\t', quote=F)
 
   # Now the phylogenetic correlation
-  maintree <- read.tree("~/ws2/DUPLI_data90/event_rates-size10.nwk")
+  maintree <- read.tree(paste0(source_dir, dup_path, "event_rates-", param_str,
+                               ".nwk"))
+  # Convert tip labels
+  clade.converter$duptree <- gsub(' ', '', clade.converter$dup)
+  maintree$tip.label <- clade.converter$div[match(maintree$tip.label,
+                                                  clade.converter$duptree)]
+
   maintreedi <- multi2di(maintree)
   # First ensure the correspondance between maintree$tip.label and
   # rownames(all_stats):
