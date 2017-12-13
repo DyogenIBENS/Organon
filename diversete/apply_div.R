@@ -7,16 +7,36 @@ library(RPANDA)
 library(diversitree)
 
 #param_name <- "listens90size10"
-param_str <- "age150size10"
+
+# BACK UP AND CLEAN UP CURRENT WORKSPACE
+if( exists("param_str") ){
+  # Back up
+  if( !exists("analyses") ) analyses <- list()
+  analyses[[param_str]] <- new.env()
+
+  important_var <- c("param_str", "all_stats")
+
+  for( var in important_var){
+    assign(var, get(var), envir=analyses[[param_str]])
+  }
+  # Clean up
+  allvars <- ls(all.names=TRUE)
+  allvars <- allvars[allvars != "analyses"]
+  rm(list=allvars)
+}
+
+# SINGLE CONFIGURATION PARAMETER
+param_str <- "age150-size10"
+
 param_suffix <- paste0("listens90", param_str)
-source_dir <- "/users/ldog/glouvel/ws2/databases/timetree/"
+source_dir <- "/users/ldog/glouvel/ws2/"
+div_path   <- "databases/timetree/Opisthokonta-"
+dup_path   <- "DUPLI_data90/"
 
 if( interactive() ) {
-  subtreefile <- paste0(source_dir, "Opisthokonta-", param_suffix,
-                        ".subtrees.nwk")
-  divtablefile <- paste0(source_dir, "Opisthokonta-", param_suffix, ".tsv")
-  duptablefile <- paste0("/users/ldog/glouvel/ws2/DUPLI_data90/event_rates-",
-                         param_str, ".tsv")
+  subtreefile  <- paste0(source_dir, div_path, param_suffix, ".subtrees.nwk")
+  divtablefile <- paste0(source_dir, div_path, param_suffix, ".tsv")
+  duptablefile <- paste0(source_dir, dup_path, "event_rates-", param_str, ".tsv")
   args <- c(subtreefile, divtablefile, duptablefile)
 } else {
   args <- commandArgs(trailingOnly=TRUE)
@@ -174,8 +194,10 @@ if( !interactive() ) {
   div_stats <- data.frame(t(parSapply(cl, subtrees, get_div_stats, clade.div.data,
                                       SIMPLIFY=TRUE))
   stopCluster(cl)
-  setwd("~glouvel/ws2/DUPLI_data90/div-VS-dup/div_stats.tsv")
-  write.table(div_stats, "div_stats.tsv", sep='\t', quote=F)
+
+  workdir <- paste0(source_dir, "DUPLI_data90/div-VS-dup")
+  setwd(workdir)
+  write.table(div_stats, paste0("div_stats-", param_suffix, ".tsv"), sep='\t', quote=F)
 
   #merge(div_stats, clade.dup.data)
   # TODO: convert names from one dataset to names in the other. e.g Atlantogenata
@@ -189,7 +211,7 @@ if( !interactive() ) {
   all_stats <- cbind(div_stats[common.clades,], clade.dup.data[common.clades,])
   all_stats$allDup <- all_stats$tandemDup + all_stats$dispDup
   all_stats$allnew <- all_stats$allDup + all_stats$birth
-  write.table(all_stats, "all_stats.tsv", sep='\t', quote=F)
+  write.table(all_stats, paste0("all_stats-", param_suffix, ".tsv"), sep='\t', quote=F)
 
   # Now the phylogenetic correlation
   maintree <- read.tree("~/ws2/DUPLI_data90/event_rates-size10.nwk")
