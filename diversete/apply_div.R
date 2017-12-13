@@ -241,10 +241,20 @@ if( !interactive() ) {
   cat("Ignoring the following data from all_stats:\n")
   print(setdiff(rownames(all_stats), maintree$tip.label))
 
-  # match both data:
-  maindata <- geiger::treedata(maintreedi, all_stats)
+  # subset both data:
+  maindata <- geiger::treedata(maintreedi, all_stats, sort=TRUE)
   
+  pic.b2        <- pic(maindata$data[,"ml.sampl.b2"], maindata$phy)
+  pic.tandemDup <- pic(maindata$data[,"tandemDup"]  , maindata$phy)
+  pic.dispDup   <- pic(maindata$data[,"dispDup"]    , maindata$phy)
+  pic.allDup    <- pic(maindata$data[,"allDup"]     , maindata$phy)
+  pic.allnew    <- pic(maindata$data[,"allnew"]     , maindata$phy)
 
+  pic.cor.tests <- list(
+    tandemDup=cor.test(pic.b2, pic.tandemDup),
+    dispDup=cor.test(pic.b2, pic.dispDup),
+    allDup=cor.test(pic.b2, pic.allDup),
+    allnew=cor.test(pic.b2, pic.allnew))
 
 }
 
