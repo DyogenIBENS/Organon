@@ -245,6 +245,7 @@ if( !interactive() ) {
   maindata <- geiger::treedata(maintreedi, all_stats, sort=TRUE)
   
   pic.b2        <- pic(maindata$data[,"ml.sampl.b2"], maindata$phy)
+  pic.d2        <- pic(maindata$data[,"ml.sampl.d2"], maindata$phy)
   pic.tandemDup <- pic(maindata$data[,"tandemDup"]  , maindata$phy)
   pic.dispDup   <- pic(maindata$data[,"dispDup"]    , maindata$phy)
   pic.allDup    <- pic(maindata$data[,"allDup"]     , maindata$phy)
@@ -255,6 +256,9 @@ if( !interactive() ) {
     dispDup=cor.test(pic.b2, pic.dispDup),
     allDup=cor.test(pic.b2, pic.allDup),
     allnew=cor.test(pic.b2, pic.allnew))
+
+  phycovar <- corBrownian(1, maindata$phy)
+  gls(maindata$data[,'ml.sampl.b2'], maindata$data[,'allDup'], phycovar)
 
 }
 
