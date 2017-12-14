@@ -190,7 +190,7 @@ if( !interactive() ) {
   names(subtrees) <- sapply(subtrees, function(tree){tree$node.label[1]})
 
   #div_stats <- sapply(subtrees, get_div_stats, clade.data)
-  cl <- makeForkCluster(max(1, detectCores()-2), outfile=stdout())
+  cl <- makeForkCluster(max(1, detectCores()-2), outfile="/dev/stdout")
   tmp_output <- parSapplyLB(cl, subtrees, get_div_stats, clade.div.data,
                             simplify=TRUE)
   div_stats <- data.frame(t(tmp_output))
