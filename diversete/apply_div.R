@@ -191,8 +191,7 @@ get_div_stats <- function(tree, metadata) {
   return(unlist(out))
 }
 
-
-if( !interactive() ) {
+load_subtrees <- function(subtreefile) {
   subtreelines  <- scan(subtreefile, what=character(), sep="\n")
   not_single_node_lines <- grepl('(', subtreelines, fixed=TRUE)
   subtreelines <- subtreelines[not_single_node_lines]
@@ -200,20 +199,25 @@ if( !interactive() ) {
   subtrees <- read.tree(text=subtreelines, keep.multi=TRUE)
   subtrees <- subtrees[sapply(subtrees, Ntip) > 2]
   names(subtrees) <- sapply(subtrees, function(tree){tree$node.label[1]})
+  return(subtrees)
+}
 
+analyze_div <- function(subtrees, save=TRUE) {
   #div_stats <- sapply(subtrees, get_div_stats, clade.data)
-  cl <- makeForkCluster(max(1, detectCores()-2), outfile="/dev/stdout")
+  cl <- makeForkCluster(max(1, detectCores()-2), outfile="tmp_outfile.txt")
   tmp_output <- parSapplyLB(cl, subtrees, get_div_stats, clade.div.data,
                             simplify=TRUE)
   div_stats <- data.frame(t(tmp_output))
   stopCluster(cl)
+  #cat(readLines("tmp_outfile.txt"), sep="\n")
 
-  workdir <- paste0(source_dir, "DUPLI_data90/div-VS-dup")
-  setwd(workdir)
-  write.table(div_stats, paste0("div_stats-", param_suffix, ".tsv"), sep='\t', quote=F)
+  if(save)
+    write.table(div_stats, paste0("div_stats-", param_suffix, ".tsv"), sep='\t', quote=F)
 
-  #merge(div_stats, clade.dup.data)
-  # TODO: convert names from one dataset to names in the other. e.g Atlantogenata
+  return(div_stats)
+}
+
+load_clade_converter <- function() {
   clade.converter <- read.delim(paste0(source_dir, dup_path, "ens90", param_str,
                                        ".txt"),
                                 header=FALSE, col.names=c('div', 'dup'),
@@ -225,37 +229,64 @@ if( !interactive() ) {
   no.div.name <- clade.converter$div == ''
   clade.converter$div[no.div.name] <- gsub(' ', '_',
                                            clade.converter$dup[no.div.name])
-  
-  # Convert
+  # Convert to tip labels (ape removes spaces)
+  clade.converter$duptree <- gsub(' ', '', clade.converter$dup)
+  return(clade.converter)
+}
+
+fuse_divdup_data <- function(div_stats, clade.dup.data, clade.converter, save=TRUE) {
+  # Convert rownames to make them match.
   rownames.dup.data <- rownames(clade.dup.data)
   rownames(clade.dup.data) <- clade.converter$div[match(rownames.dup.data,
                                                         clade.converter$dup)]
   # Compare
   common.clades <- intersect(rownames(div_stats), rownames(clade.dup.data))
+  cat("Unconverted div_stats rows:\n")
+  cat(setdiff(rownames(div_stats), rownames(clade.dup.data)), '\n')
+  cat("Unconverted dup data rows:\n")
+  cat(setdiff(rownames(clade.dup.data), rownames(div_stats)), '\n')
+
   all_stats <- cbind(div_stats[common.clades,], clade.dup.data[common.clades,])
   all_stats$allDup <- all_stats$tandemDup + all_stats$dispDup
   all_stats$allnew <- all_stats$allDup + all_stats$birth
-  write.table(all_stats, paste0("all_stats-", param_suffix, ".tsv"), sep='\t', quote=F)
+  if(save)
+    write.table(all_stats, paste0("all_stats-", param_suffix, ".tsv"),
+                sep='\t', quote=F)
+  return(all_stats)
+}
 
-  # Now the phylogenetic correlation
-  maintree <- read.tree(paste0(source_dir, dup_path, "event_rates-", param_str,
-                               ".nwk"))
-  # Convert tip labels
-  clade.converter$duptree <- gsub(' ', '', clade.converter$dup)
+combine_maindata <- function(all_stats, maintree, clade.converter) {
   maintree$tip.label <- clade.converter$div[match(maintree$tip.label,
                                                   clade.converter$duptree)]
 
   maintreedi <- multi2di(maintree)
   # First ensure the correspondance between maintree$tip.label and
   # rownames(all_stats):
-  cat("Ignoring the following branches of the tree:\n")
-  print(setdiff(maintree$tip.label, rownames(all_stats)))
-  cat("Ignoring the following data from all_stats:\n")
-  print(setdiff(rownames(all_stats), maintree$tip.label))
+  #cat("Ignoring the following branches of the tree:\n")
+  #print(setdiff(maintree$tip.label, rownames(all_stats)))
+  #cat("Ignoring the following data from all_stats:\n")
+  #print(setdiff(rownames(all_stats), maintree$tip.label))
 
   # subset both data:
   maindata <- geiger::treedata(maintreedi, all_stats, sort=TRUE)
-  
+  maindata$data <- data.frame(maindata$data)
+  return(maindata)
+}
+
+if( !interactive() ) {
+
+  #backup_cleanup()
+
+  subtreefile %>% load_subtrees %>% analyze_div -> div_stats
+
+  load_clade_converter() -> clade.converter
+  fuse_divdup_data(div_stats, clade.dup.data, clade.converter) -> all_stats
+
+  # Now the phylogenetic correlation
+  maintree <- read.tree(paste0(source_dir, dup_path, "event_rates-", param_str,
+                               ".nwk"))
+  maindata <- combine_maindata(all_stats, maintree, clade.converter)
+
   pic.b2        <- pic(maindata$data[,"ml.sampl.b2"], maindata$phy)
   pic.d2        <- pic(maindata$data[,"ml.sampl.d2"], maindata$phy)
   pic.tandemDup <- pic(maindata$data[,"tandemDup"]  , maindata$phy)
