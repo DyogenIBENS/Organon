@@ -116,7 +116,7 @@ summary_posterior <- function(samples, paramname, probaname="p",
   #CI <- o_samples[c(CI_lower_pos, CI_upper_pos)+1, paramname]
   #best <- samples[max_posterior_pos, paramname]
   post_density <- density(samples[,paramname])
-  best <- post_density$x[which.max(dlam$y)]
+  best <- post_density$x[which.max(post_density$y)]
   CI <- quantile(samples[,paramname], CIrange)
   out <- list(best=best, CI=CI)
   #names(out) <- if(outname){paste0(outname, ".", c("best", "CI"))}{outname}
