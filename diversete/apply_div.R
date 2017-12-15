@@ -300,8 +300,22 @@ if( !interactive() ) {
     allDup=cor.test(pic.b2, pic.allDup),
     allnew=cor.test(pic.b2, pic.allnew))
 
-  phycovar <- corBrownian(1, maindata$phy)
-  gls(maindata$data[,'ml.sampl.b2'], maindata$data[,'allDup'], phycovar)
+  phycovar.B <- corBrownian(1, maindata$phy)
+  phycovar.G <- corGrafen(1, maindata$phy)
+  #phycovar.M <- corMartins
+  #phycovar.P05 <- corPagel(0.5, maindata$phy)
+
+  gls.tests.B <- list(
+    tandemDup=gls(ml.sampl.b2~tandemDup, maindata$data, phycovar.B),
+    dispDup=gls(ml.sampl.b2~dispDup, maindata$data, phycovar.B),
+    allDup=gls(ml.sampl.b2~allDup, maindata$data, phycovar.B),
+    allnew=gls(ml.sampl.b2~allnew, maindata$data, phycovar.B))
+
+  gls.tests.G <- list(
+    tandemDup=gls(ml.sampl.b2~tandemDup, maindata$data, phycovar.G),
+    dispDup=gls(ml.sampl.b2~dispDup, maindata$data, phycovar.G),
+    allDup=gls(ml.sampl.b2~allDup, maindata$data, phycovar.G),
+    allnew=gls(ml.sampl.b2~allnew, maindata$data, phycovar.G))
 
 }
 
