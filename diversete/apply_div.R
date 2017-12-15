@@ -1,5 +1,8 @@
 #!/usr/bin/env Rscript
 
+# RUN THIS ANALYSIS FROM: ~glouvel/ws2/DUPLI_data90/div-VS-dup
+
+library(magrittr)
 library(parallel)
 library(ape)
 library(geiger)
@@ -32,6 +35,9 @@ param_suffix <- paste0("listens90", param_str)
 source_dir <- "/users/ldog/glouvel/ws2/"
 div_path   <- "databases/timetree/Opisthokonta-"
 dup_path   <- "DUPLI_data90/"
+
+#workdir <- paste0(source_dir, dup_path, "div-VS-dup")
+#setwd(workdir)
 
 if( interactive() ) {
   subtreefile  <- paste0(source_dir, div_path, param_suffix, ".subtrees.nwk")
