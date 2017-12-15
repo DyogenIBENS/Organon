@@ -4,6 +4,9 @@
 
 library(magrittr)
 library(parallel)
+
+library(nlme)
+
 library(ape)
 library(geiger)
 library(RPANDA)
@@ -11,21 +14,24 @@ library(diversitree)
 
 #param_name <- "listens90size10"
 
-# BACK UP AND CLEAN UP CURRENT WORKSPACE
-if( exists("param_str") ){
-  # Back up
-  if( !exists("analyses") ) analyses <- list()
-  analyses[[param_str]] <- new.env()
+backup_cleanup <- function() {
+  # BACK UP AND CLEAN UP CURRENT WORKSPACE
+  if( exists("param_str", envir=.GlobalEnv) ){
+    # Back up
+    if( !exists("analyses", envir=.GlobalEnv) ) analyses <<- list()
+    analyses[[param_str]] <- new.env()
 
-  important_var <- c("param_str", "all_stats")
+    important_var <- c("param_str", "all_stats", "div_stats")
 
-  for( var in important_var){
-    assign(var, get(var), envir=analyses[[param_str]])
+    for( var in important_var){
+      if( exists(var, envir=.GlobalEnv) )
+        assign(var, get(var, envir=.GlobalEnv), envir=analyses[[param_str]])
+    }
+    # Clean up
+    allvars <- ls(all.names=TRUE, envir=.GlobalEnv)
+    allvars <- allvars[allvars != "analyses"]
+    rm(list=allvars, envir=.GlobalEnv)
   }
-  # Clean up
-  allvars <- ls(all.names=TRUE)
-  allvars <- allvars[allvars != "analyses"]
-  rm(list=allvars)
 }
 
 # SINGLE CONFIGURATION PARAMETER
