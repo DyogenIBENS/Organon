@@ -53,8 +53,9 @@ def main(treefile, outfile, cladelistfile=None, datafile=None, prune=False,
         if datafile and node.is_leaf():
             node.add_feature('profile', [data[val][node.name] for val in values])
             node.add_feature('deviation', [0.0]*len(values))
-            heatface = ete3.ProfileFace(max_val, min_val, average_val, width=20,
-                                        height=20, style='heatmap')
+            heatface = ete3.ProfileFace(max_val, min_val, average_val,
+                                        width=20*len(values), height=20,
+                                        style='heatmap')
             ete3.add_face_to_node(heatface, node, column=1, aligned=True)
 
             for i, val in enumerate(values, start=2): 
