@@ -12,10 +12,12 @@ USAGE:
 COMMANDS = ['lineage', 'tree', 'scatter', 'violin']
 
 CMD_ARGS = {'lineage': [(('-l', '--lineage'),),
-                        (('-p', '--phyltreefile'),)],
+                        (('-p', '--phyltreefile'),),
+                        (('-e', '--ensembl-version'),)],
             'tree':    [(('-v', '--vertical'),
                          dict(action='store_true')),
-                        (('-p', '--phyltreefile'),)],
+                        (('-p', '--phyltreefile'),),
+                        (('-e', '--ensembl-version'),)],
             'scatter': [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)],
             'violin': [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)]}
 
@@ -65,6 +67,7 @@ pd.set_option('display.max_colwidth', 85)
 
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
                    "PhylTree.Ensembl.{0}.conf"
+ENSEMBL_VERSION = 85
 
 RE_TAXON = re.compile(r'[A-Z][A-Za-z_.-]+(?=ENSGT)')
 #PAT_TAXON = r'^(ENS[A-Z]+G|[A-Z][A-Za-z_.-]+)(ENSGT[0-9]+|)(.*)$'
@@ -109,7 +112,7 @@ def splitname2taxongenetree(df, name_col="name", index_col=None):
 
 class DataVisualizor(object):
 
-    ensembl_version = 85
+    ensembl_version = ENSEMBL_VERSION
     phyltreefile = PHYLTREEFILE
     default_nbins = DEFAULT_NBINS
 
@@ -549,7 +552,8 @@ class DataVisualizor(object):
 
 ### Script commands ###
 #COMMANDS = ['lineage', 'tree', 'scatter']
-def run(command, ages_file, phyltreefile=None, outfile=None, lineage=None,
+def run(command, ages_file, phyltreefile=None, ensembl_version=None,
+        outfile=None, lineage=None,
         show_edited=None, no_edited=False, age_key=DEFAULT_AGE_KEY,
         nbins=DEFAULT_NBINS, vertical=False, x=None, y=None, xlim=None, ylim=None):
 
@@ -560,7 +564,7 @@ def run(command, ages_file, phyltreefile=None, outfile=None, lineage=None,
     
     if command in ('tree', 'lineage'):
         dv.colorize_taxa(alpha=1)
-        dv.load_phyltree(phyltreefile)
+        dv.load_phyltree(phyltreefile, ensembl_version)
         if command == 'lineage':
             dv.lineage_hist(lineage, nbins)
         elif command == 'tree':
