@@ -114,7 +114,7 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
     new_node_names = []
     if links:
         # Alright to use parent_genename if not a duplication.
-        new_node_names = [link + parent_genename for link in links]
+        new_node_names = [link.replace(' ', '.') + parent_genename for link in links]
 
     ### TODO: refactor the part above to compute and check 'links' only once, 
     ###       during the following loop, and to check for *each* link age 
@@ -471,7 +471,7 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                                 child_gn[i] = genename
                             # Insert back the needed speciation event after.
                             # (make this node a duplication again)
-                            spe_node_name = parent_sp + genename
+                            spe_node_name = parent_sp.replace(' ', '.') + genename
                             print_if_verbose("Inserted node (spe after dup):",
                                              spe_node_name)
                             # Then check the succession of ancestors
