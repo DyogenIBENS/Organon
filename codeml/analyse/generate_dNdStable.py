@@ -17,8 +17,9 @@ from select_leaves_from_specieslist import convert_gene2species
 from codeml.codemlparser import codeml_parser
 
 
-PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data85/PhylTree.Ensembl.85.conf"
-ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS')
+ENSEMBL_VERSION = 85
+PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0:d}/PhylTree.Ensembl.{0:d}.conf"
+ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9_.-]+)ENS')
 
 
 def print_if_verbose(*args, **kwargs):
@@ -692,8 +693,8 @@ def rec_average_w(node, scname, subtree, measures=['dS']):
     subtree[scname]['tmp_m'] = children_ms.mean(axis=0)
 
 
-def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
-                  method2=False):
+def bound_average(fulltree, ensembl_version, phyltree, measures=['dS'],
+                    unweighted=False, method2=False):
     """normalize duplication node position between speciation nodes.
      scaling:
        method1: d / (D' + d) with D' modified (UPGMA/WPGMA)
@@ -725,7 +726,7 @@ def bound_average(fulltree, phyltree, measures=['dS'], unweighted=False,
         if node.is_leaf():
             node.add_feature('type', 'leaf')
             try:
-                taxon = convert_gene2species(scname)
+                taxon = convert_gene2species(scname, ensembl_version)
                 leaf_age = 0
             except RuntimeError as err:
                 print('WARNING', err, file=sys.stderr)
@@ -998,12 +999,13 @@ def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
 
     
 #def process_toages(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
-def process(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
+def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='.nwk',
             measures=['dS'], method2=False, unweighted=False):
     fulltree = setup_fulltree(mlcfile, phyltree, replace_nwk, replace_by, measures)
     
-    ages, subtrees = bound_average(fulltree, phyltree, measures=measures,
-                                   unweighted=unweighted, method2=method2)
+    ages, subtrees = bound_average(fulltree, ensembl_version, phyltree,
+                                   measures=measures, unweighted=unweighted,
+                                   method2=method2)
     showtree(fulltree)
     return ages, fulltree, subtrees
 
@@ -1032,9 +1034,10 @@ class Out(object):
             self.file_obj.close()
 
 
-def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
-         measures=['dS'], unweighted=False, verbose=False, show=None,
-         replace_nwk='.mlc', replace_by='.nwk', ignore_errors=False,
+def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
+         phyltreefile=PHYLTREEFILE, method2=False,
+         measures=['t', 'dN', 'dS', 'dist'], unweighted=False, verbose=False,
+         show=None, replace_nwk='.mlc', replace_by='.nwk', ignore_errors=False,
          saveas='ages'):
     nb_mlc = len(mlcfiles)
     
@@ -1046,6 +1049,7 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
 
     print_if_verbose("Main: outfile  %s\n" % outfile,
           "     mlcfiles %s %s\n" % (mlcfiles[:5], '...' * (nb_mlc>5)),
+          "     ensembl v.%d\n" % ensembl_version,
           "     measures %s\n" % measures,
           "     verbose  %s\n" % verbose,
           "     show     %s\n" % show,
@@ -1063,7 +1067,7 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
     global showtree
     showtree = def_showtree(measures, show)
 
-    phyltree = PhylTree.PhylogeneticTree(phyltreefile)
+    phyltree = PhylTree.PhylogeneticTree(phyltreefile.format(ensembl_version))
     
     with Out(outfile, 'w') as out:
         if saveas == 'ages':
@@ -1077,8 +1081,9 @@ def main(outfile, mlcfiles, phyltreefile=PHYLTREEFILE, method2=False,
             print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_mlc, percentage, mlcfile),
                   end=' ')
             try:
-                result = process(mlcfile, phyltree, replace_nwk, replace_by, 
-                                 measures, method2=method2, unweighted=unweighted)
+                result = process(mlcfile, ensembl_version, phyltree,
+                                 replace_nwk, replace_by, measures,
+                                 method2=method2, unweighted=unweighted)
                 save_result(result[saveas_i], out)
             except BaseException as err:
                 print()
@@ -1094,6 +1099,7 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('outfile')
     parser.add_argument('mlcfiles', nargs='+')
+    parser.add_argument('-e', '--ensembl-version', type=int, default=ENSEMBL_VERSION)
     parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE)
     parser.add_argument('--method2', action='store_true')
     parser.add_argument('-t', '--tofulltree', dest='saveas', action='store_const',
