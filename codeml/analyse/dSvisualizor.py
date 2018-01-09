@@ -6,7 +6,7 @@
 """Visualise values from given table (reconstructed ages) per taxonomic branch.
 
 USAGE:
-    ./plot_dS.py command <ages_file> <outfile>
+    ./dSvisualizor.py command <ages_file> <outfile>
 """
 
 COMMANDS = ['lineage', 'tree', 'scatter', 'violin']
@@ -80,12 +80,22 @@ DEFAULT_AGE_KEY = 'age_dS'
 def bin_data(data, bins, binvar=DEFAULT_AGE_KEY, outvar=None):
     """given some data and some bins, return groups by bins."""
     #bins = data_bins[lab.replace('.', ' ')]
+    nbins = len(bins)
+    #print('NBINS:', nbins)
     if not outvar:
         outvar = data.keys() # select all columns.
     bin_positions = np.digitize(data[binvar], bins)
-    # include values that are equal to the right-most edge.
-    bin_positions[bin_positions == 51] = 50
+    # include values that are *equal* to the right-most edge.
+    bin_positions[bin_positions == nbins] = nbins-1
     return data[outvar].groupby(bin_positions)
+
+#def bin_data(dataseries, bins):
+#    """Group data by bins"""
+#    bin_positions = np.digitize(data, bins)
+#    # include values that are *equal* to the right-most edge.
+#    nbins = len(bins)
+#    #bin_positions[bin_positions == nbins+1] = nbins
+#    return data.groupby(bin_positions)
 
 
 def intersect_size(serie, checked_values):
@@ -151,7 +161,7 @@ class DataVisualizor(object):
         # graphical parameters:
         self.vertical = False
 
-        self.all_ages = pd.read_table(ages_file) #, names=['name','age','type'])
+        self.all_ages = pd.read_table(ages_file, ) #, names=['name','age','type'])
         ### TODO: if at least one of these is missing.
         if not set(('taxon', 'genetree')) & set(self.all_ages.columns):
             self.all_ages = splitname2taxongenetree(self.all_ages, "name")
@@ -378,13 +388,16 @@ class DataVisualizor(object):
                     pickevent.mouseevent.xdata
         print("pick_age:", pick_age)
         axes_data = pd.concat((self.taxa_ages.get_group(tax) for tax in picked_taxa))
+        axes_data = axes_data.dropna(subset=[self.age_key])
+        #axes_data, _, _ = self.make_hist_data(taxa=picked_taxa)
+        #axes_data = pd.concat(axes_data)
         
         print(self.data_bins.keys())
         picked_bins = self.data_bins[picked_taxa.pop()]
         picked_bin = (pick_age > picked_bins).sum()
         assert picked_bin < len(picked_bins) + 1
-        print(picked_bins)
-        print(picked_bin)
+        print("picked_bins:", picked_bins)
+        print("picked_bin:", picked_bin)
         binned_data = bin_data(axes_data, picked_bins, binvar=self.age_key)
         picked_data = binned_data.get_group(picked_bin)[['name', self.age_key]]
         #max_len = picked_data.name.apply(lambda x: len(x)).max()
