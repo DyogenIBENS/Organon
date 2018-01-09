@@ -64,6 +64,10 @@ def def_showtree(measures, show=None):
                 global FULLTREE, TS
                 FULLTREE = tree
                 TS = ts
+        else:
+            def show_func(tree, ts=None):
+                print("Saving tree in %r." % show)
+                tree.render(show, tree_style=ts)
 
         # define duplication node style:
         ns = {ntype: ete3.NodeStyle() for ntype in ('spe', 'dup', 'leaf', 'root')}
@@ -72,7 +76,7 @@ def def_showtree(measures, show=None):
         ns['root']['fgcolor'] = 'black'
             
         header = measures + ['age_'+m for m in measures] + ['type']
-        header.remove('dist')
+        if 'dist' in header: header.remove('dist')
         measure_faces = {feature: ete3.AttrFace(feature,
                                                 text_prefix='%s: ' % feature,
                                                 fsize=7,
@@ -282,6 +286,7 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, dStree, dNtree, br_tw,
     When a node has a single child: take the branch dS on which it is, 
     and divide proportionnally to each segment dist."""
     # First, update the dNdS table with the more accurate values br_lengths
+    # (br_len is actually 't' in the table)
     for br, br_len, br_w in br_tw:
         dNdS[br][0] = br_len
         dNdS[br][3] = br_w
@@ -975,7 +980,7 @@ def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
                    measures=['dS']):
     fulltree = load_fulltree(mlcfile, replace_nwk, replace_by)
     rm_erroneous_ancestors(fulltree, phyltree)
-    if set(('dN', 'dS')) & set(measures):
+    if set(('dN', 'dS', 't')) & set(measures):
         with open(mlcfile) as mlc:
             id2nb, nb2id, tree_nbs, br_tw = branch2nb(mlc, fulltree)
             dNdS, dStree, dNtree = get_dNdS(mlc)
@@ -1119,8 +1124,10 @@ if __name__=='__main__':
                         help='average weighted by the size of clusters')
     parser.add_argument('-v', '--verbose', action='store_true', 
                         help='print progression along tree')
-    parser.add_argument('--show', choices=['gui', 'notebook'],
-                        help='start the interactive ete3 tree browser')
+    parser.add_argument('--show',
+            help=('"gui": start the interactive ete3 tree browser\n'
+                  '"notebook": create global var FULLTREE and TS for rendering\n'
+                  'other value: save to file'))
     parser.add_argument('-r', '--replace-nwk', default='\.mlc$',
                         help='string to be replaced by REPLACE_BY to find the'\
                                ' tree file [%(default)s]')
