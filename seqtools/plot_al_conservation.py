@@ -6,7 +6,7 @@ from sys import stderr, stdin
 
 import os.path
 
-from itertools import combinations_with_replacement
+from itertools import product
 
 import numpy as np
 import matplotlib as mpl
@@ -21,12 +21,40 @@ ext2fmt = {'.fa':    'fasta',
            '.mfa':   'fasta',
            '.phy':   'phylip-relaxed'}
 
-codons = [''.join(codon) for codon in combinations_with_replacement('ACGT', 3)]
-codons.append('---')
+CODONS = [''.join(codon) for codon in product(*['ACGT']*3)]
+NACODON = '---'
+CODON2INT = {codon:i for i,codon in enumerate([NACODON] + CODONS)}
+NUCL2INT  = {'-': 0, 'A': 1, 'C': 2, 'G': 3, 'T': 4}
 
-CodonAlphabet = Alphabet.Alphabet()
-Alphabet.letters = codons
-Alphabet.size = 1
+# Does not work...
+# Reading the alignment and issuing align[0][0] still yields a single nucleotide.
+codonalphabet = Alphabet.Alphabet()
+codonalphabet.letters = [NACODON] + CODONS
+codonalphabet.size = 3
+
+
+def al2array(align, nucl=False):
+    """"""
+    nseq = len(align)
+    al_len = align.get_alignment_length()
+    npos = al_len if nucl else al_len // 3
+    step = 1      if nucl else 3
+    #alarray = np.array([['']*npos]*len(align))
+    
+    return np.array([[seq[(j*step):((j+1)*step)] for j in range(npos)]
+                                                 for seq in al2list(align)])
+
+
+def al2int(align, nucl=False):
+    """Converts a matrix of categorical values to integers"""
+    alarray = al2array(align, nucl)
+    converter_dict = NUCL2INT if nucl else CODON2INT
+    return category2int(alarray, converter_dict)
+
+
+def category2int(array, converter_dict):
+    """Convert an array of categorical values using a dictionary"""
+    return np.vectorize(converter_dict.__getitem__)(array)
 
 
 def filename2format(filename):
@@ -76,46 +104,65 @@ def np_entropy(values, na=None):
 def al_stats(align, nucl=False):
     """Compute gap proportion and entropy value for each position of the alignment"""
     al_len = align.get_alignment_length()
-    if al_len % 3:
+    if al_len % 3 and not nucl:
         print("Not a codon alignment!", file=stderr)
 
     gap = '-'     if nucl else '---'
     npos = al_len if nucl else al_len // 3
     step = 1      if nucl else 3
 
-    gap_prop = np.zeros(npos)
-    al_entropy = np.ones(npos) * np.NaN
-    is_gap = np.zeros((len(align), npos))
+    alint = al2int(align, nucl)
 
-    for i in range(npos):
-        values = al2list(align[:, (step*i):(step*(i+1))])
-        is_gap[:,i] = np.array(values) == gap
-        value_unique, value_prop = np_proportions(values)
-        gap_prop[i]   = value_prop[np.argmax(value_unique == gap)] or 0
-        al_entropy[i] = np_entropy_subfunc(value_unique, value_prop, gap)
+    #gap_prop = np.zeros(npos)
+    #al_entropy = np.ones(npos) * np.NaN
 
-    print(is_gap.shape)
-    return gap_prop, al_entropy, is_gap
+    #for i in range(npos):
+    #    values = al2list(align[:, (step*i):(step*(i+1))])
+    #    value_unique, value_prop = np_proportions(values)
+    #    #gap_prop[i]   = value_prop[np.argmax(value_unique == gap)] or 0
+    #    al_entropy[i] = np_entropy_subfunc(value_unique, value_prop, gap)
+
+    gap_prop = (alint == 0).sum(axis=0) / alint.shape[0]
+    al_freqs = np.hstack([np.bincount(alint[:,i]) for i in range(alint.shape[1])]).astype(float)
+    al_freqs /= len(alint)
+    al_entropy = - (al_freqs * np.log2(al_freqs)).sum(axis=0)
+
+    print(alint.shape)
+    return gap_prop, al_entropy, alint
 
 
-def plot_al_stats(gap_prop, al_entropy, is_gap, outfile=None):
+def plot_al_stats(gap_prop, al_entropy, alint, seqlabels=None, outfile=None):
     """"""
     if outfile is None:
-        plt.switch_backend('Qt4Agg')
+        try:
+            plt.switch_backend('Qt5Agg')
+        except ImportError:
+            plt.switch_backend('TkAgg')
+
+    #try:
+    #    alcmap = plt.get_cmap('tab20', alint.max() - 1)
+    #except ValueError:
+    alcmap = plt.get_cmap('Dark2', alint.max() - 1)
+
+    masked_al = np.ma.array(alint, mask=(alint==0))
 
     fig, axes = plt.subplots(4, sharex=True)
 
     x = np.arange(len(gap_prop))
-    axes[0].bar(x, gap_prop)
-    axes[1].bar(x, al_entropy)
-    axes[2].bar(x, (1-gap_prop) * (1 - al_entropy))
-    axes[3].imshow(is_gap)
-    axes[3].autoscale(False)
+    axes[0].bar(x, gap_prop, width=1, fill=False)
+    axes[1].bar(x, al_entropy, width=1)
+    axes[2].bar(x, (1-gap_prop) * (1 - al_entropy), width=1)
+    
+    #axes[3].imshow(is_gap, cmap='binary_r', aspect='auto') #, interpolation='gaussian')
+    axes[3].imshow(masked_al, cmap=alcmap, aspect='auto') #, interpolation='gaussian')
 
     axes[0].set_ylabel("Proportion of gaps (G)")
     axes[1].set_ylabel("Entropy (H)")
     axes[2].set_ylabel("Score : (1 - G)*(1 - H)")
     axes[3].set_ylabel("Alignment")
+    if seqlabels is not None:
+        axes[3].set_yticks(np.arange(alint.shape[0]))
+        axes[3].set_yticklabels(seqlabels, fontsize='xx-small')
     axes[-1].set_xlabel("Residue position")
     
     if outfile is None:
@@ -126,8 +173,9 @@ def plot_al_stats(gap_prop, al_entropy, is_gap, outfile=None):
 
 def main(infile, outfile=None, format=None, nucl=False):
     align = AlignIO.read(infile, format=(format or filename2format(infile.name)))
-    gap_prop, al_entropy, is_gap = al_stats(align, nucl)
-    plot_al_stats(gap_prop, al_entropy, is_gap, outfile)
+    seqlabels = [record.name for record in align]
+    gap_prop, al_entropy, alint = al_stats(align, nucl)
+    plot_al_stats(gap_prop, al_entropy, alint, seqlabels, outfile)
 
 
 
