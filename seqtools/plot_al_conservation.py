@@ -56,6 +56,11 @@ def category2int(array, converter_dict):
     """Convert an array of categorical values using a dictionary"""
     return np.vectorize(converter_dict.__getitem__)(array)
 
+def freq_matrix(vint, minlength=65):
+    """Convert matrix of integers to frequencies (per column)"""
+    counts = np.stack([np.bincount(vint[:,i], minlength=minlength) \
+                        for i in range(vint.shape[1])], axis=-1)
+    return counts.astype(float) / np.alen(vint)
 
 def filename2format(filename):
     _, ext = os.path.splitext(filename)
@@ -122,9 +127,12 @@ def al_stats(align, nucl=False):
     #    #gap_prop[i]   = value_prop[np.argmax(value_unique == gap)] or 0
     #    al_entropy[i] = np_entropy_subfunc(value_unique, value_prop, gap)
 
-    gap_prop = (alint == 0).sum(axis=0) / alint.shape[0]
-    al_freqs = np.hstack([np.bincount(alint[:,i]) for i in range(alint.shape[1])]).astype(float)
-    al_freqs /= len(alint)
+    #gap_prop = (alint == 0).sum(axis=0) / alint.shape[0]
+    al_freqs = freq_matrix(alint, minlength=(5 if nucl else 65))
+    gap_prop = al_freqs[0,:]
+    # Convert zeros to ones so that x * log(x) = 0
+    al_freqs = al_freqs[1:,:]
+    al_freqs[al_freqs == 0] = 1
     al_entropy = - (al_freqs * np.log2(al_freqs)).sum(axis=0)
 
     print(alint.shape)
@@ -134,22 +142,25 @@ def al_stats(align, nucl=False):
 def plot_al_stats(gap_prop, al_entropy, alint, seqlabels=None, outfile=None):
     """"""
     if outfile is None:
-        try:
-            plt.switch_backend('Qt5Agg')
-        except ImportError:
+        #try:
+        #    plt.switch_backend('Qt5Agg')
+        #except ImportError:
             plt.switch_backend('TkAgg')
 
     #try:
     #    alcmap = plt.get_cmap('tab20', alint.max() - 1)
     #except ValueError:
-    alcmap = plt.get_cmap('Dark2', alint.max() - 1)
+
+    nvalues = alint.max()
+    print(nvalues)
+    alcmap = plt.get_cmap('Dark2', nvalues)
 
     masked_al = np.ma.array(alint, mask=(alint==0))
 
     fig, axes = plt.subplots(4, sharex=True)
 
     x = np.arange(len(gap_prop))
-    axes[0].bar(x, gap_prop, width=1, fill=False)
+    axes[0].step(x, gap_prop)
     axes[1].bar(x, al_entropy, width=1)
     axes[2].bar(x, (1-gap_prop) * (1 - al_entropy), width=1)
     
