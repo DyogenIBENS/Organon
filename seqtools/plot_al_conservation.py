@@ -12,7 +12,7 @@ import numpy as np
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-from Bio import AlignIO, Alphabet
+from Bio import AlignIO, Align, Alphabet
 import argparse
 
 
@@ -106,6 +106,24 @@ def np_entropy(values, na=None):
     return np_entropy_subfunc(value_unique, value_prop, na)
 
 
+def comp_parts(alint, compare_parts=None):
+    if compare_parts is None:
+        return None
+
+    parts = [[int(i) for i in part.rstrip(')').lstrip('(').split(',')]
+             for part in compare_parts.split(';')]
+
+    assert len(parts) == 2
+
+    alparts = [np.stack([alint[i,:] for i in part]) for part in parts]
+
+    freq_mat1, freq_mat2 = [freq_matrix(alpart) for alpart in alparts]
+
+    manh_dist = np.abs(freq_mat1 - freq_mat2).sum(axis=0)
+
+    return manh_dist
+
+
 def al_stats(align, nucl=False):
     """Compute gap proportion and entropy value for each position of the alignment"""
     al_len = align.get_alignment_length()
@@ -139,7 +157,8 @@ def al_stats(align, nucl=False):
     return gap_prop, al_entropy, alint
 
 
-def plot_al_stats(gap_prop, al_entropy, alint, seqlabels=None, outfile=None):
+def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
+                  outfile=None):
     """"""
     if outfile is None:
         #try:
@@ -157,10 +176,11 @@ def plot_al_stats(gap_prop, al_entropy, alint, seqlabels=None, outfile=None):
 
     masked_al = np.ma.array(alint, mask=(alint==0))
 
-    fig, axes = plt.subplots(4, sharex=True)
+    nplots = 4 if dist_array is None else 5
+    fig, axes = plt.subplots(nplots, sharex=True)
 
     x = np.arange(len(gap_prop))
-    axes[0].step(x, gap_prop)
+    axes[0].step(x, gap_prop, where='post')
     axes[1].bar(x, al_entropy, width=1)
     axes[2].bar(x, (1-gap_prop) * (1 - al_entropy), width=1)
     
@@ -175,6 +195,9 @@ def plot_al_stats(gap_prop, al_entropy, alint, seqlabels=None, outfile=None):
         axes[3].set_yticks(np.arange(alint.shape[0]))
         axes[3].set_yticklabels(seqlabels, fontsize='xx-small')
     axes[-1].set_xlabel("Residue position")
+
+    if dist_array is not None:
+        axes[4].step(x, dist_array, where='post')
     
     if outfile is None:
         plt.show()
@@ -182,11 +205,21 @@ def plot_al_stats(gap_prop, al_entropy, alint, seqlabels=None, outfile=None):
         fig.savefig(outfile)
 
 
-def main(infile, outfile=None, format=None, nucl=False):
+def main(infile, outfile=None, format=None, nucl=False, records=None,
+         slice=None, compare_parts=None):
     align = AlignIO.read(infile, format=(format or filename2format(infile.name)))
+    if records:
+        records = [int(r) for r in ','.split(records)]
+        align = Align.MultipleSeqAlignment([align[r] for r in records])
+    if slice:
+        slstart, slend = [int(pos) for pos in slice.split(':')]
+        align = align[:,sltart:slend]
+
     seqlabels = [record.name for record in align]
     gap_prop, al_entropy, alint = al_stats(align, nucl)
-    plot_al_stats(gap_prop, al_entropy, alint, seqlabels, outfile)
+    dist_array = comp_parts(alint, compare_parts)
+    print(dist_array)
+    plot_al_stats(gap_prop, al_entropy, alint, dist_array, seqlabels, outfile)
 
 
 
@@ -199,6 +232,13 @@ if __name__ == '__main__':
                         ' Can be any format accepted by Bio.alignIO')
     parser.add_argument('-n', '--nucl', action='store_true',
                         help='Process per nucleotide position (instead of codon)')
+    parser.add_argument('-r', '--records',
+                        help='select records (coma-sep list of 0-based integers)')
+    parser.add_argument('-s', '--slice',
+                        help='select positions (start:end). 0-based, end excluded')
+    parser.add_argument('-c', '--compare-parts',
+                        help='Plot the per-column correlation between two ' \
+                             'groups of data, e.g "(0,1);(2,3,4)"')
     
     
     args = parser.parse_args()
