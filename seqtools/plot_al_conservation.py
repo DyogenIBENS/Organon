@@ -132,18 +132,28 @@ def np_entropy(values, na=None):
     return np_entropy_subfunc(value_unique, value_prop, na)
 
 
+def freqs2entropy(freqs):
+    """Compute the entropy of columns from the frequency matrix.
+
+    Return a vector of entropy of the same length as the number of columns."""
+
+    freqs = freqs.copy()
+    freqs[freqs == 0] = 1
+    return - (freqs * np.log2(freqs)).sum(axis=0)
+
+
 def pairs_score(vint, indexpairs, dist_mat=UNIF_CODON_DIST):
     nrows, ncols = vint.shape
     pairs = [np.stack((vint[i,:], vint[j,:])) for i, j in indexpairs]
     pair_scores = np.array([[dist_mat[tuple(p[:,i])] for i in range(ncols)] for p in pairs])
-    print(pair_scores)
+    #print(pair_scores)
     return pair_scores.sum(axis=0)
 
 def sp_score(vint, dist_mat=UNIF_CODON_DIST):
     """Compute the sum of all pairs score, column-wise"""
-    return pairs_scores(vint, combinations(range(nrows), 2), dist_mat)
+    return pairs_score(vint, combinations(range(vint.shape[0]), 2), dist_mat)
 
-def split_score(vint, split, dist_mat=UNIF_CODON_DIST):
+def part_sp_score(vint, split, dist_mat=UNIF_CODON_DIST):
     assert len(split) == 2
     return pairs_score(vint, product(*split), dist_mat)
 
@@ -176,7 +186,7 @@ def comp_parts(alint, compare_parts=None):
 
     manh_dist = np.abs(freq_mat1 - freq_mat2).sum(axis=0)
     pearson_c = pearson_coeff(count_mat1, count_mat2, axis=0)
-    split_sc = split_score(alint, parts)
+    split_sc = part_sp_score(alint, parts)
     print(split_sc.shape)
 
     return np.stack((manh_dist, split_sc,))
@@ -224,7 +234,7 @@ def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
         #try:
         #    plt.switch_backend('Qt5Agg')
         #except ImportError:
-            plt.switch_backend('TkAgg')
+        plt.switch_backend('TkAgg')
 
     #try:
     #    alcmap = plt.get_cmap('tab20', alint.max() - 1)
@@ -275,8 +285,189 @@ PLOTS = ['gap_prop', 'entropy', 'gap_entropy', 'al', 'sp_score']
 COMP_PLOTS = ['manhattan', 'pearson', 'split_pairs_score']
 
 
-def main(infile, outfile=None, format=None, nucl=False, records=None,
-         slice=None, compare_parts=None):
+class AlignPlotter(object):
+
+    #colorcycle = plt.rcParams['axes.prop_cycle']
+
+    plot_properties = {'al': {'title': 'Global scoring (all sequences)',
+                              'ylabel': 'Alignment'},
+                       'gap': {'ylabel': 'Proportion of gaps (G)'},
+                       'entropy': {'ylabel': 'Entropy (H)'},
+                       'gap_entropy': {'ylabel': 'Gap-entropy score: (1-H)*(1-G)'},
+                       'sp': {'ylabel': 'SP score (Sum-of-pair differences)'},
+                       'manh': {'title': 'Difference scoring between parts',
+                                'ylabel': 'manhattan distance'},
+                       'pearson': {'ylabel': "Pearson's correlation coefficient"},
+                       'part_sp': {'ylabel': 'sum of pair differences'}}
+
+    default_step = [('step', {'where': 'post'})]
+    default_bar = [('bar', {'width': 1})]
+
+    plot_funcs = {'al':          [('imshow', {'aspect': 'auto'})],
+                  'gap':         default_step,
+                  'entropy':     default_bar,
+                  'gap_entropy': default_bar,
+                  'sp':          default_bar,
+                  'manh':        default_step,
+                  'pearson':     default_step,
+                  'part_sp':     default_step}
+
+
+    def __init__(self, alint, seqlabels=None):
+        self.alint = alint
+        self.x = np.arange(self.alint.shape[1]) # X values for plotting
+        
+        self.malint = np.ma.array(alint, mask=(alint==0))
+        self.seqlabels = seqlabels
+        self.plotlist = ['al']
+        self.plotdata = {'al': (self.malint - self.malint.max(),)}
+
+        cmap_size = self.malint.max() - self.malint.min() + 1
+        self.plot_funcs['al'][0][1]['cmap'] = plt.get_cmap('Dark2', cmap_size)
+        self.plot_properties['al']['yticks'] = np.arange(alint.shape[0])
+
+        if seqlabels is not None:
+            self.plot_funcs['al'].append(('set_yticklabels',
+                                          {'labels': seqlabels,
+                                           'fontsize': 'xx-small'}))
+        
+    @classmethod
+    def fromfile(cls, infile, format=None, nucl=False, slice=None, records=None):
+        align = AlignIO.read(infile,
+                             format=(format or
+                                     filename2format(getattr(infile, 'name',
+                                                             infile)))
+                            )
+
+        al_len = align.get_alignment_length()
+        if al_len % 3 and not nucl:
+            print("Not a codon alignment!", file=stderr)
+
+        if records:
+            records = [int(r) for r in ','.split(records)]
+            align = Align.MultipleSeqAlignment([align[r] for r in records])
+        if slice:
+            slstart, slend = [int(pos) for pos in slice.split(':')]
+            align = align[:,sltart:slend]
+        else:
+            slstart, slend = None, None
+
+        seqlabels = [record.name for record in align]
+        alint = al2int(align, nucl)
+        alint = alint[:, alint.sum(axis=0) > 0]
+
+        # Init and setup the class instance
+        instance = cls(alint, seqlabels)
+        instance.fromfile_params = {'infile': infile, 'format': format,
+                                    'slice': (slstart, slend),
+                                    'records': records}
+        instance.align = align
+        instance.al_len = al_len
+        instance.nucl = nucl
+        return instance
+
+
+    def measure(self):
+        """Compute column-wise global measures: residue frequencies, entropy, 
+        gap proportion, entropy-gap score, SP-score"""
+
+        al_freqs = freq_matrix(self.alint, minlength=(5 if self.nucl else 65))
+        self.gap_prop = al_freqs[0,:]
+        # Convert zeros to ones so that x * log(x) = 0
+        self.freqs = al_freqs[1:,:]
+        # scipy.stats.entropy
+        self.entropy = freqs2entropy(self.freqs)
+        self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop)
+        self.sp_score = sp_score(self.alint)
+        
+        self.plotlist.extend(('gap', 'entropy', 'gap_entropy', 'sp'))
+        self.plotdata.update(gap=(self.x, self.gap_prop,),
+                             entropy=(self.x, self.entropy,),
+                             gap_entropy=(self.x, self.gap_entropy,),
+                             sp=(self.x, self.sp_score,))
+
+
+    def annotate_parts(self, ax):
+        """Draw arrows with annotation to show 'compare_parts' on the
+        alignment plot."""
+        x0 = ax.get_xlim()[1]
+        xtext = x0 * 1.05
+        for part_number, part in enumerate(self.parts, start=1):
+            ytext = np.mean(part)
+            ax.annotate(str(part_number), xy=(x0, 0), xytext=(xtext, ytext))
+            for row in part:
+                ax.annotate("", xy=(x0, row), xytext=(xtext, ytext),
+                            arrowprops={'arrowstyle': '->'})
+
+
+
+    def comp_parts(self, compare_parts):
+        """Compute column-wise metrics of difference between two parts (groups
+        of records) of the dataset:
+            - manhattan distance between frequencies
+            - pearson coefficient between counts
+            - sum of pair differences between any possible pair of distinct parts
+        """
+        if isinstance(compare_parts, str):
+            self.parts = [[int(i) for i in part.rstrip(')').lstrip('(').split(',')]
+                            for part in compare_parts.split(';')]
+        else:
+            self.parts = compare_parts
+
+        assert len(self.parts) == 2
+
+        self.part_al = [np.stack([self.alint[i,:] for i in part]) \
+                        for part in self.parts]
+
+        self.part_freqs = fmat1, fmat2  = [freq_matrix(alpart) for alpart in self.part_al]
+        self.part_counts = cmat1, cmat2 = [count_matrix(alpart) for alpart in self.part_al]
+
+        self.part_manh_dist = np.abs(fmat1 - fmat2).sum(axis=0)
+        self.part_pearson_c = pearson_coeff(cmat1, cmat2, axis=0)
+        self.part_sp_score = part_sp_score(self.alint, self.parts)
+
+        self.plotlist.extend(('manh', 'pearson', 'part_sp'))
+        self.plotdata.update(manh=(self.x, self.part_manh_dist,),
+                             pearson=(self.x, self.part_pearson_c,),
+                             part_sp=(self.x, self.part_sp_score,))
+
+        self.plot_funcs['al'].append((self.annotate_parts, {}))
+
+    def makefig(self):
+
+        nplots = len(self.plotlist)
+        fig, axes = plt.subplots(nplots, sharex=True, figsize = (16, 4*nplots))
+        for plot, ax in zip(self.plotlist, axes):
+            plotfuncname, plot_kwargs = self.plot_funcs[plot][0]
+            plotfunc = getattr(ax, plotfuncname)
+
+            plotdata = self.plotdata[plot]
+
+            plotfunc(*plotdata, **plot_kwargs)
+
+            for extrafuncname, extra_kwargs in self.plot_funcs[plot][1:]:
+                if isinstance(extrafuncname, str):
+                    extrafunc = getattr(ax, extrafuncname)
+                else:
+                    extrafunc = lambda **kw: extrafuncname(ax, **kw)
+                extrafunc(**extra_kwargs)
+
+            plot_prop = self.plot_properties[plot]
+            ax.set(**plot_prop)
+
+        self.fig, self.axes = fig, axes
+
+
+    def display(self, outfile=None):
+        if outfile is None:
+            plt.show(block=True)
+        else:
+            self.fig.savefig(outfile, bbox_inches='tight')
+
+
+
+def main_old(infile, outfile=None, format=None, nucl=False, records=None,
+             slice=None, compare_parts=None):
     align = AlignIO.read(infile, format=(format or filename2format(infile.name)))
     if records:
         records = [int(r) for r in ','.split(records)]
@@ -288,9 +479,22 @@ def main(infile, outfile=None, format=None, nucl=False, records=None,
     seqlabels = [record.name for record in align]
     gap_prop, al_entropy, alint = al_stats(align, nucl)
     dist_array = comp_parts(alint, compare_parts)
-    #print(dist_array)
     plot_al_stats(gap_prop, al_entropy, alint, dist_array, seqlabels, outfile)
 
+
+def main(infile, outfile=None, format=None, nucl=False, records=None,
+         slice=None, compare_parts=None, compare_only=False):
+    
+    if not outfile:
+        plt.switch_backend('TkAgg')
+
+    align_plot = AlignPlotter.fromfile(infile, format, nucl, records, slice)
+    if not compare_only:
+        align_plot.measure()
+    if compare_parts:
+        align_plot.comp_parts(compare_parts)
+    align_plot.makefig()
+    align_plot.display(outfile)
 
 
 if __name__ == '__main__':
@@ -309,7 +513,10 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--compare-parts',
                         help='Plot the per-column correlation between two ' \
                              'groups of data, e.g "(0,1);(2,3,4)"')
+    parser.add_argument('-C', '--compare-only', action='store_true',
+                        help='Do not display global scores')
     
     
     args = parser.parse_args()
+
     main(**vars(args))
