@@ -271,6 +271,10 @@ def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
         fig.savefig(outfile)
 
 
+PLOTS = ['gap_prop', 'entropy', 'gap_entropy', 'al', 'sp_score']
+COMP_PLOTS = ['manhattan', 'pearson', 'split_pairs_score']
+
+
 def main(infile, outfile=None, format=None, nucl=False, records=None,
          slice=None, compare_parts=None):
     align = AlignIO.read(infile, format=(format or filename2format(infile.name)))
