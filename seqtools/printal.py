@@ -54,6 +54,7 @@ nucl2col = {'A': BG_RED,
 ext2fmt = {'.fa':    'fasta',
            '.fasta': 'fasta',
            '.mfa':   'fasta',
+           '':       'fasta',
            '.phy':   'phylip-relaxed'}
 
 
