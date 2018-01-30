@@ -12,7 +12,7 @@ import ete3
 import argparse
 
 
-var = {'d': 'node.dist',
+VAR = {'d': 'node.dist',
        'c': 'len(node.children)',
        'C': 'node.children',
        'n': 'node.name',
@@ -25,25 +25,33 @@ var = {'d': 'node.dist',
        'f': 'node.features',
        'A': 'node.get_ancestors()'}
 
-actions = {'w': 'print(node.write(format=outfmt, format_root_node=True)); return',
+ACTIONS = {'w': 'print(node.write(format=outfmt, format_root_node=True)); return',
            'o': 'node.delete(prevent_nondicotomic=False, preserve_branch_length=True)',
            'p': 'print(node.name)',
            'd': 'node.detach()'}
 
-var_pattern = r'\b(' + '|'.join(var.keys()) + r')\b'
-action_pattern = r'\b(' + '|'.join(actions.keys()) + r')\b'
+EPILOG="""SHORTCUTS
+Variables:
+    """ + "\n    ".join("%s: %s" % item for item in VAR.items()) \
++ """
+Actions:
+    """ + "\n    ".join("%s: %s" % item for item in ACTIONS.items())
 
-#print(var_pattern)
-#print(action_pattern)
+
+VAR_PATTERN = r'\b(' + '|'.join(VAR.keys()) + r')\b'
+ACTION_PATTERN = r'\b(' + '|'.join(ACTIONS.keys()) + r')\b'
+
+#print(VAR_PATTERN)
+#print(ACTION_PATTERN)
 
 def main(treefile, test, action, format, outfmt, strategy, is_leaf_fn,
          output=True):
 
-    #print(re.sub(var_pattern, '{\g<0>}', test))
-    #print(re.sub(action_pattern, '{\g<0>}', action))
+    #print(re.sub(VAR_PATTERN, '{\g<0>}', test))
+    #print(re.sub(ACTION_PATTERN, '{\g<0>}', action))
     
-    test_str = re.sub(var_pattern, '{\g<0>}', test).format(**var)
-    action_str = re.sub(action_pattern, '{\g<0>}', action).format(**actions)
+    test_str = re.sub(VAR_PATTERN, '{\g<0>}', test).format(**VAR)
+    action_str = re.sub(ACTION_PATTERN, '{\g<0>}', action).format(**ACTIONS)
 
     #print(test_str)
     #print(action_str)
@@ -58,7 +66,8 @@ def main(treefile, test, action, format, outfmt, strategy, is_leaf_fn,
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, epilog=EPILOG, 
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('treefile')
     parser.add_argument('test')
     parser.add_argument('action')
