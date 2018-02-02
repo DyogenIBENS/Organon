@@ -65,6 +65,7 @@ def def_showtree(measures, show=None):
                 FULLTREE = tree
                 TS = ts
         else:
+            # Save to an image file.
             def show_func(tree, ts=None):
                 print("Saving tree in %r." % show)
                 tree.render(show, tree_style=ts)
@@ -1113,8 +1114,10 @@ if __name__=='__main__':
                             ' newick file with the chosen measure as distance')
     parser.add_argument('-s', '--tosubtrees', dest='saveas', action='store_const',
                         const='subtrees', default='ages',
-                        help='Do not compute the table, but save trees in one'\
-                            ' newick file with the chosen measure as distance')
+                        help='Do not compute the table, but save subtrees in '\
+                            'one newick file with the chosen measure as ' \
+                            'distance. "subtrees" means the gene subtree '\
+                            'contained between two speciations.')
     parser.add_argument('--measures', nargs='*',
                         default=['t', 'dN', 'dS', 'dist'],
                         choices=['t', 'dN', 'dS', 'dist'],
