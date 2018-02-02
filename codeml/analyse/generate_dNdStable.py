@@ -14,7 +14,7 @@ import LibsDyogen.myPhylTree as PhylTree # my custom python3 version
 
 from select_leaves_from_specieslist import convert_gene2species
 
-from codeml.codemlparser import codeml_parser
+#from codeml.codemlparser import mlc_parser
 
 
 ENSEMBL_VERSION = 85
