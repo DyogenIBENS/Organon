@@ -40,9 +40,12 @@ BOLD_BG_BLUE    = "\033[1;44m"
 BOLD_BG_MAGENTA = "\033[1;45m"
 BOLD_BG_CYAN    = "\033[1;46m"
 
+# 256 color codes
 COL    = "\033[38;5;%dm"
 BG_COL = "\033[48;5;%dm"
 
+# RGB color codes (format with % (r, g, b))
+RGB_ESCAPE = "\033[38;2;%d;%d;%dm"
 
 nucl2col = {'A': BG_RED,
             'T': BG_BLUE,
@@ -50,6 +53,41 @@ nucl2col = {'A': BG_RED,
             'C': BG_GREEN,
             'N': GREY,
             '-': DGREY}
+
+# tuples of (bg, fg) codes
+CODON_TO_256 = {
+    'TTT': (17,) , 'TTC': (18,), # Phenylalanine
+    # Serine
+    'TCT': (46,16), 'TCC': (47,16), 'TCG': (48,16),
+    'TCA': (82,16), 'AGT': (83,16), 'AGC': (84,16),
+    'TAT': (52,),   'TAC': (88,), # Tyrosine
+    'TAA': (15,16), 'TAG': (15,16), 'TGA': (15,16), # Stop
+    'TGT': (53,),   'TGC': (89,), # Cysteine
+    'TGG': (197,), # Tryptophane
+    # Leucine
+    'TTA': (139,16), 'TTG': (140,16), 'CTT': (141,16),
+    'CTC': (175,16), 'CTA': (176,16), 'CTG': (177,16),
+    'CCT': (24,), 'CCC': (25,), 'CCA': (26,), 'CCG': (27,), # Proline
+    'CAT': (58,), 'CAC': (94,), # Histidine
+    'CAA': (130,), 'CAG': (166,), # Glutamine
+    # Arginine
+    'CGT': (38,16), 'CGC': (74,16), 'CGA': (110,16),
+    'CGG': (39,16), 'AGA': (75,16), 'AGG': (111,16),
+    'ATT': (23,),   'ATC': (59,),   'ATA': (95,), # Isoleucine
+    'ATG': (16,), # Methionine
+    'ACT': (60,),   'ACC': (62,),   'ACA': (62,), 'ACG': (63,), # Threonine
+    'AAT': (167,),  'AAC': (203,), # Asparagine
+    'AAA': (134,),  'AAG': (135,), # Lysine
+    'GTT': (142,16),'GTC': (143,16), 'GTA': (144,16), 'GTG': (145,16), # Valine
+    'GCT': (179,16),'GCC': (180,16), 'GCA': (215,16), 'GCG': (216,16), # Alanine
+    'GAT': (214,16),'GAC': (178,16), # Aspartic acid
+    'GAA': (220,16),'GAG': (221,16), # Glutamic acid
+    'GGT': (236,),  'GGC': (239,), 'GGA': (242,), 'GGG': (245,) # Glycine
+    }
+
+CODON2COL = {codon: ((BG_COL + COL) % code if len(code)>1 else BG_COL % code) \
+                for codon, code in CODON_TO_256.items()}
+CODON2COL.update({'---': DGREY})
 
 ext2fmt = {'.fa':    'fasta',
            '.fasta': 'fasta',
@@ -104,16 +142,22 @@ def pos2tickmark(pos):
     pass
 
 
-def makeruler(length, base=1):
-    ticks = ['.'] * length
+def makeruler(length, base=1, stepwidth=1):
+    """Set stepwidth=3 for codons"""
+    nsteps = length // stepwidth
+    minortick='.'
+    majortick='|'
+    ticks = list(minortick + ' '*(stepwidth-1)) * nsteps
     ticks[0] = str(base)
-    for i in range(5, length, 5):
-        ticks[i-base] = '|'
-    for i in range(10, length, 10):
+    for i in range(5, nsteps, 5):
+        ticks[(i-base)*stepwidth] = majortick
+    for i in range(10, nsteps, 10):
+        # update the character at the tick, by taking into account the length
+        # of the number.
         count = str(i)
         nchars = len(count)
         for char_i, char in enumerate(count):
-            ticks[i-base - (nchars-1-char_i)] = char
+            ticks[(i-base)*stepwidth - (nchars-1-char_i)] = char
 
     return ''.join(ticks)
 
@@ -121,9 +165,20 @@ def makeruler(length, base=1):
 def colorizerecord(record):
     return ''.join(nucl2col.get(nucl, '')+nucl+RESET for nucl in record.seq)
 
+
+def iter_codons(seq):
+    Nnucl = len(seq)
+    assert Nnucl % 3 == 0
+    #N = Nnucl // 3
+    for i in range(0, Nnucl, 3):
+        yield str(seq[i:(i+3)])
+    
+
+def codoncolorizerecord(record):
+    return ''.join(CODON2COL.get(codon)+codon+RESET for codon in iter_codons(record.seq))
 #def printblock(records, namefmt, pad):
 
-def printal(infile, wrap=False, format=None, slice=None):
+def printal(infile, wrap=False, format=None, slice=None, codon=False):
     ### TODO: wrap to column width
     pad = 4*' '
     #unit_delim = '.'
@@ -135,7 +190,15 @@ def printal(infile, wrap=False, format=None, slice=None):
     length = align.get_alignment_length()
     name_len = max(len(record.id) for record in align)
 
-    ruler = makeruler(length)
+    if codon:
+        stepwidth = 3
+        colorize = codoncolorizerecord
+    else:
+        stepwidth = 1
+        colorize = colorizerecord
+
+    ruler = makeruler(length, stepwidth=stepwidth)
+    
     namefmt = '%%%ds' % name_len
 
     try:
@@ -143,14 +206,21 @@ def printal(infile, wrap=False, format=None, slice=None):
             from subprocess import check_output
             ncols = int(check_output(['tput', 'cols']))
             block_width = ncols - name_len - len(pad)
-            assert block_width > 0, \
+            if codon:
+                block_width -= (block_width % 3)
+
+            assert block_width>0, \
                 "Can't wrap on %d columns because sequence names use %d columns" %\
                 (ncols, name_len + pad)
             #print(ncols, name_len)
 
             if slice:
                 # -1 because coords are taken in base 1
-                slstart, slend = [int(pos)-1 for pos in slice.split(':')]
+                if codon:
+                    slstart, slend = [(int(pos)-1)*3 for pos in slice.split(':')]
+                else:
+                    slstart, slend = [int(pos)-1 for pos in slice.split(':')]
+
                 length = slend - slstart
             else:
                 slstart, slend = 0, length
@@ -166,14 +236,14 @@ def printal(infile, wrap=False, format=None, slice=None):
                 for record in align:
 
                     print(namefmt % record.id + pad + \
-                            colorizerecord(record[start:stop]) + RESET)
+                            colorize(record[start:stop]) + RESET)
                 if block < nblocks-1:
                     print('')
 
         else:
             print(' '*name_len + pad + ruler)
             for record in align:
-                print(namefmt % record.id + pad + colorizerecord(record) + RESET)
+                print(namefmt % record.id + pad + colorize(record) + RESET)
     except BrokenPipeError as err:
         #from os import devnull
         #with open(devnull, 'w') as dn:
@@ -195,6 +265,8 @@ if __name__ == '__main__':
                         ' Can be any format accepted by Bio.alignIO')
     parser.add_argument('-s', '--slice',
                         help='select positions (start:end). 1-based, end excluded')
+    parser.add_argument('-c', '--codon', action='store_true', 
+                        help='Colorize and index alignment by codons.')
     
     args = parser.parse_args()
     printal(**vars(args))
