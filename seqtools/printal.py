@@ -56,33 +56,51 @@ nucl2col = {'A': BG_RED,
 
 # tuples of (bg, fg) codes
 CODON_TO_256 = {
-    'TTT': (17,) , 'TTC': (18,), # Phenylalanine
+    # Stop
+    'TAA': (15,16), 'TAG': (15,16), 'TGA': (15,16),
+    # Methionine
+    'ATG': (16,),
+    # Phenylalanine
+    'TTT': (17,) , 'TTC': (18,),
     # Serine
     'TCT': (46,16), 'TCC': (47,16), 'TCG': (48,16),
     'TCA': (82,16), 'AGT': (83,16), 'AGC': (84,16),
-    'TAT': (52,),   'TAC': (88,), # Tyrosine
-    'TAA': (15,16), 'TAG': (15,16), 'TGA': (15,16), # Stop
-    'TGT': (53,),   'TGC': (89,), # Cysteine
-    'TGG': (197,), # Tryptophane
+    # Tyrosine
+    'TAT': (52,),   'TAC': (88,),
+    # Cysteine
+    'TGT': (53,),   'TGC': (89,),
+    # Tryptophane
+    'TGG': (197,),
     # Leucine
     'TTA': (139,16), 'TTG': (140,16), 'CTT': (141,16),
     'CTC': (175,16), 'CTA': (176,16), 'CTG': (177,16),
-    'CCT': (24,), 'CCC': (25,), 'CCA': (26,), 'CCG': (27,), # Proline
-    'CAT': (58,), 'CAC': (94,), # Histidine
-    'CAA': (130,), 'CAG': (166,), # Glutamine
+    # Proline
+    'CCT': (24,),   'CCC': (25,), 'CCA': (26,), 'CCG': (27,),
+    # Histidine
+    'CAT': (58,),   'CAC': (94,),
+    # Glutamine
+    'CAA': (130,),  'CAG': (166,),
     # Arginine
     'CGT': (38,16), 'CGC': (74,16), 'CGA': (110,16),
     'CGG': (39,16), 'AGA': (75,16), 'AGG': (111,16),
-    'ATT': (23,),   'ATC': (59,),   'ATA': (95,), # Isoleucine
-    'ATG': (16,), # Methionine
-    'ACT': (60,),   'ACC': (62,),   'ACA': (62,), 'ACG': (63,), # Threonine
-    'AAT': (167,),  'AAC': (203,), # Asparagine
-    'AAA': (134,),  'AAG': (135,), # Lysine
-    'GTT': (142,16),'GTC': (143,16), 'GTA': (144,16), 'GTG': (145,16), # Valine
-    'GCT': (179,16),'GCC': (180,16), 'GCA': (215,16), 'GCG': (216,16), # Alanine
-    'GAT': (214,16),'GAC': (178,16), # Aspartic acid
-    'GAA': (220,16),'GAG': (221,16), # Glutamic acid
-    'GGT': (236,),  'GGC': (239,), 'GGA': (242,), 'GGG': (245,) # Glycine
+    # Isoleucine
+    'ATT': (23,),   'ATC': (59,),   'ATA': (95,),
+    # Threonine
+    'ACT': (60,),   'ACC': (62,),   'ACA': (62,), 'ACG': (63,),
+    # Asparagine
+    'AAT': (167,),  'AAC': (203,),
+    # Lysine
+    'AAA': (134,),  'AAG': (135,),
+    # Valine
+    'GTT': (142,16),'GTC': (143,16), 'GTA': (144,16), 'GTG': (145,16),
+    # Alanine
+    'GCT': (179,16),'GCC': (180,16), 'GCA': (215,16), 'GCG': (216,16),
+    # Aspartic acid
+    'GAT': (214,16),'GAC': (178,16),
+    # Glutamic acid
+    'GAA': (220,16),'GAG': (221,16),
+    # Glycine
+    'GGT': (236,),  'GGC': (239,), 'GGA': (242,), 'GGG': (245,)
     }
 
 CODON2COL = {codon: ((BG_COL + COL) % code if len(code)>1 else BG_COL % code) \
