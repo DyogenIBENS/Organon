@@ -9,8 +9,11 @@ import argparse
 import pandas as pd
 
 
-def main(treefile, outfile, cladelistfile=None, datafile=None, prune=False,
-         log_dist=False, values=None, quoted_node_names=False):
+def main(treefile, outfile=None, cladelistfile=None, datafile=None, prune=False,
+         log_dist=False, values=None, quoted_node_names=False, startmatch=False):
+
+    global tot_clades
+    tot_clades = 0
 
     tree = ete3.Tree(treefile, format=1, quoted_node_names=quoted_node_names)
     if cladelistfile:
@@ -36,17 +39,23 @@ def main(treefile, outfile, cladelistfile=None, datafile=None, prune=False,
     default_ns = ete3.NodeStyle(size=0)
     labelface = ete3.AttrFace('name')
 
+    if startmatch:
+        test = lambda node: any(node.name.startswith(clade) for clade in cladelist) and not prune
+    else:
+        test = lambda node: node.name in cladelist and not prune
     #for node in tree.traverse():
     def mylayout(node):
+        global tot_clades
         if log_dist:
             node.add_feature('orig_dist', node.dist)
-            node.dist = log10(node.dist) if node.dist else 0
+            node.dist = log10(node.dist) if node.dist>0 else -log10(-node.dist) if node.dist<0 else 0
 
-        if node.name in cladelist and not prune:
+        if test(node):
             node.set_style(ns[0])
             ns.insert(0, ns.pop()) #Cycle through colors 
             if not node.is_leaf():
                 ete3.add_face_to_node(labelface, node, column=0, position='branch-right')
+            tot_clades += 1
         else:
             node.set_style(default_ns)
 
@@ -66,14 +75,23 @@ def main(treefile, outfile, cladelistfile=None, datafile=None, prune=False,
         tree.prune(cladelist, preserve_branch_length=True)
         tree.dist = 0
 
-    tree.render(outfile, mylayout)
+    
+    if outfile:
+        tree.render(outfile, mylayout)
+    else:
+        tree.show(layout=mylayout)
 
+    # Print summary
+    print("Found %d clades" % tot_clades)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('treefile')
-    parser.add_argument('outfile')
+    parser.add_argument('outfile', nargs='?')
     parser.add_argument('-c', '--cladelistfile')
+    parser.add_argument('-s', '--startmatch', action='store_true',
+                        help='Matches clade names only '\
+                        'with the start of the node label.')
     parser.add_argument('-d', '--datafile')
     parser.add_argument('-v', '--values', nargs='+')
 
