@@ -243,6 +243,9 @@ class GenetreeDrawer(object):
                                            key=lambda a: len(a),
                                            reverse=True)).replace(' ','\.')
                         + r')(.*)$')
+        
+        self.taxa = set(self.phyltree.allNames)
+        # Cleared and refilled if a genetree is given
 
     def load_reconciled_genetree(self, filename, format=1, genetreename=None):
         """Load gene tree with all species nodes present.
@@ -675,13 +678,15 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
                         commonname=commonname,
                         latinname=latinname,
                         treebest=treebest)
-    if outfile != '-':
-        pdf = PdfPages(outfile)
-        figsize = (8.2, 11.7)
-    elif __name__=='__main__':
+    if __name__=='__main__' and outfile == '-':
         plt.switch_backend('Qt4Agg')
         #mpl.use('Qt4Agg')
         #from importlib import reload; reload(plt)
+    elif outfile.endswith('.pdf'):
+        pdf = PdfPages(outfile)
+        figsize = (8.2, 11.7)
+    else:
+        assert len(genetrees) <= 1, "multipage output only supported for pdf"
 
     for genetree in genetrees:
         genetree, *extratitles = genetree.split(',')
@@ -691,11 +696,26 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
 
         if outfile == '-':
             plt.show()
-            figsize = gd.fig.get_size_inches()
-        else:
+            #figsize = gd.fig.get_size_inches()
+        elif outfile.endswith('.pdf'):
             pdf.savefig(bbox_inches='tight', papertype='a4')
             plt.close()
-    if outfile != '-':
+        else:
+            plt.savefig(outfile, bbox_inches='tight')
+            plt.close()
+
+    if not genetrees:
+        gd.draw_species_tree(figsize=figsize, angle_style=angle_style)
+        if outfile == '-':
+            plt.show()
+        elif outfile.endswith('.pdf'):
+            pdf.savefig(bbox_inches='tight', papertype='a4')
+            plt.close()
+        else:
+            plt.savefig(outfile, bbox_inches='tight')
+            plt.close()
+
+    if outfile.endswith('.pdf'):
         pdf.close()
     #plt.show()
     return gd
@@ -706,7 +726,8 @@ if __name__ == '__main__':
                         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('outfile', help=("pdf file, or '-'. If '-', will use "
                                          "Qt to display the figure."))
-    parser.add_argument('genetrees', nargs='*', help=("must be a genetree (nwk"
+    parser.add_argument('genetrees', nargs='*', default=[],
+        help=("must be a genetree (nwk"
         " format with internal nodes labelling) reconciled with species tree, "
         " or a genetree formatted like `TreeBest` output."))
     parser.add_argument('--fromfile', action='store_true',
@@ -737,9 +758,9 @@ if __name__ == '__main__':
     #                    help='output one pdf file per genetree. [NOT implemented]')
     args = parser.parse_args()
     dictargs = vars(args)
-    if not dictargs.get('genetrees'):
-        dictargs['genetrees'] = [TESTTREE]
-    elif dictargs.pop('fromfile'):
+    #if not dictargs.get('genetrees'):
+    #    dictargs['genetrees'] = [TESTTREE]
+    if dictargs.pop('fromfile'):
         assert len(dictargs['genetrees']) == 1
         genetreelistfile = dictargs.pop('genetrees')[0]
         with open(genetreelistfile) as stream:
