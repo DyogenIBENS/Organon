@@ -207,7 +207,7 @@ class GenetreeDrawer(object):
     
     def __init__(self, phyltreefile=None, ensembl_version=None,
                  colorize_clades=None, commonname=False, latinname=False, 
-                 treebest=False):
+                 treebest=False, show_cov=False):
         if ensembl_version: self.ensembl_version = ensembl_version
         if phyltreefile: self.phyltreefile = phyltreefile
         self.get_taxon = get_taxon_treebest if treebest else get_taxon
@@ -218,13 +218,13 @@ class GenetreeDrawer(object):
                                                         self.ensembl_version))
         
         # add legend elements for coverage information
-        self.legend_coverage = []
-        self.legend_coverage.append(lines.Line2D([], [], alpha=1,
-                                    linestyle=' ', label='high coverage'))
-        self.legend_coverage.append(lines.Line2D([], [], alpha=0.6,
-                                    linestyle=' ', label='6X coverage'))
-        self.legend_coverage.append(lines.Line2D([], [], alpha=0.3,
-                                    linestyle=' ', label='2X coverage'))
+        self.show_cov = show_cov
+        if show_cov:
+            self.legend_coverage = [
+                    lines.Line2D([], [], alpha=1, linestyle=' ', label='high coverage'),
+                    lines.Line2D([], [], alpha=0.6, linestyle=' ', label='6X coverage'),
+                    lines.Line2D([], [], alpha=0.3, linestyle=' ', label='2X coverage')
+                   ]
 
         # add legend elements for the clade information
         self.colorize_species  = {}
@@ -287,7 +287,7 @@ class GenetreeDrawer(object):
 
 
     def draw_species_tree(self, figsize=None, angle_style=0, branch_width=0.8,
-                          colorize_clades = None):
+                          colorize_clades=None):
         """Init figure + draw branches of the species tree.
         
         branch_width: proportion of vertical space between two branches taken
@@ -305,7 +305,7 @@ class GenetreeDrawer(object):
         ax0.axis('off')
 
         ymin = 0
-        show_cov = False
+        any_show_cov = False
         for parent, (px, py), child, (cx, cy) in iter_species_coords(self.phyltree,
                                                                      self.taxa,
                                                                      angle_style):
@@ -327,12 +327,12 @@ class GenetreeDrawer(object):
                 cx += 0.1 # Add some padding
             # data-specific coloring (low-coverage)
             alpha = 1
-            if child in getattr(self.phyltree, "lstEsp6X", ()):
+            if self.show_cov and child in getattr(self.phyltree, "lstEsp6X", ()):
                 alpha = 0.6
-                show_cov = True
-            elif child in getattr(self.phyltree, "lstEsp2X", ()):
+                any_show_cov = True
+            elif self.show_cov and child in getattr(self.phyltree, "lstEsp2X", ()):
                 alpha = 0.3
-                show_cov = True
+                any_show_cov = True
 
             bgcolor = self.colorize_species.get(child, '#ffffff00')
 
@@ -354,8 +354,8 @@ class GenetreeDrawer(object):
         ax0.text(px, py, parent, ha='right', fontsize='x-small',
                  fontstyle='italic', family='serif')
         
-        # Add legend in case of colorized_clades
-        if show_cov:
+        # Add legend in case of coverage information
+        if self.show_cov and any_show_cov:
             legend_cov = ax0.legend(handles=self.legend_coverage,
                                     loc="upper left",
                                     bbox_to_anchor=(0, 1),
@@ -369,6 +369,7 @@ class GenetreeDrawer(object):
                 #label.set_style('italic')
                 #label.set_family('serif')
 
+        # Add legend in case of colorized_clades
         if self.legend_clades:
             ax0.legend(handles=self.legend_clades,
                        loc="upper left",
@@ -668,7 +669,7 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 
 def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
         phyltreefile=None, colorize_clades=None, commonname=False,
-        latinname=False, treebest=False):
+        latinname=False, treebest=False, show_cov=False):
     #global plt
 
     figsize = None
@@ -677,7 +678,8 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
                         colorize_clades=colorize_clades,
                         commonname=commonname,
                         latinname=latinname,
-                        treebest=treebest)
+                        treebest=treebest,
+                        show_cov=show_cov)
     if __name__=='__main__' and outfile == '-':
         plt.switch_backend('Qt4Agg')
         #mpl.use('Qt4Agg')
@@ -753,6 +755,8 @@ if __name__ == '__main__':
                         help='species in these clades will have a specific color')
     parser.add_argument('-t', '--treebest', action='store_true',
                         help='The input genetree is a treebest output')
+    parser.add_argument('-s', '--show-cov', action='store_true',
+                        help='Show genome coverage information (grey shading)')
     
     #parser.add_argument('-m', '--multiple-pdfs', action='store_true',
     #                    help='output one pdf file per genetree. [NOT implemented]')
