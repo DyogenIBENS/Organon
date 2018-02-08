@@ -1,20 +1,34 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Tool for phylogenetic comparative testing: Clades-collapse-summarize.
+"""-----
+Tool for phylogenetic comparative testing: Clades -> collapse -> summarize.
 
-1 - Compute statistics in a phylogeny for each clade of a given rank
+1. Select clades based on one or more criteria:
+    - taxonomic rank (family, order, etc): `-r`
+    - minimum age:                         `-a`
+    - minimum size:                        `-s`
+    - label list:                          `-l`
+
+2. Compute statistics in a phylogeny for each selected clade
     (e.g, each family).
 
     Statistics are:
         - clade age
         - number of extant species
         - diversification rate
-        - feature rate
+        - feature rate (select feature names)
     
-    Return a table with values corresponding to each clade.
+3. Return:
+    - a table with values corresponding to each clade (.tsv);
+    - the tree with collapsed clades (.nwk);
+    - all clade subtrees (.subtrees.nwk).
 
-2 - Return the tree with collapsed clades.
+-----"""
+
+EPILOG="""-----
+DETAILS:
+Progress on the tree from root to leaves, and collapse the first matching nodes encountered. So it can't return nested clades.
 """
 
 import sys
@@ -127,6 +141,11 @@ def def_group_feature_rate(stem_or_crown="crown"):
 
 def make_is_leaf_fn(byrank='', byage=None, bylist=None, bysize=None,
                     name2taxid=None, taxid2name=None):
+    """Return the function to select clades (to collapse as leaf).
+
+    Combine together the rank, age, list and size tests (*all* must return True)
+    """
+
     if not any((byrank, byage, bylist, bysize)):
         raise(ValueError('Specify at least one condition'))
 
@@ -309,7 +328,7 @@ def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__,
+    parser = argparse.ArgumentParser(description=__doc__, epilog=EPILOG,
                         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('inputtree')
     parser.add_argument('outbase',
