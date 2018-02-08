@@ -7,7 +7,7 @@ from glob import iglob
 ruleorder: codeml_condor > codeml
 
 wildcard_constraints:
-	ancestorgenetreesuffix='[A-Z][A-Za-z_.-]+ENSGT00\d+[.`a-zA-Z]*'
+	ancestorgenetreesuffix='[A-Z][A-Za-z_.-]+ENSGT00\d+[.`a-zA-Z-]*'
 #	genetree = 'ENSGT\d+',#,
 #	suffix = '[a-zA-Z.]+'
 #	#bz2_or_not = "|\.bz2"
@@ -194,7 +194,7 @@ rule codeml:
 	input:
 		ctl =rules.make_ctl.output,
 		seq =rules.fasta2phylip.output,
-		tree="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_codeml.nwk"
+		tree=rules.reshape_tree.output
 	output:
 		mlc  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.mlc",
 		dN   ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_2NG.dN",
