@@ -139,8 +139,8 @@ def walk_phylsubtree(phyltree, taxa):
         root, subtree = phyltree.getSubTree(taxa)
 
     # reorder branches in a visually nice manner:
-    ladderize(subtree, root) #, light_on_top=False)
     get_children = lambda tree, node: tree.get(node, [])
+    ladderize(subtree, root, get_children, light_on_top=False)
     dfw = dfw_descendants_generalized(subtree, get_children,
                                       include_leaves=False, queue=[root])
     return reversed(list(dfw))
@@ -157,42 +157,61 @@ def iter_species_coords(phyltree, taxa, angle_style=0):
     for parent, children in walk_phylsubtree(phyltree, taxa):
         children_xs = []
         children_ys = []
+        children_ws = []
         for child in children:
-            child_xy = coords.get(child)
-            if not child_xy:
+            child_xyw = coords.get(child)
+            if not child_xyw:
                 x = 0
                 y = y0
                 y0 -= 1
-                coords[child] = (x, y)
+                w = 1
+                coords[child] = (x, y, w)
             else:
-                x, y = child_xy
+                x, y, w = child_xyw
             children_xs.append(x)
             children_ys.append(y)
+            children_ws.append(w)
 
-        if angle_style == 0:
-            # Along the X axis: move one step to the left
+        parent_w = sum(children_ws)
+        # Along the X axis: move one step to the left
+        parent_x = min(children_xs) - 1
+
+        if angle_style == 1:
             # Along the Y axis: take the average of the children Y coordinates.
-            parent_x = min(children_xs) - 1
             parent_y = sum(children_ys) / len(children_ys)
+        elif angle_style == 2:
+            # average inversely-weighted by the number of descendant leaves
+            #parent_y = sum(cy/cw for cy,cw in zip(children_ys, children_ws))
+            #parent_y /= sum(1/cw for cw in children_ws)
+            
+            # Almost the same result
+            # Reverse weights to make the parent closer to the lightest node.
+            parent_y = sum(cy*cw for cy,cw in zip(children_ys, reversed(children_ws)))
+            parent_y /= parent_w
+
         else:
             # TODO: dx < 0 ?
             dy = max(children_ys) - min(children_ys)
             if dy == 0: dy = 1 # when only one child
             dx = max(children_xs) - min(children_xs)
 
-            if angle_style == 1:
+            if angle_style == 3:
                 # branches are all at 45 degrees
                 step = (dy - dx) / 2
                 parent_x = min(children_xs) - step
                 parent_y = max(children_ys) - step
-            elif angle_style == 2:
+            elif angle_style == 0:
                 step = dy / (2+dx)
-                parent_x = min(children_xs) - 1
-                parent_y = max(children_ys) - step
-            else:
-                raise RuntimeError("Invalid angle_style value: %r" % angle_style)
+                #parent_y = max(children_ys) - step
 
-        coords[parent] = (parent_x, parent_y)
+                # The y-step is biased. Add the smallest step to the furthest
+                # child along x.
+                # (because the tree is ladderized, it's the bottom one).
+                parent_y = min(children_ys) + step
+            else:
+                raise ValueError("Invalid angle_style value: %r" % angle_style)
+
+        coords[parent] = (parent_x, parent_y, parent_w)
 
         for child in children:
             yield parent, coords[parent], child, coords[child]
@@ -306,9 +325,8 @@ class GenetreeDrawer(object):
 
         ymin = 0
         any_show_cov = False
-        for parent, (px, py), child, (cx, cy) in iter_species_coords(self.phyltree,
-                                                                     self.taxa,
-                                                                     angle_style):
+        for parent, (px, py, _), child, (cx, cy, _) in \
+                    iter_species_coords(self.phyltree, self.taxa, angle_style):
             self.species_branches[child] = (parent, cx - px, cy - py)
 
             self.species_coords[child] = (cx, cy)
@@ -739,12 +757,16 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE,
                         help='species tree in phyltree or newick format [%(default)s]')
     
-    parser.add_argument('-a', '--angle-style', type=int, choices=[0,1,2],
+    parser.add_argument('-a', '--angle-style', type=int, choices=[0,1,2,3],
                         default=0,
-                        help=("0: parent node y = mean of children nodes;\n"
-                              "1: branches always at 45 degrees;\n"
-                              "2: parent node positioned at x-1 but branch "
-                              "angles are equal."))
+                        help=(
+                              "0: parent node positioned at x-1 and parent y is"
+                              "closer to the child with furthest x.\n" # branch angles are equal
+                              "1: parent weighted-average (less crowded node "
+                              "gets more weight);\n"
+                              "2: parent node y = mean of children nodes;\n"
+                              "3: branches always at 45 degrees;\n"
+                              ))
     parser.add_argument('--commonname', action='store_true', 
                         help='Species common names only')
     parser.add_argument('--latinname', action='store_true', 
