@@ -188,6 +188,9 @@ def iter_species_coords(phyltree, taxa, angle_style=0):
             # Reverse weights to make the parent closer to the lightest node.
             parent_y = sum(cy*cw for cy,cw in zip(children_ys, reversed(children_ws)))
             parent_y /= parent_w
+        elif angle_style == 4:
+            parent_y = sum(cy*cw for cy,cw in zip(children_ys, children_ws))
+            parent_y /= parent_w
 
         else:
             # TODO: dx < 0 ?
@@ -208,6 +211,10 @@ def iter_species_coords(phyltree, taxa, angle_style=0):
                 # child along x.
                 # (because the tree is ladderized, it's the bottom one).
                 parent_y = min(children_ys) + step
+            elif angle_style == 5:
+                # equal angles
+                step = dy / (2+dx)
+                parent_y = max(children_ys) - step
             else:
                 raise ValueError("Invalid angle_style value: %r" % angle_style)
 
@@ -757,7 +764,7 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE,
                         help='species tree in phyltree or newick format [%(default)s]')
     
-    parser.add_argument('-a', '--angle-style', type=int, choices=[0,1,2,3],
+    parser.add_argument('-a', '--angle-style', type=int, choices=range(6),
                         default=0,
                         help=(
                               "0: parent node positioned at x-1 and parent y is"
@@ -766,6 +773,8 @@ if __name__ == '__main__':
                               "gets more weight);\n"
                               "2: parent node y = mean of children nodes;\n"
                               "3: branches always at 45 degrees;\n"
+                              "4: y: weighted average of children y\n"
+                              "5: equal angles."
                               ))
     parser.add_argument('--commonname', action='store_true', 
                         help='Species common names only')
