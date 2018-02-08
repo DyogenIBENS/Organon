@@ -7,7 +7,7 @@ from glob import iglob
 ruleorder: codeml_condor > codeml
 
 wildcard_constraints:
-	ancestorgenetreesuffix='[A-Z][A-Za-z_.-]+ENSGT00\d+[.`a-zA-Z-]*'
+	ancestorgenetreesuffix='[A-Z][A-Za-z_.-]+ENSGT00\d+[.`a-zA-Z0-9-]*'
 #	genetree = 'ENSGT\d+',#,
 #	suffix = '[a-zA-Z.]+'
 #	#bz2_or_not = "|\.bz2"
@@ -34,6 +34,11 @@ SUBTREEDIR = config.setdefault('subtreedir', 'subtrees')
 REDO = config.setdefault('redo', False)
 if isinstance(REDO, str) and REDO in ('True', 'False'):
 	REDO = eval(REDO)
+
+
+#rule one_subtree:
+#    input: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.ctl"
+
 
 if not isinstance(REDO, bool):
 	print("Error: config option 'redo' must be a bool (True/False)",
@@ -94,6 +99,7 @@ def get_ctl_ancestor_pre(wildcards):
 	return r
 
 def get_ctl_ancestor(wildcards):
+	print("get_ctl_ancestor (OLD VERSION)...", file=sys.stderr)
 	patterns = ['{0}/{subtreedir}/{ancestor}{0}*.ctl'.format(genetree,
 													**vars(wildcards)) \
 				for genetree in GENETREES]
