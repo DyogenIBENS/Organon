@@ -721,6 +721,7 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
                         latinname=latinname,
                         treebest=treebest,
                         show_cov=show_cov)
+    display = lambda: plt.show() # Display function for shell or notebook usage
     if __name__=='__main__' and outfile == '-':
         plt.switch_backend('Qt4Agg')
         #mpl.use('Qt4Agg')
@@ -728,35 +729,25 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
     elif outfile.endswith('.pdf'):
         pdf = PdfPages(outfile)
         figsize = (8.2, 11.7)
+        display = lambda: (pdf.savefig(bbox_inches='tight', papertype='a4'),
+                           plt.close())
     else:
         assert len(genetrees) <= 1, "multipage output only supported for pdf"
+        display = lambda: (plt.savefig(outfile, bbox_inches='tight'),
+                           plt.close())
 
     for genetree in genetrees:
         genetree, *extratitles = genetree.split(',')
         extratitle = ', '.join(extratitles)
         print('INPUT FILE:', genetree, '(%s)' % extratitle)
-        gd.draw(genetree, extratitle, angle_style=angle_style, figsize=figsize)
+        gd.draw(genetree, extratitle, angle_style=angle_style, ages=ages,
+                figsize=figsize)
 
-        if outfile == '-':
-            plt.show()
-            #figsize = gd.fig.get_size_inches()
-        elif outfile.endswith('.pdf'):
-            pdf.savefig(bbox_inches='tight', papertype='a4')
-            plt.close()
-        else:
-            plt.savefig(outfile, bbox_inches='tight')
-            plt.close()
+        display()
 
     if not genetrees:
-        gd.draw_species_tree(figsize=figsize, angle_style=angle_style)
-        if outfile == '-':
-            plt.show()
-        elif outfile.endswith('.pdf'):
-            pdf.savefig(bbox_inches='tight', papertype='a4')
-            plt.close()
-        else:
-            plt.savefig(outfile, bbox_inches='tight')
-            plt.close()
+        gd.draw_species_tree(figsize=figsize, angle_style=angle_style, ages=ages)
+        display()
 
     if outfile.endswith('.pdf'):
         pdf.close()
