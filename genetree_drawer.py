@@ -18,7 +18,11 @@ import sys
 import os
 import os.path
 import re
-import argparse
+try:
+    import argparse_custom as argparse # Less verbose help message
+except ImportError:
+    import argparse
+
 import numpy as np
 import matplotlib as mpl
 #mpl.use('Agg')
@@ -749,40 +753,10 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
 
 
 if __name__ == '__main__':
-    
-    class CustomHelpFormatter(argparse.RawTextHelpFormatter):
-        """Replace the default metavar formatting: only write it once."""
-        def _format_action_invocation(self, action):
-            if not action.option_strings:
-                default = self._get_default_metavar_for_positional(action)
-                metavar, = self._metavar_formatter(action, default)(1)
-                return metavar
-
-            else:
-                parts = []
-
-                # if the Optional doesn't take a value, format is:
-                #    -s, --long
-                if action.nargs == 0:
-                    parts.extend(action.option_strings)
-
-                # if the Optional takes a value, format is:
-                #    -s ARGS, --long ARGS
-                else:
-                    default = self._get_default_metavar_for_optional(action)
-                    args_string = self._format_args(action, default)
-                    for option_string in action.option_strings:
-                        # My change here compared to argparse.HelpFormatter:
-                        # Append only the option string
-                        parts.append('%s' % option_string)
-                    # Now append the METAVAR (or choices)
-                    parts[-1] += ' %s' % args_string
-
-                return ', '.join(parts)
 
     parser = argparse.ArgumentParser(description=__doc__,
-                        formatter_class=CustomHelpFormatter)
-                        #formatter_class=argparse.RawTextHelpFormatter)
+                        #formatter_class=CustomHelpFormatter)
+                        formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('outfile', help=("pdf file, or '-'. If '-', will use "
                                          "Qt to display the figure."))
     parser.add_argument('genetrees', nargs='*', default=[],
