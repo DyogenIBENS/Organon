@@ -181,9 +181,6 @@ def iter_species_coords(phyltree, taxa, angle_style=0):
         parent_x = min(children_xs) - 1
 
         if angle_style == 1:
-            # Along the Y axis: take the average of the children Y coordinates.
-            parent_y = sum(children_ys) / len(children_ys)
-        elif angle_style == 2:
             # average inversely-weighted by the number of descendant leaves
             #parent_y = sum(cy/cw for cy,cw in zip(children_ys, children_ws))
             #parent_y /= sum(1/cw for cw in children_ws)
@@ -192,6 +189,9 @@ def iter_species_coords(phyltree, taxa, angle_style=0):
             # Reverse weights to make the parent closer to the lightest node.
             parent_y = sum(cy*cw for cy,cw in zip(children_ys, reversed(children_ws)))
             parent_y /= parent_w
+        elif angle_style == 2:
+            # Along the Y axis: take the average of the children Y coordinates.
+            parent_y = sum(children_ys) / len(children_ys)
         elif angle_style == 4:
             parent_y = sum(cy*cw for cy,cw in zip(children_ys, children_ws))
             parent_y /= parent_w
