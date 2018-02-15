@@ -212,12 +212,7 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
             if dy == 0: dy = 1 # when only one child
             dx = max(children_xs) - min(children_xs)
 
-            if angle_style == 3:
-                # branches are all at 45 degrees
-                step = (dy - dx) / 2
-                parent_x = min(children_xs) - step
-                parent_y = max(children_ys) - step
-            elif angle_style == 0:
+            if angle_style == 0:
                 step = dy / (2+dx)
                 #parent_y = max(children_ys) - step
 
@@ -225,6 +220,11 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
                 # child along x.
                 # (because the tree is ladderized, it's the bottom one).
                 parent_y = min(children_ys) + step
+            elif angle_style == 3:
+                # branches are all at 45 degrees
+                step = (dy - dx) / 2
+                parent_x = min(children_xs) - step
+                parent_y = max(children_ys) - step
             elif angle_style == 5:
                 # equal angles
                 step = dy / (2+dx)
@@ -332,9 +332,7 @@ class GenetreeDrawer(object):
         
         branch_width: proportion of vertical space between two branches taken
                       by the branch polygon.
-        angle_style: - 0: parent node y = mean of children nodes y
-                     - 1: branches always at 45 degrees
-                     - 2: parent node positioned at x-1 but branch angles are equal"""
+        angle_style: See the parser help."""
         self.species_coords   = {}
         self.species_branches = {}
 
@@ -778,16 +776,16 @@ if __name__ == '__main__':
                         help=(
                               "0: parent node positioned at x-1 and parent y is"
                               " closer to the child with furthest x.\n" # branch angles are equal
-                              "1: parent weighted-average (less crowded node "
-                              "gets more weight);\n"
-                              "2: parent node y = mean of children nodes;\n"
+                              "1: parent node y: inversed weighted-average (less"
+                              " crowded node gets more weight);\n"
+                              "2: parent node y: mean of children nodes;\n"
                               "3: branches always at 45 degrees;\n"
-                              "4: y: weighted average of children y\n"
+                              "4: parent node y: weighted average of children y;\n"
                               "5: equal angles."
                               ))
-    parser.add_argument('--commonname', action='store_true', 
+    parser.add_argument('-C', '--commonname', action='store_true', 
                         help='Species common names only')
-    parser.add_argument('--latinname', action='store_true', 
+    parser.add_argument('-L', '--latinname', action='store_true', 
                         help='Species scientific names only')
     
     parser.add_argument('-c', '--colorize-clade', action='append',
