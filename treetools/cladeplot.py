@@ -5,7 +5,10 @@
 
 from math import log10
 import ete3
-import argparse
+try:
+    import argparse_custom
+except ImportError:
+    import argparse
 import pandas as pd
 
 
