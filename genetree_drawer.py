@@ -150,12 +150,17 @@ def walk_phylsubtree(phyltree, taxa):
     return reversed(list(dfw))
 
 
-def iter_species_coords(phyltree, taxa, angle_style=0):
+def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
     """Assign a pair x,y of coordinates for each node in the tree.
     Yield (parent name, parent_xy, child name, child_xy).
     
-    Just the topology. Branch lengths are ignored.
+    - angle_style: 0 to 5, see parser help
+    - ages:
+        True: use real species ages
+        'log': use log10(1 + species age)
+        else: just the topology, real branch lengths are ignored.
     """
+    # Store the graph coords (x,y) of a node, + its weight w (number of leaves)
     coords = {}
     y0 = 0
     for parent, children in walk_phylsubtree(phyltree, taxa):
@@ -165,7 +170,7 @@ def iter_species_coords(phyltree, taxa, angle_style=0):
         for child in children:
             child_xyw = coords.get(child)
             if not child_xyw:
-                x = 0
+                x = 0 # x = phyltree.ages[child]
                 y = y0
                 y0 -= 1
                 w = 1
@@ -178,7 +183,12 @@ def iter_species_coords(phyltree, taxa, angle_style=0):
 
         parent_w = sum(children_ws)
         # Along the X axis: move one step to the left
-        parent_x = min(children_xs) - 1
+        if ages:
+            parent_x = phyltree.ages[parent]
+            if ages == 'log':
+                parent_x == np.log10(1 + parent_x)
+        else:
+            parent_x = min(children_xs) - 1
 
         if angle_style == 1:
             # average inversely-weighted by the number of descendant leaves
@@ -317,7 +327,7 @@ class GenetreeDrawer(object):
 
 
     def draw_species_tree(self, figsize=None, angle_style=0, branch_width=0.8,
-                          colorize_clades=None):
+                          colorize_clades=None, ages=False):
         """Init figure + draw branches of the species tree.
         
         branch_width: proportion of vertical space between two branches taken
@@ -337,7 +347,8 @@ class GenetreeDrawer(object):
         ymin = 0
         any_show_cov = False
         for parent, (px, py, _), child, (cx, cy, _) in \
-                    iter_species_coords(self.phyltree, self.taxa, angle_style):
+              iter_species_coords(self.phyltree, self.taxa, angle_style, ages):
+
             self.species_branches[child] = (parent, cx - px, cy - py)
 
             self.species_coords[child] = (cx, cy)
@@ -603,10 +614,11 @@ class GenetreeDrawer(object):
             #input('Press Enter to continue.')
             ### TODO: add onpick action: display node name
 
-    def draw(self, genetree, extratitle='', angle_style=0, figsize=None):
+    def draw(self, genetree, extratitle='', angle_style=0, ages=False,
+             figsize=None):
         """Once phyltree is loaded, perform all drawing steps."""
         self.load_reconciled_genetree(genetree)
-        self.draw_species_tree(figsize=figsize, angle_style=angle_style) # Currently, must be called after load_reconciled
+        self.draw_species_tree(figsize=figsize, angle_style=angle_style, ages=ages)
         self.set_gene_coords()
         self.draw_gene_tree(extratitle)
 
@@ -698,7 +710,7 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 
 def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
         phyltreefile=None, colorize_clades=None, commonname=False,
-        latinname=False, treebest=False, show_cov=False):
+        latinname=False, treebest=False, show_cov=False, ages=False):
     #global plt
 
     figsize = None
@@ -794,6 +806,9 @@ if __name__ == '__main__':
                         help='The input genetree is a treebest output')
     parser.add_argument('-s', '--show-cov', action='store_true',
                         help='Show genome coverage information (grey shading)')
+    parser.add_argument('-A', '--ages', action='store_true',
+                        help='Place species nodes at their real age.')
+    
     
     #parser.add_argument('-m', '--multiple-pdfs', action='store_true',
     #                    help='output one pdf file per genetree. [NOT implemented]')
