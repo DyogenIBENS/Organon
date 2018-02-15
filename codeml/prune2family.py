@@ -9,7 +9,11 @@ Also add missing speciation nodes."""
 import re
 import sys
 import os.path
-import argparse
+try:
+    import argparse_custom as argparse
+    #print('ARGPARSE CUSTOM')
+except ImportError:
+    import argparse
 import multiprocessing as mp
 
 from copy import copy
