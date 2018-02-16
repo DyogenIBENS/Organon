@@ -23,7 +23,7 @@ import LibsDyogen.myPhylTree as PhylTree
 
 # The 3 following imports are just so messy. TODO: write a unique conversion
 # function, and/or centralize these functions in a single script.
-from select_leaves_from_specieslist import convert_gene2species
+from codeml.select_leaves_from_specieslist import convert_gene2species
 from prot2gene import convert_prot2species
 from seqtools.specify import load_conversion
 
@@ -554,12 +554,76 @@ def with_dup(leafnames):
     return (len(leafspecies) > len(set(leafspecies)))
 
 
+def get_basal(nodes, maxsize):
+    """Identify `maxsize` most basal nodes from a list of sister nodes.
+
+    Return 2 lists:
+        - selected basal nodes,
+        - excluded nodes (to detach)
+    
+    Basal means: closer to the root (topology only, i.e in number of nodes).
+    
+    - `nodes`: a *list* of TreeNode instances;
+    - `maxsize`: integer.
+
+    Return ([],[]) if maxsize >= number of leaves.
+    """
+    
+    get_dist = lambda n: n.dist
+    nodes.sort(key=get_dist, reverse=True)
+
+    # Not enough leaves
+    if sum(len(n) for n in nodes) <= maxsize:
+        return [], []
+        #return list(chain(n.get_leaves() for n in nodes))
+
+    # Traverse in a `levelorder` strategy (breadth-first-search)
+    # until the limit size is reached.
+    
+    #kept = []
+    #while len(kept) + len(nodes) < maxsize:
+    #    # Remove closest node and add its children. Keep if no children.
+    #    node = nodes.pop(0)
+    #    if node.children:
+    #        nodes.extend(node.children)
+    #    else:
+    #        kept.append(node)
+
+    #base = []
+    #while True:
+    #    for node in nodes:
+    #        base.extend(node.children or [node])
+    #        if len(base) >= maxsize:
+    #            return base[:maxsize]
+    #    # start at next level
+    #    nodes = base
+    #    base = []
+
+    kept = 0
+    while len(nodes) < maxsize:
+        nextnodes = nodes[kept].children
+        if nextnodes:
+            nodes.pop(kept)
+            nodes.extend(sorted(nextnodes, key=get_dist, reverse=True))
+        else:
+            kept += 1
+
+    #return (to keep, to detach)
+    return nodes[:maxsize], nodes[maxsize:]
+
+
 def reroot_with_outgroup(node, maxsize=0):
     """Goes up the tree (towards the root) until it finds outgroup taxa.
     
     - Only keep at most `maxsize` leaves in the outgroup.
     - Keep all leaves if maxsize < 0.
     - Return None if there is no outgroup.
+
+    If the common ancestor with the outgroup is a multifurcation,
+    process all of the sister taxa as a single outgroup.
+
+    Select outgroup leaves to keep that are the most distant to each other
+    (having the most basal latest common ancestor).
     """
     if maxsize == 0:
         return node
@@ -579,28 +643,40 @@ def reroot_with_outgroup(node, maxsize=0):
 
     # If needed, reduce the size of the outgroup
     # clade to the specified number.
-    if maxsize > 0:
-        outgroup = node.get_sisters()[0]
-        outgroup.ladderize()
-        # Now the first listed leaves are the closest.
-        out_leaves = outgroup.get_leaf_names()
-        #print(out_leaves)
+    outgroups = node.get_sisters()
+
+    if maxsize > 0 and \
+            sum(len(outgroup) for outgroup in outgroups) > maxsize:
+
+        for outgroup in outgroups:
+            #outgroup.ladderize()
+            # Now the first listed leaves are the closest.
+
+            # Deepcopy slows it down too much. Alternate solution:
+            # Add a uniq mark, because I'm not sure that searching on name
+            # would be unambiguous.
+            outgroup.add_feature('tmpmark', True)
 
         # MAKE A COPY (because this part could be reused later)
         # Need to use `deepcopy` to preserve the ancestor information.
         #outgroup = deepcopy(outgroup)
         #root = outgroup.up
-
-        # Deepcopy slows it down too much. Alternate solution:
-        # Add a uniq mark, because I'm not sure searching on name would be unambiguous.
-        outgroup.add_feature('mymark', True)
         root = root.copy()
-        # replace outgroup by its copy in the new tree.
-        for outgroup_copy in root.iter_search_nodes(mymark=True):
-            break
 
-        outgroup_copy.prune(out_leaves[:maxsize], preserve_branch_length=True)
-        outgroup.del_feature('mymark')
+        base, todetach = get_basal(root.search_nodes(tmpmark=True), maxsize)
+        
+        # Now that we know the basal tree:
+        # keep only one leaf per identified basal node.
+        for basal in base:
+            basal.prune([basal.get_closest_leaf()[0]], preserve_branch_length=True)
+            # WARN: 'prune' deletes all intermediate nodes leading to the kept leaves
+        
+        # And detach the extraneous basal nodes
+        for nodetodetach in todetach:
+            nodetodetach.detach()
+
+        for outgroup in outgroups:
+            outgroup.del_feature('tmpmark')
 
     return root
 
