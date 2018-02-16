@@ -554,10 +554,61 @@ def with_dup(leafnames):
     return (len(leafspecies) > len(set(leafspecies)))
 
 
+def reroot_with_outgroup(node, maxsize=0):
+    """Goes up the tree (towards the root) until it finds outgroup taxa.
+    
+    - Only keep at most `maxsize` leaves in the outgroup.
+    - Keep all leaves if maxsize < 0.
+    - Return None if there is no outgroup.
+    """
+    if maxsize == 0:
+        return node
+    
+    root = node
+    while len(root) == len(node):
+        try:
+            node = root
+            root = node.up
+        except AttributeError:
+            print("WARNING: no outgroup available "\
+                  "for node %r (%s)" % \
+                    (node.name, ancestor),
+                  file=sys.stderr)
+            
+            return
+
+    # If needed, reduce the size of the outgroup
+    # clade to the specified number.
+    if maxsize > 0:
+        outgroup = node.get_sisters()[0]
+        outgroup.ladderize()
+        # Now the first listed leaves are the closest.
+        out_leaves = outgroup.get_leaf_names()
+        #print(out_leaves)
+
+        # MAKE A COPY (because this part could be reused later)
+        # Need to use `deepcopy` to preserve the ancestor information.
+        #outgroup = deepcopy(outgroup)
+        #root = outgroup.up
+
+        # Deepcopy slows it down too much. Alternate solution:
+        # Add a uniq mark, because I'm not sure searching on name would be unambiguous.
+        outgroup.add_feature('mymark', True)
+        root = root.copy()
+        # replace outgroup by its copy in the new tree.
+        for outgroup_copy in root.iter_search_nodes(mymark=True):
+            break
+
+        outgroup_copy.prune(out_leaves[:maxsize], preserve_branch_length=True)
+        outgroup.del_feature('mymark')
+
+    return root
+
+
 def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
         diclinks, treebest=False, ages=None, fix_suffix=True, force_mrca=False,
         latest_ancestor=False, ensembl_version=ENSEMBL_VERSION, outdir='.',
-        only_dup=False, one_leaf=False, dry_run=False):
+        only_dup=False, one_leaf=False, outgroups=0, dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
     #print("treebest = %s" % treebest, file=sys.stderr)
     outfiles_set = set() # check whether I write twice to the same outfile
@@ -574,6 +625,8 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
         ancestor_regex = ancestor_regexes[ancestor]
         for ancestornodeid, node in enumerate(search_by_ancestorlist(tree, ancestorlist, 
                                                         latest_ancestor)):
+        #for ancestornodeid, node, root in enumerate(search_by_ancestorlist(tree, ancestorlist, 
+        #                                                    latest_ancestor)):
             leafnames = node.get_leaf_names()
             #print(node.name)
             #print(node.get_ascii())
@@ -597,15 +650,21 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                     outfile = os.path.join(outdir, outname + '.nwk')
                     if outfile in outfiles_set:
                         # Not sure this case can happen, but better prevent it
+                        # Months later: this case happened.
                         print("ERROR: Cannot output twice to %r" % outfile,
                               file=sys.stderr)
                         sys.exit(1)
                     else:
+                        # Add requested outgroups:
+                        root = reroot_with_outgroup(node, outgroups)
+                        if not root:
+                            continue
+
                         if dry_run:
                             print("node %r (%s)\n\\-> %s" % (node.name, ancestor, outfile))
                         else:
                             print_if_verbose("Writing to %r." % outfile)
-                            node.write(format=1,
+                            root.write(format=1,
                                        format_root_node=True,
                                        outfile=outfile,
                                        features=["reinserted"])
@@ -631,7 +690,7 @@ def save_subtrees_process(params):
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                            outsub=None, treebest=False, only_dup=False,
                            one_leaf=False, fix_suffix=True, force_mrca=False,
-                           latest_ancestor=False, dry_run=False,
+                           latest_ancestor=False, outgroups=0, dry_run=False,
                            ignore_errors=False,
                            ensembl_version=ENSEMBL_VERSION):
     ### WARNING: uses global variables here, that are changed by command line
@@ -680,6 +739,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       format_outdir(treefile),
                       only_dup,
                       one_leaf,
+                      outgroups,
                       dry_run,
                       ignore_errors] for treefile in treefiles]
 
@@ -747,6 +807,10 @@ if __name__ == '__main__':
                         "gene, output one tree per paralog and root each tree"\
                         " at the latest gene, (instead of rooting at the " \
                         "ancestral gene)")
+    parser.add_argument("--outgroups", metavar='S', type=int, default=0, 
+                        help="Save the subtree including the outgroup sister "\
+                             "clade of maximum size %(metavar)s. Set to '-1' "\
+                             " to keep the full clade [Default S=%(default)s]")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="only print out the output files it would produce")
     parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
