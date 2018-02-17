@@ -184,7 +184,10 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
         parent_w = sum(children_ws)
         # Along the X axis: move one step to the left
         if ages:
-            parent_x = phyltree.ages[parent]
+            if parent == 'root':
+                parent_x = max(children_xs) * 1.05
+            else:
+                parent_x = phyltree.ages[parent]
             if ages == 'log':
                 parent_x == np.log10(1 + parent_x)
         else:
@@ -341,6 +344,7 @@ class GenetreeDrawer(object):
         #ax0 = self.fig.add_axes([0.1,0.1,0.9,0.9]) #, adjustable='box-forced')
         #ax0 = self.fig.add_axes([0.1, 0.1, 0.9, 0.9])
         ax0.axis('off')
+        # TODO: if ages: keep x axis with xlabel "age"
 
         ymin = 0
         any_show_cov = False
