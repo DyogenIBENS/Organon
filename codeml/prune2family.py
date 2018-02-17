@@ -630,16 +630,14 @@ def reroot_with_outgroup(node, maxsize=0):
     
     root = node
     while len(root) == len(node):
-        try:
-            node = root
-            root = node.up
-        except AttributeError:
-            print("WARNING: no outgroup available "\
-                  "for node %r (%s)" % \
-                    (node.name, ancestor),
+        if root.is_root():
+            print("WARNING: no outgroup available for node %r" % node.name,
                   file=sys.stderr)
             
             return
+        # Else go to parent node
+        node = root
+        root = node.up
 
     # If needed, reduce the size of the outgroup
     # clade to the specified number.
