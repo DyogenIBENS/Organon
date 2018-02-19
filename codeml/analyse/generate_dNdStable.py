@@ -745,7 +745,6 @@ def bound_average(fulltree, ensembl_version, phyltree, measures=['dS'],
                                'age': leaf_age,
                                'speleaves': 1} # number of descendant speciation nodes
             #ages[scname] = 0
-            ### TODO: add parent_name, parent_event
             ages.append([scname] + branch_measures.tolist() +
                         measures_zeros.tolist() +
                         ["leaf", getattr(node.up, 'name', None), taxon, fulltree.name])
