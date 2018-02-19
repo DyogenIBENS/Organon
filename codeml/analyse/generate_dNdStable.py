@@ -1105,8 +1105,11 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('outfile')
     parser.add_argument('mlcfiles', nargs='+')
-    parser.add_argument('-e', '--ensembl-version', type=int, default=ENSEMBL_VERSION)
-    parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE)
+    parser.add_argument('-e', '--ensembl-version', type=int,
+                        default=ENSEMBL_VERSION,
+                        help='[%(default)s]')
+    parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE,
+                        help='[%(default)s]')
     parser.add_argument('--method2', action='store_true')
     parser.add_argument('-t', '--tofulltree', dest='saveas', action='store_const',
                         const='fulltree', default='ages',
