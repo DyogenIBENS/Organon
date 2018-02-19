@@ -309,8 +309,9 @@ class GenetreeDrawer(object):
                             if gt.rstrip()]
         for genetree in genetrees:
             genetree.ladderize()
-        roots = list(set((self.get_taxon(genetree, self.ancgene2sp, self.ensembl_version)
-                          for genetree in genetrees)))
+
+        roots = [self.get_taxon(genetree, self.ancgene2sp, self.ensembl_version)
+                          for genetree in genetrees]
         #print(roots)
         alldescendants = set().union(*(self.phyltree.allDescendants[r]
                                         for r in roots))
@@ -321,20 +322,23 @@ class GenetreeDrawer(object):
             if not (len(self.phyltree.items.get(taxon, [])) == 1 and
                     self.phyltree.ages[taxon] == 0):
                 self.taxa.add(taxon)
-        # Add the branch leading to the current roots (if duplications in this branch)
+        # Add the branch leading to the current roots, if **duplications** in
+        # this branch, so that the new root is a speciation.
         if len(roots) > 1:
-            lower_root = self.phyltree.lastCommonAncestor(roots)
+            root = self.phyltree.lastCommonAncestor(roots)
         else:
-            lower_root_node = self.phyltree.parent.get(roots[0])
-            if lower_root_node:
-                lower_root = lower_root_node.name
+            root = roots[0]
+        
+        lower_root_node = self.phyltree.parent.get(root)
+        if lower_root_node:
+            lower_root = lower_root_node.name
 
-                # This check is not especially necessary.
-                while len(self.phyltree.items.get(lower_root, [])) == 1 \
-                        and self.phyltree.ages[lower_root] == 0:
-                    lower_root = self.phyltree.parent[lower_root].name
-            else:
-                lower_root = "root"
+            # This check is not especially necessary.
+            while len(self.phyltree.items.get(lower_root, [])) == 1 \
+                    and self.phyltree.ages[lower_root] == 0:
+                lower_root = self.phyltree.parent[lower_root].name
+        else:
+            lower_root = "root"
 
         self.taxa.add(lower_root)
 
@@ -349,7 +353,6 @@ class GenetreeDrawer(object):
         for genetree in genetrees:
             rerooted_genetree.add_child(child=genetree)
         self.genetree = rerooted_genetree
-        #self.genetree.show()
         #self.genetrees = [reroot_genetree...]
 
 
