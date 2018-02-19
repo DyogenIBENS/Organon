@@ -166,19 +166,22 @@ class DataVisualizor(object):
         # graphical parameters:
         self.vertical = False
 
-        self.all_ages = pd.read_table(ages_file, ) #, names=['name','age','type'])
+        self.all_ages = pd.read_table(ages_file) #, names=['name','age','type'])
+        #print(ages_file)
+        #print(self.all_ages)
         ### TODO: if at least one of these is missing.
         if not set(('taxon', 'genetree')) & set(self.all_ages.columns):
             self.all_ages = splitname2taxongenetree(self.all_ages, "name")
 
         self.dup_ages = self.all_ages[self.all_ages.type == 'dup'].copy()
+        print('shape:', self.dup_ages.shape)
+        assert self.dup_ages.shape[0] > 0, "No duplications in data."
 
         if no_edited:
             self.load_edited_set(no_edited)
             self.not_edited = self.dup_ages.name.apply(lambda x: x not in self.edited_set)
             self.dup_ages = self.dup_ages[self.not_edited]
         
-        print('shape:', self.dup_ages.shape)
         self.dup_ages.drop_duplicates(inplace=True)
         print('shape after drop_dup:', self.dup_ages.shape)
         self.dup_ages.reset_index(drop=True, inplace=True)
@@ -264,15 +267,22 @@ class DataVisualizor(object):
 
     ### Histogram plotting methods ###
     def make_hist_data(self, taxa=None):
-        """Given the selected taxa, return the appropriate data, colors, legend"""
+        """Given the selected taxa, return the appropriate data, colors, legend.
+        This data is given to matplotlib to plot a single histogram."""
+        
         label_len = max(len(lab) for lab in self.taxa)
         label_fmt = "%%-%ds" % label_len
 
         taxa = taxa if taxa else self.taxa
 
-        data = [self.taxa_ages.get_group(lab)[self.age_key].dropna() for lab in taxa]
-        colors      = [self.taxon2color[lab] for lab in taxa]
-        labs_legend = [label_fmt % lab       for lab in taxa]
+        #duptaxa = [k for k in self.taxa if k in self.taxa_ages.groups]
+        data = [self.taxa_ages.get_group(lab)[self.age_key].dropna() \
+                    for lab in taxa if lab in self.taxa_ages.groups]
+                    #if lab in self.taxa_ages.groups else [] \
+        #data = [self.taxa_ages.groups.get(lab, {self.age_key: []})[self.age_key].dropna() \
+        #           for lab in taxa
+        colors      = [self.taxon2color[lab] for lab in taxa if lab in self.taxa_ages.groups]
+        labs_legend = [label_fmt % lab       for lab in taxa if lab in self.taxa_ages.groups]
         return data, colors, labs_legend
 
 
@@ -317,6 +327,7 @@ class DataVisualizor(object):
         Taxa returned by the iterator are space-separated
         """
         print("Loading species tree")
+        print(self.taxa)
         root, subtree = self.phyltree.getSubTree(self.taxa)
 
         # reorder branches in a visually nice manner:
