@@ -27,9 +27,13 @@ import os.path
 import re
 import bz2
 import pickle
-import argparse
+try:
+    import argparse_custom as argparse
+except ImportError:
+    import argparse
+
 import matplotlib as mpl
-mpl.use('Qt4Agg', warn=False) # for figures to show up when the script is called from the shell
+mpl.use('Agg', warn=False) # for figures to show up when the script is called from the shell
 import matplotlib.pyplot as plt
 #plt.ion()
 import numpy as np
@@ -570,8 +574,14 @@ def run(command, ages_file, phyltreefile=None, ensembl_version=None,
         show_edited=None, no_edited=False, age_key=DEFAULT_AGE_KEY,
         nbins=DEFAULT_NBINS, vertical=False, x=None, y=None, xlim=None, ylim=None):
 
-    if outfile:
-        plt.switch_backend("Agg")
+    if not outfile:
+        try:
+            plt.switch_backend("Qt5Agg")
+        except ImportError:
+            try:
+                plt.switch_backend("Qt4Agg")
+            except ImportError:
+                plt.switch_backend("TkAgg")
 
     dv = DataVisualizor(ages_file, no_edited=no_edited, age_key=age_key)
     
