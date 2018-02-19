@@ -1101,7 +1101,8 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
 
 
 if __name__=='__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, 
+                                formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('outfile')
     parser.add_argument('mlcfiles', nargs='+')
     parser.add_argument('-e', '--ensembl-version', type=int,
@@ -1118,26 +1119,26 @@ if __name__=='__main__':
                         const='subtrees', default='ages',
                         help='Do not compute the table, but save subtrees in '\
                             'one newick file with the chosen measure as ' \
-                            'distance. "subtrees" means the gene subtree '\
+                            'distance. "subtree" means the gene subtree '\
                             'contained between two speciations.')
     parser.add_argument('--measures', nargs='*',
                         default=['t', 'dN', 'dS', 'dist'],
                         choices=['t', 'dN', 'dS', 'dist'],
-                        help='which distance measure: dS (from codeml) or ' \
-                             'dist (from PhyML)')
+                        help='Which distance measure: dist (from PhyML) or ' \
+                             'dS,dN,t (from codeml)')
     parser.add_argument('-u', '--unweighted', action='store_true', 
                         help='average weighted by the size of clusters')
-    parser.add_argument('-v', '--verbose', action='store_true', 
-                        help='print progression along tree')
-    parser.add_argument('--show',
-            help=('"gui": start the interactive ete3 tree browser\n'
-                  '"notebook": create global var FULLTREE and TS for rendering\n'
-                  'other value: save to file'))
     parser.add_argument('-r', '--replace-nwk', default='\.mlc$',
                         help='string to be replaced by REPLACE_BY to find the'\
                                ' tree file [%(default)s]')
     parser.add_argument('-R', '--replace-by', default='.nwk',
                         help='replacement string file [%(default)s]')
+    parser.add_argument('--show',
+            help=('"gui": start the interactive ete3 tree browser\n'
+                  '"notebook": create global var FULLTREE and TS for rendering\n'
+                  'other value: save to file'))
+    parser.add_argument('-v', '--verbose', action='store_true', 
+                        help='print progression along tree')
     parser.add_argument("-i", "--ignore-errors", action="store_true", 
                         help="On error, print the error and continue the loop.")
     args = parser.parse_args()
