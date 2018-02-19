@@ -39,6 +39,11 @@ class HelpFormatter(HelpFormatter):
 class RawTextHelpFormatter(HelpFormatter, RawTextHelpFormatter):
     pass
 
+class RawDescriptionHelpFormatter(HelpFormatter, RawDescriptionHelpFormatter):
+    pass
+
+class ArgumentDefaultsHelpFormatter(HelpFormatter, ArgumentDefaultsHelpFormatter):
+    pass
 
 class ArgumentParser(ArgumentParser):
     def __init__(self, prog=None, usage=None, description=None, epilog=None,
