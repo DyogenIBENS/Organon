@@ -43,9 +43,9 @@ from seqtools.specify import load_conversion
 
 
 ENSEMBL_VERSION = 85
-ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS')
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
                "PhylTree.Ensembl.{0}.conf"
+ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS') # NOT USED
 
 UCSC_CONVERSION = load_conversion()
 
@@ -296,37 +296,61 @@ class GenetreeDrawer(object):
 
         if genetreename:
             self.genetreename = genetreename
+        elif filename.startswith('/dev/fd/'):
+            self.genetreename = filename
         else:
             self.genetreename = os.path.splitext(os.path.basename(filename))[0]
-        self.genetree = ete3.Tree(filename, format=format)
-        self.genetree.ladderize()
+
+        #self.genetree = ete3.Tree(filename, format=format)
+        with open(filename) as gt_input:
+            # Allow reading multiple trees from a single input file.
+            genetrees = [ete3.Tree(gt+';', format=format) \
+                            for gt in gt_input.read().split(';') \
+                            if gt.rstrip()]
+        for genetree in genetrees:
+            genetree.ladderize()
+        roots = list(set((self.get_taxon(genetree, self.ancgene2sp, self.ensembl_version)
+                          for genetree in genetrees)))
+        #print(roots)
+        alldescendants = set().union(*(self.phyltree.allDescendants[r]
+                                        for r in roots))
+
         # add only the meaningful taxa (not those with one child and age = 0)
-        root = self.get_taxon(self.genetree, self.ancgene2sp, self.ensembl_version)
-        alldescendants = self.phyltree.allDescendants[root]
         self.taxa = set()
         for taxon in alldescendants:
             if not (len(self.phyltree.items.get(taxon, [])) == 1 and
                     self.phyltree.ages[taxon] == 0):
                 self.taxa.add(taxon)
-        # Add the branch leading to the current root (if duplications in this branch)
-        lower_root_node = self.phyltree.parent.get(root)
-        if lower_root_node:
-            lower_root = lower_root_node.name
-            # This check is not especially necessary.
-            while len(self.phyltree.items.get(lower_root, [])) == 1 \
-                    and self.phyltree.ages[lower_root] == 0:
-                lower_root = self.phyltree.parent[lower_root].name
+        # Add the branch leading to the current roots (if duplications in this branch)
+        if len(roots) > 1:
+            lower_root = self.phyltree.lastCommonAncestor(roots)
         else:
-            lower_root = "root"
+            lower_root_node = self.phyltree.parent.get(roots[0])
+            if lower_root_node:
+                lower_root = lower_root_node.name
+
+                # This check is not especially necessary.
+                while len(self.phyltree.items.get(lower_root, [])) == 1 \
+                        and self.phyltree.ages[lower_root] == 0:
+                    lower_root = self.phyltree.parent[lower_root].name
+            else:
+                lower_root = "root"
 
         self.taxa.add(lower_root)
 
-        rerooted_genetree = ete3.TreeNode(name=self.genetree.name.replace(root,
-                                                                lower_root))
-        rerooted_genetree.add_feature('S', lower_root)
-        rerooted_genetree.add_child(child=self.genetree)
-        self.genetree = rerooted_genetree
+        # Possibly meaningless root
+        #rerooted_genetree = ete3.TreeNode(name=self.genetree.name.replace(root,
+        #                                                        lower_root))
+        rerooted_genetree = ete3.TreeNode(name=lower_root) # Might break
 
+        # Only needed for the TreeBest format
+        rerooted_genetree.add_feature('S', lower_root)
+
+        for genetree in genetrees:
+            rerooted_genetree.add_child(child=genetree)
+        self.genetree = rerooted_genetree
+        #self.genetree.show()
+        #self.genetrees = [reroot_genetree...]
 
 
     def draw_species_tree(self, figsize=None, angle_style=0, branch_width=0.8,
@@ -446,6 +470,7 @@ class GenetreeDrawer(object):
         for nodeid, node in enumerate(self.genetree.traverse('postorder')):
             # set up a *unique* node ID, to avoid relying on node.name.
             node.id = nodeid
+            #if node.is_root(): print('At Root:', node.name,node.id)
 
             taxon = self.get_taxon(node, self.ancgene2sp, self.ensembl_version)
             taxon_gene_coords = self.gene_coords.setdefault(taxon, [])
@@ -462,7 +487,16 @@ class GenetreeDrawer(object):
                 children_taxa = set(interspecies_trees[ch.id]['taxon'] for ch
                                     in node.children)
                 if (getattr(node, 'D', None) is not None and node.D == 'Y') or\
-                   (len(children_taxa) == 1 and len(node.children) > 1):
+                   (len(children_taxa) == 1 and len(node.children) > 1 and
+                    taxon in children_taxa):
+                    # Should rather check if taxon in children_taxa.
+                    #if taxon not in children_taxa:
+                    #    print("WARNING: the node %r -> %s "\
+                    #          "is a duplication + a speciation. Not " \
+                    #          "truly reconciled tree." % \
+                    #          (node.name, [ch.name for ch in node.children]),
+                    #          file=sys.stderr)
+
                     # It is a duplication
                     children_ys   = []
                     children_ndup = []
@@ -470,6 +504,8 @@ class GenetreeDrawer(object):
                         children_ys.append(interspecies_trees[ch.id]['y'])
                         children_ndup.append(interspecies_trees[ch.id]['ndup'])
 
+                    # TODO: tilt according to the parent speciation node.
+                    # should fit in the triangle defined by parent and descendants.
                     node_y    = (min(children_ys) + max(children_ys)) / 2
                     node_ndup = max(children_ndup) + 1
 
@@ -480,7 +516,8 @@ class GenetreeDrawer(object):
                             'y': node_y}
                 else:
                     # It is a speciation
-                    if taxon in children_taxa:
+                    event = 'spe'
+                    if taxon in children_taxa or len(children_taxa)==1:
                         msg = "WARNING: the node %r -> %s" % \
                               (node.name, [ch.name for ch in node.children])
                         if len(node.children) > 1:
@@ -489,19 +526,27 @@ class GenetreeDrawer(object):
                         else:
                             msg += " is a duplication/speciation with one " \
                                    "descendant."
+                            event = 'dup'
+                            # TODO: check this in the duplication block above.
                         print(msg, file=sys.stderr)
-                    taxon_gene_coords.append(node.id)
+
+                    if event!='dup':
+                        taxon_gene_coords.append(node.id)
 
                     node_y = len(taxon_gene_coords) - 1
                     interspecies_trees[node.id] = {
                             'taxon': taxon,
-                            'ndup': 0,
-                            'x': 0,
+                            'ndup': (1 if event=='dup' else 0),#0, 
+                            'x': (1 if event=='dup' else 0),
                             'y': node_y}
-                    self.branchings[node.id] = [taxon, 0, node_y, 'spe',
+                    self.branchings[node.id] = [taxon, 0, node_y, event,
                                                 [ch.id for ch in
                                                     node.children]]
+                    if event == 'dup':
+                        continue
 
+                    #print('Speciation %r' % taxon, self.branchings[node.id])
+                    
                     for ch in node.children:
                         n_steps = interspecies_trees[ch.id]['ndup'] + 1
 
@@ -514,8 +559,8 @@ class GenetreeDrawer(object):
                             try:
                                 nextnode_ndup = interspecies_trees[nextnode.id]['ndup']
                             except KeyError as err:
-                                err.args += ('Non unique node name.',)
-                                raise
+                                raise KeyError('Non unique node name: %r', nextnode.id)
+
                             if nextnode_ndup > 0:
                                 nextnode_x = 1 - nextnode_ndup * delta_x
                                 nextnode_y = interspecies_trees[nextnode.id]['y']
