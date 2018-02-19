@@ -3,23 +3,30 @@
 # Evolution of `plot_dS.py`. Refactor code using classes.
 # Use Pandas features more systematically.
 
-"""Visualise values from given table (reconstructed ages) per taxonomic branch.
-
+"""Visualise values from given table (reconstructed ages) per taxonomic branch."""
+"""
 USAGE:
     ./dSvisualizor.py command <ages_file> <outfile>
 """
 
+PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
+                   "PhylTree.Ensembl.{0}.conf"
+ENSEMBL_VERSION = 85
+DEFAULT_NBINS   = 50
+DEFAULT_AGE_KEY = 'age_dS'
+
+
 COMMANDS = ['lineage', 'tree', 'scatter', 'violin']
 
-CMD_ARGS = {'lineage': [(('-l', '--lineage'),),
-                        (('-p', '--phyltreefile'),),
-                        (('-e', '--ensembl-version'),)],
-            'tree':    [(('-v', '--vertical'),
-                         dict(action='store_true')),
-                        (('-p', '--phyltreefile'),),
-                        (('-e', '--ensembl-version'),)],
-            'scatter': [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)],
-            'violin': [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)]}
+CMD_ARGS = {
+        'lineage': [(('-l', '--lineage'),),
+                    (('-p', '--phyltreefile'),   {'default': PHYLTREEFILE}),
+                    (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION})],
+        'tree':    [(('-v', '--vertical'),       {'action':'store_true'}),
+                    (('-p', '--phyltreefile'),   {'default': PHYLTREEFILE}),
+                    (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION})],
+        'scatter': [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)],
+        'violin':  [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)]}
 
 
 import sys
@@ -29,6 +36,7 @@ import bz2
 import pickle
 try:
     import argparse_custom as argparse
+    #print("Argparse customized")
 except ImportError:
     import argparse
 
@@ -69,17 +77,10 @@ mpl.rcParams['savefig.facecolor'] = 'none'
 #mpl.style.use('ggplot')
 pd.set_option('display.max_colwidth', 85)
 
-PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
-                   "PhylTree.Ensembl.{0}.conf"
-ENSEMBL_VERSION = 85
-
 RE_TAXON = re.compile(r'[A-Z][A-Za-z_.-]+(?=ENSGT)')
 #PAT_TAXON = r'^(ENS[A-Z]+G|[A-Z][A-Za-z_.-]+)(ENSGT[0-9]+|)(.*)$'
 #PAT_TAXON = r'^([A-Z][A-Za-z_.-]+)(ENSGT[0-9]+)(.*)$'
 PAT_TAXON = r'^(ENS[A-Z]+G|[A-Z][A-Za-z_.-]+(?=ENSGT))(|ENSGT[0-9]+)([0-9]+|[.A-Za-z`]*)$'
-
-DEFAULT_NBINS = 50
-DEFAULT_AGE_KEY = 'age_dS'
 
 def bin_data(data, bins, binvar=DEFAULT_AGE_KEY, outvar=None):
     """given some data and some bins, return groups by bins."""
@@ -418,13 +419,17 @@ class DataVisualizor(object):
 
         Arguments
         ---------
+        nbins: total number of bins for a row.
+        vertical   : True/False, whether to draw tree from bottom to top.
+
+        Used attributes
+        ---------------
         labels:      list of data labels
         newdata:     list of data (each being a 1-dimensional array of numbers)
         hist_coords: positions of each histogram   (see `assign_subplots`)
         subs_labels: subplot number of each hist.  (see `assign_subplots`)
         treeforks  : coordinates of each tree fork (see `assign_subplots`)
         outfile
-        vertical   : True/False, whether to draw tree from bottom to top.
         """
         
         nbins = nbins if nbins else self.default_nbins
@@ -612,13 +617,13 @@ def cmd_lineage(command, ages_file, outfile=None, lineage=None, show_edited=None
 
 def cmd_tree(ages_file, outfile=None, nbins=DEFAULT_NBINS, vertical=False,
              show_edited=None, no_edited=False):
-    """histogram on top of phylogenetic tree"""
+    """Histogram on top of a phylogenetic tree"""
 #
 def cmd_scatter(ages_file, x, y, outfile=None, show_edited=None, no_edited=False):
-    """scatter plot"""
+    """Scatter plot"""
 
 def cmd_violin(ages_file, x, y, outfile=None, show_edited=None, no_edited=False):
-    """violin plot"""
+    """Violin plot"""
 
 
 def document_commands():
@@ -638,8 +643,14 @@ CMD_FUNC = {cmd_name: globals()['cmd_' + cmd_name] for cmd_name in COMMANDS}
 
 
 if __name__=='__main__':
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    #class RawDescArgDefFormatter(argparse.RawDescriptionHelpFormatter,
+    #                             argparse.ArgumentDefaultsHelpFormatter):
+    #    """Combine two argparse formatters: raw description + argument defaults"""
+    #    pass
+
+    parser = argparse.ArgumentParser(description=__doc__)#,
+                         #formatter_class=RawDescArgDefFormatter)
 
     ### Generic arguments
     parent_parser = argparse.ArgumentParser(add_help=False)
@@ -666,12 +677,17 @@ if __name__=='__main__':
         cmd_func = CMD_FUNC[cmd_name] # only used for the __doc__ ...
         cmd_parser = subparsers.add_parser(cmd_name,
                                            description=cmd_func.__doc__,
-                                           parents=[parent_parser],
-                        formatter_class=argparse.RawDescriptionHelpFormatter)
+                                           parents=[parent_parser])#,
+                                        #formatter_class=RawDescArgDefFormatter)
         for cmd_arg in CMD_ARGS[cmd_name]:
-            #print(cmd_name)
-            #print(cmd_arg)
             kwargs = cmd_arg[1] if len(cmd_arg) > 1 else {}
+            # Automatically append the default value in help
+            default = kwargs.get('default')
+            arghelp = kwargs.get('help', '')
+            if default is not None and '%(default)s' not in arghelp:
+                if arghelp: arghelp += ' '
+                kwargs.update(help=(arghelp + '[%(default)s]'))
+            # Add the argument
             cmd_parser.add_argument(*cmd_arg[0], **kwargs)
 
     args = parser.parse_args()
