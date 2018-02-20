@@ -473,6 +473,7 @@ class DataVisualizor(object):
 
         # oldest_age needed to scale all subplots identically (range=(0, oldest_age))
         # warning: return the index **name**, not the row number.
+        #print(self.dup_ages)
         age_argmax = self.dup_ages[self.age_key].argmax()
         oldest_lab, oldest_age = self.dup_ages[['taxon', self.age_key]].loc[age_argmax]
         print("Oldest: %s (%s)" % (oldest_age, oldest_lab))

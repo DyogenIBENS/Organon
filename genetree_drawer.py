@@ -472,9 +472,9 @@ class GenetreeDrawer(object):
         ###       placed away from this lineage (avoid line crossing)
         
         self.gene_coords = {} # {species: [gene list]}
-        #self.dup_branchings = [] # (genename, x, x_child1, x_child2, y_child1, y_child2)
+        #self.dup_branchings = [] # (nodeid/genename, x, x_child1, x_child2, y_child1, y_child2)
         #self.spe_branchings = []
-        self.branchings = {} # {genename: [species, x, y, dup/spe, (children)], ...]
+        self.branchings = {} # {nodeid: [species, x, y, dup/spe, (children)], ...]
         
         # temporary tree structure holding nodes that are inbetween 2 speciations
         interspecies_trees = {}
@@ -509,12 +509,18 @@ class GenetreeDrawer(object):
                    #or \
                    #(len(node.children) == 1 and taxon in children_taxa):
                     # Should rather check if taxon in children_taxa.
-                    #if taxon not in children_taxa:
-                    #    print("WARNING: the node %r -> %s "\
-                    #          "is a duplication + a speciation. Not " \
-                    #          "truly reconciled tree." % \
-                    #          (node.name, [ch.name for ch in node.children]),
-                    #          file=sys.stderr)
+                    if len(children_taxa) > 1:
+                        print("WARNING: the node %r -> %s "\
+                              "is a duplication + a speciation. Not " \
+                              "truly reconciled tree." % \
+                              (node.name, [ch.name for ch in node.children]),
+                              file=sys.stderr)
+                    elif len(node.children) == 1:
+                        print("WARNING: the node %r -> %s "\
+                              " is a duplication/speciation with one " \
+                              "descendant." % \
+                              (node.name, [ch.name for ch in node.children]),
+                              file=sys.stderr)
 
                     # It is a duplication
                     children_ys   = []
@@ -537,15 +543,15 @@ class GenetreeDrawer(object):
                     # It is a speciation
                     event = 'spe'
                     ### FIXME 
-                    if taxon in children_taxa or len(children_taxa)==1:
+                    if len(children_taxa)==1:
                         msg = "WARNING: the node %r -> %s" % \
                               (node.name, [ch.name for ch in node.children])
                         if len(node.children) > 1:
                             msg += " is a duplication + a speciation. Not " \
                                    "truly reconciled tree."
-                        else:
-                            msg += " is a duplication/speciation with one " \
-                                   "descendant."
+                        #else:
+                        #    msg += " is a duplication/speciation with one " \
+                        #           "descendant."
                             #if not node.is_root(): event = 'dup'
                             # TODO: check this in the duplication block above.
                         print(msg, file=sys.stderr)
@@ -573,6 +579,7 @@ class GenetreeDrawer(object):
                         delta_x = 1 / n_steps
 
                         # climb up this subtree until next speciation
+                        # (toward present)
                         nextnodes = [ch]
                         while nextnodes:
                             nextnode = nextnodes.pop(0)
@@ -621,22 +628,24 @@ class GenetreeDrawer(object):
         #seen_genenames = set()
         for node in (n for genetree in self.genetrees \
                      for n in genetree.traverse('postorder')):
-            genename = node.id
-            #if genename in seen_genenames:
-            #    print('WARNING: %r already seen' % genename)
+            nodeid = node.id
+            #if nodeid in seen_genenames:
+            #    print('WARNING: %r already seen' % nodeid)
             #else:
-            #    seen_genenames.add(genename)
+            #    seen_genenames.add(nodeid)
             
-            species, rel_x, rel_y, event, children = self.branchings[genename]
+            species, rel_x, rel_y, event, children = self.branchings[nodeid]
             pos_list = self.gene_coords[species]
             nranks = len(pos_list) + 1
             children_real_coords = [self.real_gene_coords[ch] for ch in children]
             
-            #print(genename, event, species, children)
+            #print(nodeid, event, species, children)
             if event == 'dup':
 
                 children_rel_ys = [(self.branchings[ch][2]) for ch in children]
 
+                # coordinates of the branch vector
+                # (Dx = child x - parent x)
                 parent_sp, Dx, Dy = self.species_branches[species]
                 parent_x, parent_y = self.species_coords[parent_sp]
                 real_x = parent_x + Dx * rel_x
@@ -650,6 +659,8 @@ class GenetreeDrawer(object):
                 for ch, ch_rel_y, (ch_real_x, ch_real_y) in \
                     zip(children, children_rel_ys, children_real_coords):
                     delta_y = (rel_y - ch_rel_y)/nranks * branch_width
+                    delta_y *= 0.8
+                    #delta_y = 0
                     delta_ys.append(delta_y)
 
                     self.ax1.plot((ch_real_x, real_x),
@@ -663,7 +674,7 @@ class GenetreeDrawer(object):
 
             else:
                 real_x, real_y = self.species_coords[species]
-                pos = pos_list.index(genename) + 1
+                pos = pos_list.index(nodeid) + 1
                 real_y -= branch_width * pos/nranks
                 nodecolor = 'blue'
 
@@ -671,12 +682,13 @@ class GenetreeDrawer(object):
                     self.ax1.plot((real_x, ch_real_x), (real_y, ch_real_y),
                                   color='black', alpha=0.5)
             
-            if event != 'leaf':
+            #if event != 'leaf':
+            if event == 'dup':
                 self.ax1.plot((real_x,), (real_y,), '.', color=nodecolor, alpha=0.5)
                 #self.ax1.text(real_x, real_y, species, fontsize='xxx-small',
                 #              color=nodecolor)
 
-            self.real_gene_coords[genename] = (real_x, real_y)
+            self.real_gene_coords[nodeid] = (real_x, real_y)
             #self.fig.draw(self.fig.canvas.get_renderer())
             #plt.show()
             #input('Press Enter to continue.')
