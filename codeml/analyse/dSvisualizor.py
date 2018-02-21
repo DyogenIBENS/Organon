@@ -568,7 +568,7 @@ class DataVisualizor(object):
 
         self.fig = fig
         self.axes = axes
-        return self.axes
+        return axes
 
 
     def score_bins(self, score_name='score', scoring=None,
