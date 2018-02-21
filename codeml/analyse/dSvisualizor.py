@@ -43,6 +43,7 @@ except ImportError:
 import matplotlib as mpl
 mpl.use('Agg', warn=False) # for figures to show up when the script is called from the shell
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 #plt.ion()
 import numpy as np
 import pandas as pd
@@ -281,8 +282,17 @@ class DataVisualizor(object):
                     #if lab in self.taxa_ages.groups else [] \
         #data = [self.taxa_ages.groups.get(lab, {self.age_key: []})[self.age_key].dropna() \
         #           for lab in taxa
-        colors      = [self.taxon2color[lab] for lab in taxa if lab in self.taxa_ages.groups]
-        labs_legend = [label_fmt % lab       for lab in taxa if lab in self.taxa_ages.groups]
+        colors      = [self.taxon2color[lab] for lab in taxa \
+                                              if lab in self.taxa_ages.groups]
+        labs_legend = [label_fmt % lab for lab in taxa \
+                                        if lab in self.taxa_ages.groups]
+        #Quick fix when no rows in data (meaning, only NaN values)
+        #Should dropna upstream!!!
+        if not all(len(d) for d in data):
+            data, colors, labs_legend = zip(*[(d,c,l) for d,c,l in \
+                                                zip(data,colors,labs_legends) \
+                                                if len(d)])
+            print('WARNING: Only NaN for some taxa', file=sys.stderr)
         return data, colors, labs_legend
 
 
@@ -453,6 +463,7 @@ class DataVisualizor(object):
         n_subs = len(self.subs_taxa)
         figsize = (15, 11)
 
+        ticklocator = MaxNLocator(integer=True, nbins=5)
         if vertical:
             nrows, ncols = (1, n_subs)
             sharex, sharey = False, True
@@ -462,6 +473,7 @@ class DataVisualizor(object):
                                            self.hist_coords[lab][0])
             invisible_spines = ('top', 'left', 'right')
             label_ageaxis = lambda axes, axislabel: axes[0].set_ylabel(axislabel)
+            fix_dupticks = lambda ax: ax.xaxis.set_major_locator(ticklocator)
         else:
             nrows, ncols = (n_subs, 1)
             sharex, sharey = True, False
@@ -470,6 +482,7 @@ class DataVisualizor(object):
             get_hist_coords = lambda lab: self.hist_coords[lab]
             invisible_spines = ('top', 'bottom', 'right')
             label_ageaxis = lambda axes, axislabel: axes[-1].set_xlabel(axislabel)
+            fix_dupticks = lambda ax: ax.yaxis.set_major_locator(ticklocator)
 
         # oldest_age needed to scale all subplots identically (range=(0, oldest_age))
         # warning: return the index **name**, not the row number.
@@ -490,14 +503,28 @@ class DataVisualizor(object):
             print("nbins: %r" % nbins, file=sys.stderr)
             #print("orientation: %r" % bar_orientation, file=sys.stderr)
             #print("colors: %s" % colors, file=sys.stderr)
-            print("label: %s" % labs_legend, file=sys.stderr)
-            _, bins, _ = ax.hist(data, bins=nbins, histtype='barstacked', rwidth=1,
+            if not data:
+                print('WARNING: no data. Skip', file=sys.stderr)
+                continue
+            try:
+                if len(data)==1:
+                    data, = data
+
+                _, bins, _ = ax.hist(data, bins=nbins, histtype='barstacked', rwidth=1,
                                  range=(0, oldest_age),
                                  orientation=bar_orientation,
                                  color=colors,
                                  edgecolor='none',
                                  label=labs_legend,
                                  picker=True) # allow mouse selecting bars.
+            except:
+                for d in data:
+                    print(type(d))
+                    print(repr(d))
+                print(data)
+                raise
+
+            fix_dupticks(ax)
             # Label tree forks.
             for lab in labs:
                 self.data_bins[lab] = bins
