@@ -668,7 +668,9 @@ def sum_average_dNdS(dNdS, nb2id, tree_nbs):
 def rec_average_u(node, scname, subtree, measures=['dS']):
     """Perform the averaging of one node, given its descendants (unweighted).
     
-    This operation must be repeated along the tree, from the leaves to the root
+    This operation must be repeated along the tree, from the leaves to the root.
+
+    Update the subtree dictionary (holds the temporary measures for nodes).
     """
     # Array operation here: increment tmp_m with current measure.
     # One children per row.
@@ -766,20 +768,18 @@ def bound_average(fulltree, ensembl_version, phyltree, measures=['dS'],
             children_taxa = set((subtree[ch.name]['taxon'] for ch in 
                                  node.children))
 
+            # Compute the temporary measure of the node.
             rec_average(node, scname, subtree, measures)
 
-            if len(children_taxa & set((taxon,))) == 1:
+            if len( children_taxa & set((taxon,)) ) == 1:
                 # it is a duplication:
                 node.add_feature('type', 'dup')
                 print_if_verbose("Dupl; m=%s" % subtree[scname]['tmp_m'])
-                # Store the age of the next speciation event (propagate down).
+
+                # Store the age of the **next speciation** event (propagate down).
                 # Since it is a duplication, this should be the same for
                 # children[0] and children[1]:
                 ch_ages = [subtree[ch.name]['age'] for ch in node.children]
-                #try:
-                #    assert len(set(ch_ages)) == 1
-                #except AssertionError as err:
-                #    raise
                 if len(set(ch_ages)) > 1:
                     print(("WARNING: at %r: unequal children's ages (next "
                            "speciation ages): %s" % (scname, ch_ages)),
@@ -1053,15 +1053,15 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
             print(*args, **kwargs)
 
     print_if_verbose("Main: outfile  %s\n" % outfile,
-          "     mlcfiles %s %s\n" % (mlcfiles[:5], '...' * (nb_mlc>5)),
-          "     ensembl v.%d\n" % ensembl_version,
-          "     measures %s\n" % measures,
-          "     verbose  %s\n" % verbose,
-          "     show     %s\n" % show,
-          "     method2  %s\n" % method2,
-          "     unweighted %s\n" % unweighted,
-          "     replace_nwk %s\n" % replace_nwk,
-          "     replace_by  %s\n" % replace_by,
+          "     mlcfiles      %s %s\n" % (mlcfiles[:5], '...' * (nb_mlc>5)),
+          "     ensembl       v.%d\n" % ensembl_version,
+          "     measures      %s\n" % measures,
+          "     verbose       %s\n" % verbose,
+          "     show          %s\n" % show,
+          "     method2       %s\n" % method2,
+          "     unweighted    %s\n" % unweighted,
+          "     replace_nwk   %s\n" % replace_nwk,
+          "     replace_by    %s\n" % replace_by,
           "     ignore_errors %s\n" % ignore_errors)
     
 
