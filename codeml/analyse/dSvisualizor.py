@@ -471,7 +471,8 @@ class DataVisualizor(object):
             text_rotation = 'horizontal'
             get_hist_coords = lambda lab: (self.hist_coords[lab][1],
                                            self.hist_coords[lab][0])
-            invisible_spines = ('top', 'left', 'right')
+            #invisible_spines = ('top', 'left', 'right')
+            invisible_spines = ('top', 'right')
             label_ageaxis = lambda axes, axislabel: axes[0].set_ylabel(axislabel)
             fix_dupticks = lambda ax: ax.xaxis.set_major_locator(ticklocator)
         else:
@@ -480,7 +481,8 @@ class DataVisualizor(object):
             bar_orientation = 'vertical'
             text_rotation = 'vertical'
             get_hist_coords = lambda lab: self.hist_coords[lab]
-            invisible_spines = ('top', 'bottom', 'right')
+            #invisible_spines = ('top', 'bottom', 'right')
+            invisible_spines = ('top', 'right')
             label_ageaxis = lambda axes, axislabel: axes[-1].set_xlabel(axislabel)
             fix_dupticks = lambda ax: ax.yaxis.set_major_locator(ticklocator)
 
