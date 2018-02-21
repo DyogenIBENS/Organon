@@ -337,7 +337,7 @@ class DataVisualizor(object):
         Taxa returned by the iterator are space-separated
         """
         print("Loading species tree")
-        print(self.taxa)
+        #print(self.taxa)
         root, subtree = self.phyltree.getSubTree(self.taxa)
 
         # reorder branches in a visually nice manner:
@@ -499,8 +499,9 @@ class DataVisualizor(object):
         for ax_pos, ax in enumerate(axes):
             labs        = self.subs_taxa[ax_pos]
             data, colors, labs_legend = self.make_hist_data(labs)
-            print("N observations: %s" % ([d.shape for d in data],), file=sys.stderr)
-            print("nbins: %r" % nbins, file=sys.stderr)
+            print("* Labels: %s;" % labs_legend,
+                  "N observations: %s;" % ([d.shape for d in data],),
+                  "nbins: %r" % nbins, file=sys.stderr)
             #print("orientation: %r" % bar_orientation, file=sys.stderr)
             #print("colors: %s" % colors, file=sys.stderr)
             if not data:
@@ -529,6 +530,7 @@ class DataVisualizor(object):
             for lab in labs:
                 self.data_bins[lab] = bins
                 x, y = get_hist_coords(lab)
+                #print('Plotting label %r at (%s, %s)' % (lab, x, y))
                 ax.text(x, y, lab, rotation=text_rotation, va='bottom', ha='left', 
                         fontsize='x-small')
             #set_title(ax, "plot %s" % ax_pos)
