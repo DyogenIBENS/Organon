@@ -884,7 +884,9 @@ if __name__ == '__main__':
     parser.add_argument("--outgroups", metavar='S', type=int, default=0, 
                         help="Save the subtree including the outgroup sister "\
                              "clade of maximum size %(metavar)s. Set to '-1' "\
-                             " to keep the full clade [Default S=%(default)s]")
+                             " to keep the full clade [Default S=%(default)s]."\
+                             "NOTE: with `-l`, the outgroup can be a paralog "\
+                             "tree, otherwise it's necessarily in sister species.")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="only print out the output files it would produce")
     parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
