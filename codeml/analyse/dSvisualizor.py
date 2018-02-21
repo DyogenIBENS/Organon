@@ -375,7 +375,7 @@ class DataVisualizor(object):
             for anc2 in anc2list:
                 #dotanc2 = anc2.replace(' ', '.')
                 _, sub = self.hist_coords.get(anc2, (None, None))
-                if not sub:
+                if sub is None:
                     sub = len(self.subs_taxa)
                     self.subs_taxa.append(set((anc2,)))
                     self.hist_coords[anc2] = (self.phyltree.ages[anc2], sub)
