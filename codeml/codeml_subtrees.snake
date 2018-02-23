@@ -226,7 +226,7 @@ rule condor_descript:
 	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.condor.txt"
 	params: ctl="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.ctl"
 	shell:
-		'/users/ldog/glouvel/scripts/htcondor_descript/condor_descript.py'
+		'/users/ldog/glouvel/scripts/fluidcondor/condor_descript.py'
 		' {output}'
 		' /users/ldog/glouvel/scripts/codeml/run_codeml_separatedir.sh'
 		' -a {params.ctl}'
@@ -262,7 +262,7 @@ rule condor_descript_all:
 	input: rules.condor_descript_prepare.output
 	output: "{basename}_{ancestor}_{model}.{subtreedir}.condor.txt"
 	shell:
-		'/users/ldog/glouvel/scripts/htcondor_descript/condor_descript.py'
+		'/users/ldog/glouvel/scripts/fluidcondor/condor_descript.py'
 		' {output}'
 		' /users/ldog/glouvel/scripts/codeml/run_codeml_separatedir.sh'
 		' --fromfile {input}'

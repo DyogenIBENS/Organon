@@ -3,5 +3,5 @@
 test*
 figs
 *.svg
-htcondor_descript/*
+fluidcondor/*
 evosite3d/*
