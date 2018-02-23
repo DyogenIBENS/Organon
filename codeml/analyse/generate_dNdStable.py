@@ -1103,12 +1103,21 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
     print()
     
 
+def readfromfiles(filenames):
+    lines = []
+    for filename in filenames:
+        with open(filename) as f:
+            lines += [line.rstrip() for line in f if not line.startswith('#')]
+    return lines
+
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__, 
                                 formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('outfile')
     parser.add_argument('mlcfiles', nargs='+')
+    parser.add_argument('--fromfile', action='store_true',
+                        help='Take mlcfiles from a file (commented lines omitted).')
     parser.add_argument('-e', '--ensembl-version', type=int,
                         default=ENSEMBL_VERSION,
                         help='[%(default)s]')
@@ -1146,4 +1155,8 @@ if __name__=='__main__':
     parser.add_argument("-i", "--ignore-errors", action="store_true", 
                         help="On error, print the error and continue the loop.")
     args = parser.parse_args()
-    main(**vars(args))
+    dictargs = vars(args)
+    if dictargs.pop('fromfile'):
+        dictargs['mlcfiles'] = readfromfiles(dictargs['mlcfiles'])
+    main(**dictargs)
+
