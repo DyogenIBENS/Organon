@@ -531,7 +531,10 @@ class GenetreeDrawer(object):
 
                     # TODO: tilt according to the parent speciation node.
                     # should fit in the triangle defined by parent and descendants.
-                    node_y    = (min(children_ys) + max(children_ys)) / 2
+                    #node_y    = (min(children_ys) + max(children_ys)) / 2
+                    node_y    = sum(cy*(cd+1) for cy,cd in \
+                                               zip(children_ys, children_ndup))
+                    node_y   /= (sum(children_ndup) + len(children_ndup))
                     node_ndup = max(children_ndup) + 1
 
                     interspecies_trees[node.id] = {
@@ -642,10 +645,8 @@ class GenetreeDrawer(object):
             #print(nodeid, event, species, children)
             if event == 'dup':
 
-                children_rel_ys = [(self.branchings[ch][2]) for ch in children]
-
-                # coordinates of the branch vector
-                # (Dx = child x - parent x)
+                # coordinates of the **species** branch vector
+                # Dx = x (taxon) - x (ancestor)
                 parent_sp, Dx, Dy = self.species_branches[species]
                 parent_x, parent_y = self.species_coords[parent_sp]
                 real_x = parent_x + Dx * rel_x
@@ -655,21 +656,53 @@ class GenetreeDrawer(object):
                 branches_color = cmap(color_index)
                 color_index = (color_index + 1) % cmap.N
 
-                delta_ys = []
-                for ch, ch_rel_y, (ch_real_x, ch_real_y) in \
-                    zip(children, children_rel_ys, children_real_coords):
-                    delta_y = (rel_y - ch_rel_y)/nranks * branch_width
-                    delta_y *= 0.8
-                    #delta_y = 0
-                    delta_ys.append(delta_y)
+                nch = len(children)
+                children_rel_ys = [self.branchings[ch][2] for ch in children]
 
-                    self.ax1.plot((ch_real_x, real_x),
-                                  (ch_real_y, real_y + delta_y),
-                                  color=branches_color, alpha=0.5)
+                assert all((ch_rel_y >= 0) for ch_rel_y in children_rel_ys)
+                assert all((children_rel_ys[i+1] - children_rel_ys[i] > 0) for
+                           i in range(nch-1)), "Children's relative Y not sorted!"
+
+                # Compute coordinates of the base of the fork: delta_ys
+                # (Keep only two children if multifurcation)
+                # NEVER FORGET: the Y axis is FROM TOP TO BOTTOM
+                smallest_delta_rel_y = min(rel_y - children_rel_ys[0],
+                                           children_rel_ys[-1] - rel_y)
+                assert smallest_delta_rel_y >= 0
+                # If wasn't sorted, I should do abs(max(), min()).min()
+                delta_y = smallest_delta_rel_y/nranks * branch_width * 0.8
+                delta_ys = [delta_y, -delta_y] # This var is a list for more generality
+                # Warning, delta_ys are *signed*, hence the - here:
+                fork_width = delta_ys[0] - delta_ys[-1]
+
+                #delta_ys = []
+                #    delta_y = (rel_y - ch_rel_y)/nranks * branch_width
+                #    delta_ys.append(delta_y)
                 
-                # plot the vertical line of the fork.
-                self.ax1.plot((real_x, real_x),
-                              (real_y + min(delta_ys), real_y + max(delta_ys)),
+                fork_coords_x = [real_x, real_x]
+                fork_coords_x = [real_x, real_x]
+                fork_coords_y = [real_y + delta_ys[0], real_y + delta_ys[-1]]
+                for i, (ch, ch_rel_y, (ch_real_x, ch_real_y)) in \
+                        enumerate(zip(children,
+                                      children_rel_ys,
+                                      children_real_coords)):
+                    #tree ladderized so index 0 is max y, -1 is min y
+                    if i == 0:
+                        fork_coords_x.insert(0, ch_real_x)
+                        fork_coords_y.insert(0, ch_real_y)
+                    elif i == (nch-1):
+                        fork_coords_x.append(ch_real_x)
+                        fork_coords_y.append(ch_real_y)
+                    else:
+                        #raise AssertionError("More than two children: %d" % nch)
+                        # Extra children (more than 2)
+                        delta_y = i / nch * fork_width - fork_width/2
+                        self.ax1.plot((ch_real_x, real_x),
+                                      (ch_real_y, real_y + delta_y),
+                                      color=branches_color, alpha=0.5)
+                
+                # Plot the fork
+                self.ax1.plot(fork_coords_x, fork_coords_y,
                               color=branches_color, alpha=0.5)
 
             else:
