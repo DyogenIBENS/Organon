@@ -725,6 +725,10 @@ def bound_average(fulltree, ensembl_version, phyltree, measures=['dS'],
     for node in fulltree.traverse('postorder'):
         scname = node.name
         print_if_verbose("* %s:" % scname, end=' ')
+        ### DISCARD all dup just after the root speciation/duplication.
+        if node.is_root():
+            print_if_verbose("Root (discard)")
+            continue
         #try:
         branch_measures = np.array([getattr(node, m, np.NaN) for m in measures])
         #except AttributeError as err:
