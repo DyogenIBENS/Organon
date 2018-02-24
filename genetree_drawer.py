@@ -219,7 +219,7 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
             dx = max(children_xs) - min(children_xs)
 
             if angle_style == 0:
-                step = dy / (2+dx)
+                step = dy / (2+dx) if len(children)>1 else 0
                 #parent_y = max(children_ys) - step
 
                 # The y-step is biased. Add the smallest step to the furthest
@@ -460,7 +460,7 @@ class GenetreeDrawer(object):
                        title="Clades",
                        prop={'size': 'x-small', 'family': 'serif', 'style': 'italic'},
                        facecolor='inherit')
-            ax0.add_artist(legend_cov)
+            if self.show_cov and any_show_cov: ax0.add_artist(legend_cov)
 
         ax0.set_xlim(px, 1)
         ax0.set_ylim(ymin - 1, 1)
