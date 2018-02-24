@@ -31,6 +31,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.lines as lines
 from matplotlib.backends.backend_pdf import PdfPages, FigureCanvas
+from matplotlib.path import Path
+MOVETO, CURVE3, LINETO = Path.MOVETO, Path.CURVE3, Path.LINETO
 import ete3
 
 import LibsDyogen.myPhylTree as PhylTree
@@ -63,6 +65,7 @@ mpl.rcParams['xtick.color'] = grey10
 mpl.rcParams['ytick.color'] = grey10
 mpl.rcParams['grid.color'] = grey10
 mpl.rcParams['patch.edgecolor'] = grey10
+mpl.rcParams['patch.linewidth'] = 0.8
 mpl.rcParams['boxplot.flierprops.markeredgecolor'] = grey10
 mpl.rcParams['boxplot.capprops.color'] = grey10
 mpl.rcParams['legend.facecolor'] = '#777777'
@@ -666,14 +669,24 @@ class GenetreeDrawer(object):
                 # Compute coordinates of the base of the fork: delta_ys
                 # (Keep only two children if multifurcation)
                 # NEVER FORGET: the Y axis is FROM TOP TO BOTTOM
-                smallest_delta_rel_y = min(rel_y - children_rel_ys[0],
-                                           children_rel_ys[-1] - rel_y)
-                assert smallest_delta_rel_y >= 0
+                delta_rel_ys = (rel_y - children_rel_ys[0],
+                                rel_y - children_rel_ys[-1])
                 # If wasn't sorted, I should do abs(max(), min()).min()
-                delta_y = smallest_delta_rel_y/nranks * branch_width * 0.8
-                delta_ys = [delta_y, -delta_y] # This var is a list for more generality
+                # *0.8
+                delta_ys = [dry/nranks * branch_width for dry in delta_rel_ys]
+
+                #shortest_delta_y = np.abs(delta_ys).min() 
+                #longest_delta_y = np.abs(delta_ys).max()
+                # No need since the gene tree is ladderized.
+                
+                #reduce the length curve heterogeneity:
+                delta_ys[0] = (delta_ys[0] - delta_ys[1])/2
+
+                # With square forks: take the shortest delta_y:
+                #delta_ys = shortest_delta_y * np.array([1, -1])
+
                 # Warning, delta_ys are *signed*, hence the - here:
-                fork_width = delta_ys[0] - delta_ys[-1]
+                fork_width = delta_ys[0] - delta_ys[1]
 
                 #delta_ys = []
                 #    delta_y = (rel_y - ch_rel_y)/nranks * branch_width
@@ -701,18 +714,31 @@ class GenetreeDrawer(object):
                                       (ch_real_y, real_y + delta_y),
                                       color=branches_color, alpha=0.5)
                 
-                # Plot the fork
-                self.ax1.plot(fork_coords_x, fork_coords_y,
-                              color=branches_color, alpha=0.5)
+                if nch == 1:
+                    self.ax1.plot(fork_coords_x, fork_coords_y,
+                                  color=branches_color, alpha=0.5)
+                else:
+                    fork_coords = list(zip(fork_coords_x, fork_coords_y))
+                    fork_coords.insert(2, (real_x, real_y)) # Middle point
+                    fork = patches.PathPatch(
+                                    Path(fork_coords, [MOVETO] + [CURVE3]*4),
+                                    fill=False,
+                                    #facecolor="none",
+                                    edgecolor=branches_color,
+                                    alpha=0.5)
+                    # Plot the fork
+                    self.ax1.add_patch(fork)
 
             else:
                 real_x, real_y = self.species_coords[species]
                 pos = pos_list.index(nodeid) + 1
                 real_y -= branch_width * pos/nranks
-                nodecolor = 'blue'
+                #nodecolor = 'blue'
+                nodecolor = 'none'
 
                 for ch_real_x, ch_real_y in children_real_coords:
                     self.ax1.plot((real_x, ch_real_x), (real_y, ch_real_y),
+                                  #(':' if node.is_root() else '-'),
                                   color='black', alpha=0.5)
             
             #if event != 'leaf':
