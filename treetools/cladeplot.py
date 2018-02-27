@@ -6,7 +6,7 @@
 from math import log10
 import ete3
 try:
-    import argparse_custom
+    import argparse_custom as argparse
 except ImportError:
     import argparse
 import pandas as pd
