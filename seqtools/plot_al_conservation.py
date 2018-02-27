@@ -5,6 +5,7 @@
 from sys import stderr, stdin
 
 import os.path
+import re
 
 from itertools import product, combinations
 
@@ -23,6 +24,7 @@ ext2fmt = {'.fa':    'fasta',
 
 CODONS = [''.join(codon) for codon in product(*['ACGT']*3)]
 NACODON = '---'
+#NCODONS = 
 CODON2INT = {codon:i for i,codon in enumerate([NACODON] + CODONS)}
 NUCL2INT  = {'-': 0, 'A': 1, 'C': 2, 'G': 3, 'T': 4}
 STOPS = ['TAA', 'TAG', 'TGA']
@@ -35,16 +37,22 @@ codonalphabet.size = 3
 
 def make_unif_codon_dist():
     all_values = [NACODON] + CODONS
-    uniform_codon_dist = 1 - np.diagflat(np.ones(len(all_values)))
-    for i,j in combinations(range(len(all_values)), 2):
+    size = len(all_values) + 1  # +1 because of invalid codons e.g 'NNN'
+    uniform_codon_dist = 1 - np.diagflat(np.ones(size))
+    for i,j in combinations(range(size - 1), 2):
         # sum of nucleotide differences
         cod0, cod1 = all_values[i], all_values[j]
         pair_dist = (np.array(list(cod0)) != np.array(list(cod1))).sum()
         uniform_codon_dist[i, j] = uniform_codon_dist[j, i] = pair_dist
     
     for stop in STOPS:
-        uniform_codon_dist[:, all_values.index(stop)] = np.NaN
-        uniform_codon_dist[all_values.index(stop), :] = np.NaN
+        stop_indices = all_values.index(stop)
+        uniform_codon_dist[:, stop_indices] = np.NaN
+        uniform_codon_dist[stop_indices, :] = np.NaN
+
+    # Any extra invalid codon gets a NaN distance (e.g codons containing N's).
+    uniform_codon_dist[:, size-1] = np.NaN
+    uniform_codon_dist[size-1, :] = np.NaN
 
     return uniform_codon_dist
 
@@ -66,25 +74,39 @@ def al2array(align, nucl=False):
                                                  for seq in al2list(align)])
 
 
-def al2int(align, nucl=False):
+def al2int(align, nucl=False, allow_N=False):
     """Converts a matrix of categorical values to integers"""
     alarray = al2array(align, nucl)
     converter_dict = NUCL2INT if nucl else CODON2INT
-    return category2int(alarray, converter_dict)
+    return category2int(alarray, converter_dict, allow_N)
 
-
-def category2int(array, converter_dict):
+def category2int(array, converter_dict, allow_N=False):
     """Convert an array of categorical values using a dictionary"""
-    return np.vectorize(converter_dict.__getitem__)(array)
+    if not allow_N:
+        ufunc = converter_dict.__getitem__
+    else:
+        #ufunc = lambda residue: converter_dict.get(residue, np.NaN)
+        Ncodon_regex = re.compile('[NATCG]+$')
+        Ncodon_int = max(converter_dict.values()) + 1
+        def ufunc(residue):
+            try:
+                return converter_dict[residue]
+            except KeyError:
+                if Ncodon_regex.match(residue):
+                    return Ncodon_int
+                else:
+                    raise
+
+    return np.vectorize(ufunc)(array)
 
 
-def count_matrix(vint, minlength=65):
+def count_matrix(vint, minlength=66):
     """column-wise matrix of counts of integers"""
     assert vint.dtype == int
     return np.stack([np.bincount(vint[:,i], minlength=minlength) \
                         for i in range(vint.shape[1])], axis=-1)
 
-def freq_matrix(vint, minlength=65):
+def freq_matrix(vint, minlength=66):
     """Convert matrix of integers to frequencies (per column)"""
     return count_matrix(vint, minlength).astype(float) / np.alen(vint)
 
@@ -192,7 +214,7 @@ def comp_parts(alint, compare_parts=None):
     return np.stack((manh_dist, split_sc,))
 
 
-def al_stats(align, nucl=False):
+def al_stats(align, nucl=False, allow_N=False):
     """Compute gap proportion and entropy value for each position of the alignment"""
     al_len = align.get_alignment_length()
     if al_len % 3 and not nucl:
@@ -202,7 +224,7 @@ def al_stats(align, nucl=False):
     npos = al_len if nucl else al_len // 3
     step = 1      if nucl else 3
 
-    alint = al2int(align, nucl)
+    alint = al2int(align, nucl, allow_N)
     alint = alint[:, alint.sum(axis=0) > 0]
 
     #gap_prop = np.zeros(npos)
@@ -215,7 +237,7 @@ def al_stats(align, nucl=False):
     #    al_entropy[i] = np_entropy_subfunc(value_unique, value_prop, gap)
 
     #gap_prop = (alint == 0).sum(axis=0) / alint.shape[0]
-    al_freqs = freq_matrix(alint, minlength=(5 if nucl else 65))
+    al_freqs = freq_matrix(alint, minlength=(6 if nucl else 66))
     gap_prop = al_freqs[0,:]
     # Convert zeros to ones so that x * log(x) = 0
     al_freqs = al_freqs[1:,:]
@@ -241,6 +263,7 @@ def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
     #except ValueError:
 
     nvalues = alint.max()
+    #nvalues = 
     print(nvalues)
     alcmap = plt.get_cmap('Dark2', nvalues)
 
@@ -291,7 +314,7 @@ class AlignPlotter(object):
 
     plot_properties = {'al': {'title': 'Global scoring (all sequences)',
                               'ylabel': 'Alignment'},
-                       'gap': {'ylabel': 'Proportion of gaps (G)'},
+                       'gap': {'ylabel': 'Proportion of gaps (G)', 'ylim': (0,1)},
                        'entropy': {'ylabel': 'Entropy (H)'},
                        'gap_entropy': {'ylabel': 'Gap-entropy score: (1-H)*(1-G)'},
                        'sp': {'ylabel': 'SP score (Sum-of-pair differences)'},
@@ -313,7 +336,9 @@ class AlignPlotter(object):
                   'part_sp':     default_step}
 
 
-    def __init__(self, alint, seqlabels=None):
+    def __init__(self, alint, seqlabels=None, valid_range=(1,64)):
+        """Initialize the Plotter instance from a matrix of integers.
+        """
         self.alint = alint
         self.x = np.arange(self.alint.shape[1]) # X values for plotting
         
@@ -322,8 +347,10 @@ class AlignPlotter(object):
         self.plotlist = ['al']
         self.plotdata = {'al': (self.malint - self.malint.max(),)}
 
-        cmap_size = self.malint.max() - self.malint.min() + 1
-        self.plot_funcs['al'][0][1]['cmap'] = plt.get_cmap('Dark2', cmap_size)
+        cmap_size = valid_range[1] - valid_range[0] + 1
+        cmap = plt.get_cmap('Dark2', cmap_size)
+        cmap.set_over('k')
+        self.plot_funcs['al'][0][1]['cmap'] = cmap
         self.plot_properties['al']['yticks'] = np.arange(alint.shape[0])
 
         if seqlabels is not None:
@@ -332,7 +359,8 @@ class AlignPlotter(object):
                                            'fontsize': 'xx-small'}))
         
     @classmethod
-    def fromfile(cls, infile, format=None, nucl=False, slice=None, records=None):
+    def fromfile(cls, infile, format=None, nucl=False, allow_N=False,
+                 slice=None, records=None):
         align = AlignIO.read(infile,
                              format=(format or
                                      filename2format(getattr(infile, 'name',
@@ -353,11 +381,14 @@ class AlignPlotter(object):
             slstart, slend = None, None
 
         seqlabels = [record.name for record in align]
-        alint = al2int(align, nucl)
+        # Convert matrix of codon/nucleotide strings to matrix of integers.
+        alint = al2int(align, nucl, allow_N)
+        # remove columns being 100% gaps
         alint = alint[:, alint.sum(axis=0) > 0]
 
         # Init and setup the class instance
-        instance = cls(alint, seqlabels)
+        valid_range = (1, 4) if nucl else (1, 64)
+        instance = cls(alint, seqlabels, valid_range)
         instance.fromfile_params = {'infile': infile, 'format': format,
                                     'slice': (slstart, slend),
                                     'records': records}
@@ -371,7 +402,7 @@ class AlignPlotter(object):
         """Compute column-wise global measures: residue frequencies, entropy, 
         gap proportion, entropy-gap score, SP-score"""
 
-        al_freqs = freq_matrix(self.alint, minlength=(5 if self.nucl else 65))
+        al_freqs = freq_matrix(self.alint, minlength=(6 if self.nucl else 66))
         self.gap_prop = al_freqs[0,:]
         # Convert zeros to ones so that x * log(x) = 0
         self.freqs = al_freqs[1:,:]
@@ -466,8 +497,8 @@ class AlignPlotter(object):
 
 
 
-def main_old(infile, outfile=None, format=None, nucl=False, records=None,
-             slice=None, compare_parts=None):
+def main_old(infile, outfile=None, format=None, nucl=False, allow_N=False,
+             records=None, slice=None, compare_parts=None):
     align = AlignIO.read(infile, format=(format or filename2format(infile.name)))
     if records:
         records = [int(r) for r in ','.split(records)]
@@ -477,18 +508,18 @@ def main_old(infile, outfile=None, format=None, nucl=False, records=None,
         align = align[:,sltart:slend]
 
     seqlabels = [record.name for record in align]
-    gap_prop, al_entropy, alint = al_stats(align, nucl)
+    gap_prop, al_entropy, alint = al_stats(align, nucl, allow_N)
     dist_array = comp_parts(alint, compare_parts)
     plot_al_stats(gap_prop, al_entropy, alint, dist_array, seqlabels, outfile)
 
 
-def main(infile, outfile=None, format=None, nucl=False, records=None,
-         slice=None, compare_parts=None, compare_only=False):
+def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
+         records=None, slice=None, compare_parts=None, compare_only=False):
     
     if not outfile:
         plt.switch_backend('TkAgg')
 
-    align_plot = AlignPlotter.fromfile(infile, format, nucl, records, slice)
+    align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, records, slice)
     if not compare_only:
         align_plot.measure()
     if compare_parts:
@@ -506,6 +537,8 @@ if __name__ == '__main__':
                         ' Can be any format accepted by Bio.alignIO')
     parser.add_argument('-n', '--nucl', action='store_true',
                         help='Process per nucleotide position (instead of codon)')
+    parser.add_argument('-N', '--allow-N', action='store_true',
+                        help='Tolerate "N" nucleotides as NA value.')
     parser.add_argument('-r', '--records',
                         help='select records (coma-sep list of 0-based integers)')
     parser.add_argument('-s', '--slice',
@@ -515,7 +548,6 @@ if __name__ == '__main__':
                              'groups of data, e.g "(0,1);(2,3,4)"')
     parser.add_argument('-C', '--compare-only', action='store_true',
                         help='Do not display global scores')
-    
     
     args = parser.parse_args()
 

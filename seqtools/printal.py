@@ -58,6 +58,8 @@ nucl2col = {'A': BG_RED,
 CODON_TO_256 = {
     # Stop
     'TAA': (15,16), 'TAG': (15,16), 'TGA': (15,16),
+    # Unknown
+    #'NNN': (),
     # Methionine
     'ATG': (16,),
     # Phenylalanine
@@ -193,7 +195,22 @@ def iter_codons(seq):
     
 
 def codoncolorizerecord(record):
-    return ''.join(CODON2COL.get(codon)+codon+RESET for codon in iter_codons(record.seq))
+    colorized=''
+    unknown_codons = set()
+    for codon in iter_codons(record.seq):
+        try:
+            codoncol = CODON2COL[codon]
+        except KeyError:
+            unknown_codons.add(codon)
+            codoncol = RED
+        colorized += codoncol + codon + RESET
+
+    if unknown_codons:
+        print("WARNING: unknown codons: %s" % ' '.join(unknown_codons),
+                file=sys.stderr)
+
+    return colorized
+
 #def printblock(records, namefmt, pad):
 
 def printal(infile, wrap=False, format=None, slice=None, codon=False):
