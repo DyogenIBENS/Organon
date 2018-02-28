@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 
 
+"""Display a multiple sequence alignment (nucleotide or codon), and the 
+conservation scores along it."""
+
+
 from sys import stderr, stdin
 
 import os.path
@@ -290,13 +294,8 @@ def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
     axes[-1].set_xlabel("Residue position")
 
     if dist_array is not None:
-        ax5 = axes[4].twinx()
-        l4 = axes[4].step(x, dist_array[0,:], color='#1f77b4', where='post',
-                     alpha=0.7, label='manhattan dist')
-        l5 = ax5.step(x, dist_array[1,:], color='#ff7f0e', where='post',
-                     alpha=0.7, label='pearson corr')
-        axes[4].legend(fontsize='xx-small')
-        ax5.legend(fontsize='xx-small')
+        axes[4].step(x, dist_array.T, where='post', alpha=0.7)
+        axes[4].legend(('pearson_corr', 'manhattan dist'), fontsize='xx-small')
     
     if outfile is None:
         plt.show()
@@ -314,7 +313,7 @@ class AlignPlotter(object):
 
     plot_properties = {'al': {'title': 'Global scoring (all sequences)',
                               'ylabel': 'Alignment'},
-                       'gap': {'ylabel': 'Proportion of gaps (G)', 'ylim': (0,1)},
+                       'gap': {'ylabel': 'Proportion of gaps (G)', 'ylim': (1.05,-0.05)},
                        'entropy': {'ylabel': 'Entropy (H)'},
                        'gap_entropy': {'ylabel': 'Gap-entropy score: (1-H)*(1-G)'},
                        'sp': {'ylabel': 'SP score (Sum-of-pair differences)'},
@@ -345,13 +344,26 @@ class AlignPlotter(object):
         self.malint = np.ma.array(alint, mask=(alint==0))
         self.seqlabels = seqlabels
         self.plotlist = ['al']
-        self.plotdata = {'al': (self.malint - self.malint.max(),)}
+        self.plotdata = {'al': (self.malint - valid_range[0],)}
+        #print(self.malint.min(), self.malint.max())
+        print(np.unique(self.malint))
+        #print(np.unique(self.malint - self.malint.max()))
+        self.valid_range = valid_range
 
-        cmap_size = valid_range[1] - valid_range[0] + 1
-        cmap = plt.get_cmap('Dark2', cmap_size)
-        cmap.set_over('k')
-        self.plot_funcs['al'][0][1]['cmap'] = cmap
+        #cmap_size = valid_range[1] - valid_range[0] # If len(valid_range) > 1
+        # Dark2, tab20b, tab20, Set1
+        cmap = plt.get_cmap('tab20b', valid_range[1] - valid_range[0] + 1) #, cmap_size)
+        cmap.set_over((0.2, 0.2, 0.2))
+        #cmap.set_under('k')
+        # a norm is needed to set bounds!!!
+        
+        # Directly use integer values to get colors in cmap: FAIL
+        #norm = mpl.colors.NoNorm(valid_range[0], valid_range[1]+1)
+        bounds = np.arange(valid_range[0]-0.5, valid_range[1] + 0.5)
+        norm = mpl.colors.BoundaryNorm(bounds, cmap.N)
+        self.plot_funcs['al'][0][1].update(cmap=cmap, norm=norm)
         self.plot_properties['al']['yticks'] = np.arange(alint.shape[0])
+        self.plot_properties['al']['xlim'] = (0, alint.shape[1])
 
         if seqlabels is not None:
             self.plot_funcs['al'].append(('set_yticklabels',
@@ -360,7 +372,7 @@ class AlignPlotter(object):
         
     @classmethod
     def fromfile(cls, infile, format=None, nucl=False, allow_N=False,
-                 slice=None, records=None):
+                 slice=None, records=None, recordsfile=None):
         align = AlignIO.read(infile,
                              format=(format or
                                      filename2format(getattr(infile, 'name',
@@ -372,8 +384,14 @@ class AlignPlotter(object):
             print("Not a codon alignment!", file=stderr)
 
         if records:
-            records = [int(r) for r in ','.split(records)]
+            records = [int(r) for r in records.split(',')]
             align = Align.MultipleSeqAlignment([align[r] for r in records])
+        elif recordsfile:
+            recnames = [rec.name for rec in align]
+            with open(recordsfile) as recf:
+                records = [recnames.index(line.rstrip()) for line in recf]
+            align = Align.MultipleSeqAlignment([align[r] for r in records])
+        
         if slice:
             slstart, slend = [int(pos) for pos in slice.split(':')]
             align = align[:,sltart:slend]
@@ -402,13 +420,25 @@ class AlignPlotter(object):
         """Compute column-wise global measures: residue frequencies, entropy, 
         gap proportion, entropy-gap score, SP-score"""
 
-        al_freqs = freq_matrix(self.alint, minlength=(6 if self.nucl else 66))
-        self.gap_prop = al_freqs[0,:]
+        max_valid = self.valid_range[1]
+        al_freqs = freq_matrix(self.alint, minlength=(max_valid+2))
+        gap_prop = al_freqs[0,:]
+        invalid_prop = al_freqs[(max_valid+1):, :].sum(axis=1)
+        if invalid_prop.any():
+            self.gap_prop = np.stack((gap_prop,
+                                      gap_prop + invalid_prop), axis=1)
+            self.plot_funcs['gap'].append(('legend',
+                                           {'labels': ('Gaps only',
+                                                       'Gaps + invalid values (N)')}))
+        else:
+            # change from 1D to 2D. Here, same as array.reshape((array.shape[0], 1))
+            self.gap_prop = gap_prop[np.newaxis]
+
         # Convert zeros to ones so that x * log(x) = 0
         self.freqs = al_freqs[1:,:]
         # scipy.stats.entropy
         self.entropy = freqs2entropy(self.freqs)
-        self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop)
+        self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop[:, 1])
         self.sp_score = sp_score(self.alint)
         
         self.plotlist.extend(('gap', 'entropy', 'gap_entropy', 'sp'))
@@ -514,12 +544,14 @@ def main_old(infile, outfile=None, format=None, nucl=False, allow_N=False,
 
 
 def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
-         records=None, slice=None, compare_parts=None, compare_only=False):
+         records=None, recordsfile=None, slice=None, compare_parts=None,
+         compare_only=False):
     
     if not outfile:
         plt.switch_backend('TkAgg')
 
-    align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, records, slice)
+    align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, records,
+                                       recordsfile, slice)
     if not compare_only:
         align_plot.measure()
     if compare_parts:
@@ -541,6 +573,8 @@ if __name__ == '__main__':
                         help='Tolerate "N" nucleotides as NA value.')
     parser.add_argument('-r', '--records',
                         help='select records (coma-sep list of 0-based integers)')
+    parser.add_argument('-R', '--recordsfile',
+                        help='select records from a file (one record name per line)')
     parser.add_argument('-s', '--slice',
                         help='select positions (start:end). 0-based, end excluded')
     parser.add_argument('-c', '--compare-parts',
