@@ -7,6 +7,7 @@ conservation scores along it."""
 
 
 from sys import stderr, stdin
+#from time import clock # to display execution time
 
 import os.path
 import re
@@ -20,11 +21,23 @@ import matplotlib.pyplot as plt
 from Bio import AlignIO, Align, Alphabet
 import argparse
 
+mpl.rcParams['axes.grid'] = True
+mpl.rcParams['grid.alpha'] = 0.5
+mpl.rcParams['grid.linestyle'] = '--'
+mpl.rcParams['axes.grid.axis'] = 'x'
+
+# Change all black to dark grey
+grey10 = '#1a1a1a'
+for param, paramval in mpl.rcParamsDefault.items():
+    if paramval == 'k':
+        mpl.rcParams[param] = grey10
+
 
 ext2fmt = {'.fa':    'fasta',
            '.fasta': 'fasta',
            '.mfa':   'fasta',
            '.phy':   'phylip-relaxed'}
+
 
 CODONS = [''.join(codon) for codon in product(*['ACGT']*3)]
 NACODON = '---'
@@ -313,20 +326,23 @@ class AlignPlotter(object):
 
     plot_properties = {'al': {'title': 'Global scoring (all sequences)',
                               'ylabel': 'Alignment'},
-                       'gap': {'ylabel': 'Proportion of gaps (G)', 'ylim': (1.05,-0.05)},
-                       'entropy': {'ylabel': 'Entropy (H)'},
-                       'gap_entropy': {'ylabel': 'Gap-entropy score: (1-H)*(1-G)'},
-                       'sp': {'ylabel': 'SP score (Sum-of-pair differences)'},
+                       'gap': {'ylabel': 'Proportion of gaps\n(G)',
+                               'ylim': (1.05,-0.05)},
+                       'entropy': {'ylabel': 'Entropy\n(H)'},
+                       'gap_entropy': {'ylabel': 'Gap-entropy score:\n(1-H)*(1-G)'},
+                       'sp': {'ylabel': 'SP score\n(Sum-of-pair differences)'},
                        'manh': {'title': 'Difference scoring between parts',
                                 'ylabel': 'manhattan distance'},
                        'pearson': {'ylabel': "Pearson's correlation coefficient"},
                        'part_sp': {'ylabel': 'sum of pair differences'}}
 
-    default_step = [('step', {'where': 'post'})]
+    default_step = [('step', {'where': 'mid', 'alpha': 0.65})]
     default_bar = [('bar', {'width': 1})]
 
     plot_funcs = {'al':          [('imshow', {'aspect': 'auto'})],
-                  'gap':         default_step,
+                  #'al':          [('pcolormesh',   {'edgecolors': 'None'}),
+                  #                ('invert_yaxis', {})],
+                  'gap':         default_step, #default_bar,
                   'entropy':     default_bar,
                   'gap_entropy': default_bar,
                   'sp':          default_bar,
@@ -344,9 +360,8 @@ class AlignPlotter(object):
         self.malint = np.ma.array(alint, mask=(alint==0))
         self.seqlabels = seqlabels
         self.plotlist = ['al']
-        self.plotdata = {'al': (self.malint - valid_range[0],)}
-        #print(self.malint.min(), self.malint.max())
-        print(np.unique(self.malint))
+        self.plotdata = {'al': (self.malint,)}
+        #print(np.unique(self.malint))
         #print(np.unique(self.malint - self.malint.max()))
         self.valid_range = valid_range
 
@@ -357,13 +372,16 @@ class AlignPlotter(object):
         #cmap.set_under('k')
         # a norm is needed to set bounds!!!
         
-        # Directly use integer values to get colors in cmap: FAIL
-        #norm = mpl.colors.NoNorm(valid_range[0], valid_range[1]+1)
+        # Directly use integer values to get colors in cmap: Same speed but less clear.
+        #self.plotdata = {'al': (self.malint - valid_range[0],)} # With NoNorm
+        #norm = mpl.colors.NoNorm(0, valid_range[1] - valid_range[0])
+
         bounds = np.arange(valid_range[0]-0.5, valid_range[1] + 0.5)
         norm = mpl.colors.BoundaryNorm(bounds, cmap.N)
         self.plot_funcs['al'][0][1].update(cmap=cmap, norm=norm)
         self.plot_properties['al']['yticks'] = np.arange(alint.shape[0])
-        self.plot_properties['al']['xlim'] = (0, alint.shape[1])
+        #self.plot_properties['al']['xlim'] = (0, alint.shape[1]) #pcolormesh
+        self.plot_properties['al']['xlim'] = (-0.5, alint.shape[1]-0.5) #imshow
 
         if seqlabels is not None:
             self.plot_funcs['al'].append(('set_yticklabels',
@@ -394,7 +412,13 @@ class AlignPlotter(object):
         
         if slice:
             slstart, slend = [int(pos) for pos in slice.split(':')]
-            align = align[:,sltart:slend]
+            if not nucl:
+                slstart *= 3
+                slend   *= 3
+            if not (0 <= slstart < slend <= al_len):
+                raise IndexError("Slice indices (%s,%s) out of bounds." \
+                                 % (slstart, slend))
+            align = align[:,slstart:slend]
         else:
             slstart, slend = None, None
 
@@ -413,6 +437,7 @@ class AlignPlotter(object):
         instance.align = align
         instance.al_len = al_len
         instance.nucl = nucl
+        instance.slstart = slstart
         return instance
 
 
@@ -423,8 +448,9 @@ class AlignPlotter(object):
         max_valid = self.valid_range[1]
         al_freqs = freq_matrix(self.alint, minlength=(max_valid+2))
         gap_prop = al_freqs[0,:]
-        invalid_prop = al_freqs[(max_valid+1):, :].sum(axis=1)
+        invalid_prop = al_freqs[(max_valid+1):, :].sum(axis=0)
         if invalid_prop.any():
+            #print(al_freqs[(max_valid+1):, :])
             self.gap_prop = np.stack((gap_prop,
                                       gap_prop + invalid_prop), axis=1)
             self.plot_funcs['gap'].append(('legend',
@@ -516,12 +542,20 @@ class AlignPlotter(object):
             plot_prop = self.plot_properties[plot]
             ax.set(**plot_prop)
 
+        if self.slstart:
+            # Update the displayed xticklabels if start position > 0
+            slstart = self.slstart // 3 if not self.nucl else self.slstart
+                
+            ax.set_xticklabels([(slstart + int(xt)) for xt in \
+                                ax.get_xticks()])
+
         self.fig, self.axes = fig, axes
 
 
     def display(self, outfile=None):
         if outfile is None:
             plt.show(block=True)
+            #print(clock())
         else:
             self.fig.savefig(outfile, bbox_inches='tight')
 
@@ -535,7 +569,7 @@ def main_old(infile, outfile=None, format=None, nucl=False, allow_N=False,
         align = Align.MultipleSeqAlignment([align[r] for r in records])
     if slice:
         slstart, slend = [int(pos) for pos in slice.split(':')]
-        align = align[:,sltart:slend]
+        align = align[:,slstart:slend]
 
     seqlabels = [record.name for record in align]
     gap_prop, al_entropy, alint = al_stats(align, nucl, allow_N)
@@ -550,8 +584,8 @@ def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
     if not outfile:
         plt.switch_backend('TkAgg')
 
-    align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, records,
-                                       recordsfile, slice)
+    align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, slice,
+                                       records, recordsfile)
     if not compare_only:
         align_plot.measure()
     if compare_parts:
@@ -576,7 +610,9 @@ if __name__ == '__main__':
     parser.add_argument('-R', '--recordsfile',
                         help='select records from a file (one record name per line)')
     parser.add_argument('-s', '--slice',
-                        help='select positions (start:end). 0-based, end excluded')
+                        help='select positions (start:end). '\
+                             '0-based, end excluded, in number of '\
+                             'codons/nucleotides.')
     parser.add_argument('-c', '--compare-parts',
                         help='Plot the per-column correlation between two ' \
                              'groups of data, e.g "(0,1);(2,3,4)"')
