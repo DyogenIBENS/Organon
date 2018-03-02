@@ -213,9 +213,10 @@ def codoncolorizerecord(record):
 
 #def printblock(records, namefmt, pad):
 
-def printal(infile, wrap=False, format=None, slice=None, codon=False):
-    ### TODO: wrap to column width
-    pad = 4*' '
+def printal(infile, wrap=False, format=None, slice=None, codon=False,
+            start0=False):
+    padlen = 4
+    pad = padlen*' '
     #unit_delim = '.'
     #five_delim = '|'
 
@@ -232,15 +233,27 @@ def printal(infile, wrap=False, format=None, slice=None, codon=False):
         stepwidth = 1
         colorize = colorizerecord
 
-    ruler = makeruler(length, stepwidth=stepwidth)
+    start1 = int(not start0)
+    ruler = makeruler(length, base=start1, stepwidth=stepwidth)
     
     namefmt = '%%%ds' % name_len
+
+    if slice:
+        # -1 because coords are taken in base 1
+        if codon:
+            slstart, slend = [(int(pos)-start1)*3 for pos in slice.split(':')]
+        else:
+            slstart, slend = [int(pos)-start1 for pos in slice.split(':')]
+
+        length = slend - slstart
+    else:
+        slstart, slend = 0, length
 
     try:
         if wrap:
             from subprocess import check_output
             ncols = int(check_output(['tput', 'cols']))
-            block_width = ncols - name_len - len(pad)
+            block_width = ncols - name_len - padlen
             if codon:
                 block_width -= (block_width % 3)
 
@@ -302,6 +315,8 @@ if __name__ == '__main__':
                         help='select positions (start:end). 1-based, end excluded')
     parser.add_argument('-c', '--codon', action='store_true', 
                         help='Colorize and index alignment by codons.')
+    parser.add_argument('-0', '--start0', action='store_true',
+                        help='Use 0-based coordinates.')
     
     args = parser.parse_args()
     printal(**vars(args))
