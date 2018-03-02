@@ -19,11 +19,24 @@ import matplotlib as mpl
 mpl.use('Agg', warn=False)
 import matplotlib.pyplot as plt
 from Bio import AlignIO, Align, Alphabet
-import argparse
+try:
+    import argparse_custom as argparse
+except ImportError:
+    import argparse
 
-mpl.rcParams['axes.grid'] = True
+from plottools import stackedbar
+
+#try:
+#    mpl.style.use('softer')
+#except OSError:
+# From Seaborn
+mpl.rcParams['axes.prop_cycle'] = mpl.cycler('color',
+                ['4C72B0', '55A868', 'C44E52', '8172B2', 'CCB974', '64B5CD'])
 mpl.rcParams['grid.alpha'] = 0.5
 mpl.rcParams['grid.linestyle'] = '--'
+#    pass
+
+mpl.rcParams['axes.grid'] = True
 mpl.rcParams['axes.grid.axis'] = 'x'
 
 # Change all black to dark grey
@@ -53,6 +66,11 @@ codonalphabet.letters = [NACODON] + CODONS
 codonalphabet.size = 3
 
 def make_unif_codon_dist():
+    """Return a uniform codon distance matrix:
+    each different nucleotide counts as one difference.
+    Stop codons have a NaN distance.
+    Invalid codons (containing N nucleotides) as well.
+    """
     all_values = [NACODON] + CODONS
     size = len(all_values) + 1  # +1 because of invalid codons e.g 'NNN'
     uniform_codon_dist = 1 - np.diagflat(np.ones(size))
@@ -326,8 +344,8 @@ class AlignPlotter(object):
 
     plot_properties = {'al': {'title': 'Global scoring (all sequences)',
                               'ylabel': 'Alignment'},
-                       'gap': {'ylabel': 'Proportion of gaps\n(G)',
-                               'ylim': (1.05,-0.05)},
+                       'gap': {'ylabel': 'Proportion of gaps\n(G)'},
+                               #'ylim': (-0.05,1.05)},
                        'entropy': {'ylabel': 'Entropy\n(H)'},
                        'gap_entropy': {'ylabel': 'Gap-entropy score:\n(1-H)*(1-G)'},
                        'sp': {'ylabel': 'SP score\n(Sum-of-pair differences)'},
@@ -342,7 +360,8 @@ class AlignPlotter(object):
     plot_funcs = {'al':          [('imshow', {'aspect': 'auto'})],
                   #'al':          [('pcolormesh',   {'edgecolors': 'None'}),
                   #                ('invert_yaxis', {})],
-                  'gap':         default_step, #default_bar,
+                  #'gap':         default_step, #default_bar, "stackplot"
+                  'gap':         [(stackedbar, {'width': 1, 'edgecolor': 'none'})],
                   'entropy':     default_bar,
                   'gap_entropy': default_bar,
                   'sp':          default_bar,
@@ -390,7 +409,7 @@ class AlignPlotter(object):
         
     @classmethod
     def fromfile(cls, infile, format=None, nucl=False, allow_N=False,
-                 slice=None, records=None, recordsfile=None):
+                 slice=None, records=None, recordsfile=None, treefile=None):
         align = AlignIO.read(infile,
                              format=(format or
                                      filename2format(getattr(infile, 'name',
@@ -401,14 +420,23 @@ class AlignPlotter(object):
         if al_len % 3 and not nucl:
             print("Not a codon alignment!", file=stderr)
 
-        if records:
-            records = [int(r) for r in records.split(',')]
+        if records or recordsfile or treefile:
+            if records:
+                records = [int(r) for r in records.split(',')]
+            else:
+                recnames = [rec.name for rec in align]
+                if recordsfile:
+                    with open(recordsfile) as recf:
+                        records = [recnames.index(line.rstrip()) for line in recf]
+                elif treefile:
+                    #try: alternative with ete3
+                    from Bio.Phylo import read as phyloread
+                    tree = phyloread(treefile, 'newick')
+                    records = [recnames.index(leaf.name) for leaf in tree.get_terminals()]
+
             align = Align.MultipleSeqAlignment([align[r] for r in records])
-        elif recordsfile:
-            recnames = [rec.name for rec in align]
-            with open(recordsfile) as recf:
-                records = [recnames.index(line.rstrip()) for line in recf]
-            align = Align.MultipleSeqAlignment([align[r] for r in records])
+
+
         
         if slice:
             slstart, slend = [int(pos) for pos in slice.split(':')]
@@ -452,10 +480,12 @@ class AlignPlotter(object):
         if invalid_prop.any():
             #print(al_freqs[(max_valid+1):, :])
             self.gap_prop = np.stack((gap_prop,
-                                      gap_prop + invalid_prop), axis=1)
+                                      invalid_prop), axis=0)
+                                      #gap_prop + invalid_prop), axis=1)
             self.plot_funcs['gap'].append(('legend',
                                            {'labels': ('Gaps only',
-                                                       'Gaps + invalid values (N)')}))
+                                                       #'Gaps + 
+                                                       'Invalid values (N)')}))
         else:
             # change from 1D to 2D. Here, same as array.reshape((array.shape[0], 1))
             self.gap_prop = gap_prop[np.newaxis]
@@ -464,7 +494,8 @@ class AlignPlotter(object):
         self.freqs = al_freqs[1:,:]
         # scipy.stats.entropy
         self.entropy = freqs2entropy(self.freqs)
-        self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop[:, 1])
+        #self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop[:, 1])
+        self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop.sum(axis=0))
         self.sp_score = sp_score(self.alint)
         
         self.plotlist.extend(('gap', 'entropy', 'gap_entropy', 'sp'))
@@ -496,8 +527,16 @@ class AlignPlotter(object):
             - sum of pair differences between any possible pair of distinct parts
         """
         if isinstance(compare_parts, str):
-            self.parts = [[int(i) for i in part.rstrip(')').lstrip('(').split(',')]
-                            for part in compare_parts.split(';')]
+            self.parts = []
+            for part in compare_parts.split(';'):
+                part = part.rstrip(')').lstrip('(')
+                parti = []
+                for subpart in part.split(','):
+                    try:
+                        parti.append(int(subpart))
+                    except ValueError:
+                        parti.extend(range(*(int(i) for i in subpart.split(':'))))
+                self.parts.append(parti)
         else:
             self.parts = compare_parts
 
@@ -520,13 +559,20 @@ class AlignPlotter(object):
 
         self.plot_funcs['al'].append((self.annotate_parts, {}))
 
-    def makefig(self):
+    def makefig(self, figwidth=16, plotlist=None):
 
-        nplots = len(self.plotlist)
-        fig, axes = plt.subplots(nplots, sharex=True, figsize = (16, 4*nplots))
-        for plot, ax in zip(self.plotlist, axes):
+        plotlist = plotlist if plotlist is not None else self.plotlist
+        nplots = len(plotlist)
+        fig, axes = plt.subplots(nplots, sharex=True,
+                                 figsize=(figwidth, 4*nplots), squeeze=False)
+        for plot, ax in zip(plotlist, axes[:,0]):
             plotfuncname, plot_kwargs = self.plot_funcs[plot][0]
-            plotfunc = getattr(ax, plotfuncname)
+            try:
+                plotfunc = getattr(ax, plotfuncname)
+            except TypeError:
+                plotfunc = plotfuncname
+                # ax argument required:
+                plot_kwargs.update(ax=ax)
 
             plotdata = self.plotdata[plot]
 
@@ -578,19 +624,21 @@ def main_old(infile, outfile=None, format=None, nucl=False, allow_N=False,
 
 
 def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
-         records=None, recordsfile=None, slice=None, compare_parts=None,
-         compare_only=False):
+         records=None, recordsfile=None, treefile=None, slice=None, compare_parts=None,
+         compare_only=False, figwidth=16, plotlist=None):
     
     if not outfile:
         plt.switch_backend('TkAgg')
 
     align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, slice,
-                                       records, recordsfile)
+                                       records, recordsfile, treefile)
     if not compare_only:
         align_plot.measure()
     if compare_parts:
         align_plot.comp_parts(compare_parts)
-    align_plot.makefig()
+    if plotlist is not None:
+        plotlist = plotlist.split(',')
+    align_plot.makefig(figwidth, plotlist)
     align_plot.display(outfile)
 
 
@@ -605,10 +653,13 @@ if __name__ == '__main__':
                         help='Process per nucleotide position (instead of codon)')
     parser.add_argument('-N', '--allow-N', action='store_true',
                         help='Tolerate "N" nucleotides as NA value.')
-    parser.add_argument('-r', '--records',
+    rec_g = parser.add_mutually_exclusive_group()
+    rec_g.add_argument('-r', '--records',
                         help='select records (coma-sep list of 0-based integers)')
-    parser.add_argument('-R', '--recordsfile',
+    rec_g.add_argument('-R', '--recordsfile',
                         help='select records from a file (one record name per line)')
+    rec_g.add_argument('-t', '--treefile',
+                        help='select records from a newick tree (reorder the sequences)')
     parser.add_argument('-s', '--slice',
                         help='select positions (start:end). '\
                              '0-based, end excluded, in number of '\
@@ -618,6 +669,11 @@ if __name__ == '__main__':
                              'groups of data, e.g "(0,1);(2,3,4)"')
     parser.add_argument('-C', '--compare-only', action='store_true',
                         help='Do not display global scores')
+    parser.add_argument('-w', '--figwidth', default=16, type=float,
+                        help='Figure width (inches) [%(default)s]')
+    parser.add_argument('--plotlist',
+                        help='comma-sep list of plots. Valid values are:'\
+                             'al,gap,entropy,gap_entropy,sp,manh,pearson,part_sp')
     
     args = parser.parse_args()
 
