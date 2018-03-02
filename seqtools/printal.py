@@ -261,37 +261,50 @@ def printal(infile, wrap=False, format=None, slice=None, codon=False,
                 "Can't wrap on %d columns because sequence names use %d columns" %\
                 (ncols, name_len + pad)
             #print(ncols, name_len)
-
-            if slice:
-                # -1 because coords are taken in base 1
-                if codon:
-                    slstart, slend = [(int(pos)-1)*3 for pos in slice.split(':')]
-                else:
-                    slstart, slend = [int(pos)-1 for pos in slice.split(':')]
-
-                length = slend - slstart
-            else:
-                slstart, slend = 0, length
-
-            nblocks = length // block_width + 1
-            for block in range(nblocks):
-                start, stop = (block*block_width, (block+1)*block_width)
-                start += slstart
-                stop = min(stop + slstart, slend)
-
-                #print(start, stop)
-                print(' '*name_len + pad + ruler[start:stop])
-                for record in align:
-
-                    print(namefmt % record.id + pad + \
-                            colorize(record[start:stop]) + RESET)
-                if block < nblocks-1:
-                    print('')
-
         else:
-            print(' '*name_len + pad + ruler)
+            ncols = length + 1 + name_len + padlen
+            block_width = length + 1
+
+        nextstartcoord = int(slice.partition(':')[0]) if slice else 0
+
+        nblocks = length // block_width + 1
+        for block in range(nblocks):
+            start, stop = (block*block_width, (block+1)*block_width)
+            start += slstart
+            stop = min(stop + slstart, slend)
+
+            blockruler = ruler[start:stop]
+            #endcol = ncols-1 - (block_width - len(blockruler) + 1)
+
+            # If the end of previous line number was split, add it here
+            if (nextstartcoord % 10) == 0:
+                blockruler = str(nextstartcoord) + blockruler.lstrip('0123456789')
+            nextstartcoord = stop // (3 if codon else 1) - start1
+            
+            rulediff = len(blockruler) - (stop - start)
+            rulerline = ' '*(name_len + padlen - rulediff) + blockruler
+            if (nextstartcoord % 10) == 0:
+                rulerline = rulerline.rstrip('0123456789')
+
+            if slice and block == nblocks-1 and \
+                    len(rulerline + str(nextstartcoord)) <= ncols:
+                rulerline += str(nextstartcoord)
+                
+            print(rulerline)
+            #print(blockruler.rjust(endcol))
+            
             for record in align:
-                print(namefmt % record.id + pad + colorize(record) + RESET)
+                print(namefmt % record.id + pad + \
+                        colorize(record[start:stop]) + RESET)
+            if block < nblocks-1:
+                print('')
+
+
+        #else:
+        #    print(' '*name_len + pad + ruler[slstart:slend])
+        #    for record in align[:,slstart:slend]:
+        #        print(namefmt % record.id + pad + colorize(record) + RESET)
+    
     except BrokenPipeError as err:
         #from os import devnull
         #with open(devnull, 'w') as dn:
