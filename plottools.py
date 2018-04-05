@@ -58,11 +58,13 @@ def plotby(df, by, kind='line', ncols=3, sharex=True, sharey=True, **kwds):
     fig, axes = plt.subplots(nrows, ncols, sharex, sharey)
     #print(kde_axes, type(kde_axes))
     for i, (title, data) in enumerate(df_grouped):
+        #print("title")
         ax = axes[i // ncols, i % ncols]
         subkwds = dict((key,v[i]) if isinstance(v, list)
                        else (key, v[title]) if isinstance(v, dict)
                        else(key,v)
                        for key,v in kwds.items())
+        #print(subkwds)
         data.plot(kind=kind, ax=ax, title=title, **subkwds)
 
     # Hide unnecessary axes

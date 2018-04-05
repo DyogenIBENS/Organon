@@ -670,7 +670,7 @@ def rec_average_u(node, scname, subtree, measures=['dS']):
     
     This operation must be repeated along the tree, from the leaves to the root.
 
-    Update the subtree dictionary (holds the temporary measures for nodes).
+    Update the subtree dictionary (which holds the temporary measures for nodes).
     """
     # Array operation here: increment tmp_m with current measure.
     # One children per row.
@@ -701,17 +701,38 @@ def rec_average_w(node, scname, subtree, measures=['dS']):
     subtree[scname]['tmp_m'] = children_ms.mean(axis=0)
 
 
-def bound_average(fulltree, ensembl_version, phyltree, measures=['dS'],
-                    unweighted=False, method2=False):
+#def bound_average(fulltree, ensembl_version, phyltree, measures=['dS'],
+#                    unweighted=False, method2=False):
+def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
+                    unweighted=False, method2=False,
+                    tocalibrate=None):
     """normalize duplication node position between speciation nodes.
-     scaling:
+     
+     Scaling:
+     --------
        method1: d / (D' + d) with D' modified (UPGMA/WPGMA)
        method2: d / (D' + d) with D' as the original measure.
         - d: average (WPGMA/UPGMA-like) of branch length leading to next
              speciation, in units of 'measure'.
              'measure' must be an attribute present in fulltree ('dS', 'dist').
-        - D': branch length from the previous speciation to this duplication"""
+        - D': branch length from the previous speciation to this duplication.
+          
+    Arguments:
+    ----------
+      - calibration: dictionary of taxon -> age
+      - tocalibrate: function returning True when the node should be calibrated.
+                     Takes 2 params: (node, taxon).
+                     By default: check whether node is a duplication."""
+
     rec_average = rec_average_u if unweighted else rec_average_w
+    # function to determine if node should be calibrated.
+    # By default, check that node is a duplication:
+    if tocalibrate is None:
+        def tocalibrate(node, taxon):
+            children_taxa = set((subtree[ch.name]['taxon'] for ch in 
+                                 node.children))
+            return len( children_taxa & set((taxon,)) ) == 1
+    
     ages = []
     # list of ete3 subtrees of fulltree (between two consecutive speciations)
     subtrees = []
@@ -769,14 +790,12 @@ def bound_average(fulltree, ensembl_version, phyltree, measures=['dS'],
                 raise RuntimeError("Can not match species name in %r" % scname)
 
             subtree[scname] = {'taxon': taxon, 'br_m': branch_measures}
-            children_taxa = set((subtree[ch.name]['taxon'] for ch in 
-                                 node.children))
 
             # Compute the temporary measure of the node.
             rec_average(node, scname, subtree, measures)
 
-            if len( children_taxa & set((taxon,)) ) == 1:
-                # it is a duplication:
+            if tocalibrate(node, taxon):
+                # it is a duplication/uncalibrated:
                 node.add_feature('type', 'dup')
                 print_if_verbose("Dupl; m=%s" % subtree[scname]['tmp_m'])
 
@@ -795,11 +814,11 @@ def bound_average(fulltree, ensembl_version, phyltree, measures=['dS'],
                     subtree[scname]['age'] = ch_ages[0]
 
             else:
-                # it is a speciation.
+                # it is a speciation/calibrated.
                 print_if_verbose("Spe")
                 node.add_feature('type', 'spe')
                 # store the age of this taxon
-                node_age = subtree[scname]['age'] = phyltree.ages[taxon]
+                node_age = subtree[scname]['age'] = calibration[taxon]
                 subtree[scname]['speleaves'] = 1
                 ages.append([scname] + branch_measures.tolist() +
                             [node_age] * n_measures +
@@ -1012,7 +1031,7 @@ def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='
             measures=['dS'], method2=False, unweighted=False):
     fulltree = setup_fulltree(mlcfile, phyltree, replace_nwk, replace_by, measures)
     
-    ages, subtrees = bound_average(fulltree, ensembl_version, phyltree,
+    ages, subtrees = bound_average(fulltree, ensembl_version, phyltree.ages,
                                    measures=measures, unweighted=unweighted,
                                    method2=method2)
     showtree(fulltree)
