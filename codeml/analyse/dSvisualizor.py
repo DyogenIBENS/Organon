@@ -41,9 +41,10 @@ except ImportError:
     import argparse
 
 import matplotlib as mpl
+#print(mpl.get_backend())
 mpl.use('Agg', warn=False) # for figures to show up when the script is called from the shell
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import MaxNLocator #AutoLocator
 #plt.ion()
 import numpy as np
 import pandas as pd
@@ -188,6 +189,8 @@ class DataVisualizor(object):
         self.dup_ages.reset_index(drop=True, inplace=True)
         self.taxa_ages = self.dup_ages.groupby(['taxon'], sort=False)
         self.taxa = sorted(self.taxa_ages.groups.keys())
+        self.all_taxa = self.all_ages.taxon.unique() # useful when considering extra groups
+
         #"""A dot is used to separate words (genre.species)"""
         
         #newdata = [taxa_ages.get_group(lab)[age_keys] for lab in labels]
@@ -463,7 +466,7 @@ class DataVisualizor(object):
         n_subs = len(self.subs_taxa)
         figsize = (15, 11)
 
-        ticklocator = MaxNLocator(integer=True, nbins=5)
+        ticklocator = lambda: MaxNLocator(integer=True, nbins='auto')
         if vertical:
             nrows, ncols = (1, n_subs)
             sharex, sharey = False, True
@@ -474,7 +477,7 @@ class DataVisualizor(object):
             #invisible_spines = ('top', 'left', 'right')
             invisible_spines = ('top', 'right')
             label_ageaxis = lambda axes, axislabel: axes[0].set_ylabel(axislabel)
-            fix_dupticks = lambda ax: ax.xaxis.set_major_locator(ticklocator)
+            fix_dupticks = lambda ax: ax.xaxis.set_major_locator(ticklocator())
         else:
             nrows, ncols = (n_subs, 1)
             sharex, sharey = True, False
@@ -484,12 +487,12 @@ class DataVisualizor(object):
             #invisible_spines = ('top', 'bottom', 'right')
             invisible_spines = ('top', 'right')
             label_ageaxis = lambda axes, axislabel: axes[-1].set_xlabel(axislabel)
-            fix_dupticks = lambda ax: ax.yaxis.set_major_locator(ticklocator)
+            fix_dupticks = lambda ax: ax.yaxis.set_major_locator(ticklocator())
 
         # oldest_age needed to scale all subplots identically (range=(0, oldest_age))
         # warning: return the index **name**, not the row number.
         #print(self.dup_ages)
-        age_argmax = self.dup_ages[self.age_key].argmax()
+        age_argmax = self.dup_ages[self.age_key].idxmax()
         oldest_lab, oldest_age = self.dup_ages[['taxon', self.age_key]].loc[age_argmax]
         print("Oldest: %s (%s)" % (oldest_age, oldest_lab))
 
@@ -622,7 +625,9 @@ def run(command, ages_file, phyltreefile=None, ensembl_version=None,
         show_edited=None, no_edited=False, age_key=DEFAULT_AGE_KEY,
         nbins=DEFAULT_NBINS, vertical=False, x=None, y=None, xlim=None, ylim=None):
 
-    if not outfile:
+    curr_backend = mpl.get_backend()
+    if not outfile and "inline" not in curr_backend and curr_backend != "nbagg":
+        #plt.switch_backend("TkAgg")
         try:
             plt.switch_backend("Qt5Agg")
         except ImportError:
