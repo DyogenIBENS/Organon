@@ -16,9 +16,10 @@ def parse_assignments(line):
 
 
 def process_maf(maffilename, select_pattern=''):
-    """Iterator over a MAF file. Use select_seq to ignore any sequence names
-    not matching it. Use '|' to separate alternative patterns, e.g
-    'hg19|panTro'
+    """Iterate over alignment blocks (paragraphs) of a MAF file.
+    
+    Use `select_pattern` to ignore any sequence names not matching it. Use '|'
+    to separate alternative patterns, e.g 'hg19|panTro'
     """
 
     select_regex = re.compile(select_pattern)
@@ -60,13 +61,15 @@ def process_maf(maffilename, select_pattern=''):
 def get_seq(maffilename, seqname_start, ignore_overlap=False):
     """Retrieve all sequences from a species (for eg), check if there are
     overlapping fragments on the reference genome, and concatenate sequences."""
-    sequence, prev_seqname, prev_start, prev_length, prev_line = '', None, 0, 0, None
+    sequence, prev_seqname, prev_start, prev_length, prev_line = \
+          '',         None,          0,           0,      None
     with open(maffilename) as maf:
         for lineno, line in enumerate(maf):
             if line.startswith('s ' + seqname_start):
                 try:
                     _, seqname, start, length, strand, _, seq = line.split()
                 except ValueError as err:
+                    # Too many values to unpack, or not enough.
                     err.args += ("line %d:  %r" % (lineno, line),)
                     raise
                 species, contigname = seqname.split('.')
@@ -129,8 +132,8 @@ def get_seq2(maffilename, select_seq='', ref='hg19'):
                 elif seqdata['leftS'] == 'I':
                     gap_size = seqdata['leftC']
                     # Would be better to retrieve the actual sequence.
-                    filling_gap = 'N' * gap_size
-                    seq += filling_gap
+                    gap_filler = 'N' * gap_size
+                    seq += gap_filler
                     end += gap_size
                 else:
                 #elif seqdata['rightS'] in ('C', 'N', 'n', 'M'):
@@ -138,7 +141,6 @@ def get_seq2(maffilename, select_seq='', ref='hg19'):
 
                 seq += seqdata['seq'].replace('-', '')
                 end += length
-
 
 
 
@@ -155,5 +157,4 @@ if __name__ == '__main__':
     sequence = get_seq(**vars(args))
     print('>%s from %s' % (args.seqname_start, args.maffilename))
     print(sequence.replace('-', ''))
-
 
