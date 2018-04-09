@@ -665,40 +665,44 @@ def sum_average_dNdS(dNdS, nb2id, tree_nbs):
 #    return ages
 
 
-def rec_average_u(node, scname, subtree, measures=['dS']):
+def rec_average_u(node, scname, subtree, measures=['dS'], weightkey='cal_leaves'):
     """Perform the averaging of one node, given its descendants (unweighted).
     
     This operation must be repeated along the tree, from the leaves to the root.
 
     Update the subtree dictionary (which holds the temporary measures for nodes).
     """
+    # weightkey could also be: age
+
     # Array operation here: increment tmp_m with current measure.
-    # One children per row.
+    # One child per row.
     children_ms = np.stack([getattr(ch, m, np.NaN) for m in measures] \
                             + subtree[ch.name]['tmp_m']
                            for ch in node.children)
     # weights:
-    children_ws = np.array([[subtree[ch.name]['speleaves']] for ch in
+    children_ws = np.array([[subtree[ch.name][weight_key]] for ch in
                             node.children])
-    subtree[scname]['speleaves'] = children_ws.sum()
+    subtree[scname][weight_key] = children_ws.sum()
     children_ms *= children_ws / children_ws.sum()
 
     # mean of each measure (across children)
     subtree[scname]['tmp_m'] = children_ms.sum(axis=0)
+    #return children_ms.sum(axis=0)
 
 
-def rec_average_w(node, scname, subtree, measures=['dS']):
+def rec_average_w(node, scname, subtree, measures=['dS']): #, weightkey
     """Perform the averaging of one node, given its descendants (weighted).
     
     This operation must be repeated along the tree, from the leaves to the root
     """
     # Array operation here: increment tmp_m with current measure.
-    # One children per row.
+    # One child per row.
     children_ms = np.stack([getattr(ch, m, np.NaN) for m in measures] \
                             + subtree[ch.name]['tmp_m']
                            for ch in node.children)
     # mean of each measure (across children)
     subtree[scname]['tmp_m'] = children_ms.mean(axis=0)
+    #return children_ms.mean(axis=0)
 
 
 #def bound_average(fulltree, ensembl_version, phyltree, measures=['dS'],
@@ -725,13 +729,16 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                      By default: check whether node is a duplication."""
 
     rec_average = rec_average_u if unweighted else rec_average_w
+
+    def isdup(node, taxon):
+        """Checks whether node is a duplication"""
+        children_taxa = set((subtree[ch.name]['taxon'] for ch in 
+                             node.children))
+        return len( children_taxa & set((taxon,)) ) == 1
+
     # function to determine if node should be calibrated.
     # By default, check that node is a duplication:
-    if tocalibrate is None:
-        def tocalibrate(node, taxon):
-            children_taxa = set((subtree[ch.name]['taxon'] for ch in 
-                                 node.children))
-            return len( children_taxa & set((taxon,)) ) == 1
+    if tocalibrate is None: tocalibrate = isdup
     
     ages = []
     # list of ete3 subtrees of fulltree (between two consecutive speciations)
@@ -770,7 +777,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                                'tmp_m': measures_zeros,
                                'br_m': branch_measures,
                                'age': leaf_age,
-                               'speleaves': 1} # number of descendant speciation nodes
+                               'cal_leaves': 1} # number of descendant calibrated nodes
             #ages[scname] = 0
             ages.append([scname] + branch_measures.tolist() +
                         measures_zeros.tolist() +
@@ -794,12 +801,16 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             # Compute the temporary measure of the node.
             rec_average(node, scname, subtree, measures)
 
-            if tocalibrate(node, taxon):
-                # it is a duplication/uncalibrated:
+            if isdup(node, taxon):
                 node.add_feature('type', 'dup')
-                print_if_verbose("Dupl; m=%s" % subtree[scname]['tmp_m'])
+            else:
+                node.add_feature('type', 'spe')
 
-                # Store the age of the **next speciation** event (propagate down).
+            if tocalibrate(node, taxon):
+                # it is uncalibrated:
+                print_if_verbose("Uncal.; m=%s" % subtree[scname]['tmp_m'])
+
+                # Store the age of the **next calibrated** node (propagate down).
                 # Since it is a duplication, this should be the same for
                 # children[0] and children[1]:
                 ch_ages = [subtree[ch.name]['age'] for ch in node.children]
@@ -814,12 +825,11 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                     subtree[scname]['age'] = ch_ages[0]
 
             else:
-                # it is a speciation/calibrated.
-                print_if_verbose("Spe")
-                node.add_feature('type', 'spe')
+                # it is calibrated.
+                print_if_verbose("Calibrated")
                 # store the age of this taxon
                 node_age = subtree[scname]['age'] = calibration[taxon]
-                subtree[scname]['speleaves'] = 1
+                subtree[scname]['cal_leaves'] = 1
                 ages.append([scname] + branch_measures.tolist() +
                             [node_age] * n_measures +
                             ["spe", getattr(node.up, 'name', None), taxon, fulltree.name])
@@ -892,10 +902,10 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
 
                 # copy the node so that it becomes the new root
                 nodecopy = node.copy()
-                speleaves = nodecopy.get_leaves(is_leaf_fn=is_subtree_leaf)
-                for splf in speleaves:
-                    for splfch in splf.children:
-                        splfch.detach()
+                cal_leaves = nodecopy.get_leaves(is_leaf_fn=is_subtree_leaf)
+                for clf in cal_leaves:
+                    for clfch in clf.children:
+                        clfch.detach()
                 
                 subtrees.append(nodecopy)
 
