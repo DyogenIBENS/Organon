@@ -680,9 +680,9 @@ def rec_average_u(node, scname, subtree, measures=['dS'], weightkey='cal_leaves'
                             + subtree[ch.name]['tmp_m']
                            for ch in node.children)
     # weights:
-    children_ws = np.array([[subtree[ch.name][weight_key]] for ch in
+    children_ws = np.array([[subtree[ch.name][weightkey]] for ch in
                             node.children])
-    subtree[scname][weight_key] = children_ws.sum()
+    subtree[scname][weightkey] = children_ws.sum()
     children_ms *= children_ws / children_ws.sum()
 
     # mean of each measure (across children)
@@ -705,11 +705,39 @@ def rec_average_w(node, scname, subtree, measures=['dS']): #, weightkey
     #return children_ms.mean(axis=0)
 
 
-#def bound_average(fulltree, ensembl_version, phyltree, measures=['dS'],
-#                    unweighted=False, method2=False):
+# Functions used to determine whether a node should be calibrated in `bound_average`
+def isdup(node, taxon, subtree):
+    """Checks whether node is a duplication"""
+    children_taxa = set((subtree[ch.name]['taxon'] for ch in 
+                         node.children))
+    return len( children_taxa & set((taxon,)) ) == 1
+
+def isinternal(node, taxon=None, subtree=None):
+    """True if node is neither a leaf or the root"""
+    return not node.is_leaf() and not node.is_root()
+
+#example of a check for a given speciation node.
+def is_murinae_spe(node, taxon, subtree):
+    return taxon=='Murinae' and not isdup(node, taxon, subtree)
+
+def def_is_target_speciation(target_sp):
+    """define the speciation node check function"""
+    def is_target_spe(node, taxon, subtree):
+        return taxon==target_sp and not isdup(node, taxon, subtree)
+    return is_target_spe
+
+def get_tocalibrate(key):
+    tocalibrate_funcs = {'isdup': isdup,
+                         'isinternal': isinternal}
+    try:
+        return tocalibrate_funcs[key]
+    except KeyError:
+        return def_is_target_speciation(key)
+    
+
 def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                     unweighted=False, method2=False,
-                    tocalibrate=None):
+                    tocalibrate="isdup", keeproot=False):
     """normalize duplication node position between speciation nodes.
      
      Scaling:
@@ -730,16 +758,9 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
 
     rec_average = rec_average_u if unweighted else rec_average_w
 
-    def isdup(node, taxon):
-        """Checks whether node is a duplication"""
-        children_taxa = set((subtree[ch.name]['taxon'] for ch in 
-                             node.children))
-        return len( children_taxa & set((taxon,)) ) == 1
+    # Convert argument to function
+    tocalibrate = get_tocalibrate(tocalibrate)
 
-    # function to determine if node should be calibrated.
-    # By default, check that node is a duplication:
-    if tocalibrate is None: tocalibrate = isdup
-    
     ages = []
     # list of ete3 subtrees of fulltree (between two consecutive speciations)
     subtrees = []
@@ -748,13 +769,13 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
     n_measures = len(measures)
     # initial measure while passing a speciation for the first time
     measures_zeros = np.zeros(n_measures)
-    is_subtree_leaf = lambda node: (not node.is_root() and node.type in set(('leaf', 'spe')))
+    is_subtree_leaf = lambda node: (not node.is_root() and node.cal is True)
 
     for node in fulltree.traverse('postorder'):
         scname = node.name
         print_if_verbose("* %s:" % scname, end=' ')
         ### DISCARD all dup just after the root speciation/duplication.
-        if node.is_root():
+        if node.is_root() and not keeproot:
             print_if_verbose("Root (discard)")
             continue
         #try:
@@ -764,10 +785,11 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
         #        err.args += ("Node: %r (is_root: %s)" % (node, node.is_root()),)
         #        raise
         if node.is_leaf():
-            node.add_feature('type', 'leaf')
+            eventtype = 'leaf'
+            node.add_features(type='leaf', cal=True)
             try:
                 taxon = convert_gene2species(scname, ensembl_version)
-                leaf_age = 0
+                leaf_age = 0 # TODO: take From the calibration dictionary
             except RuntimeError as err:
                 print('WARNING', err, file=sys.stderr)
                 taxon = None
@@ -781,7 +803,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             #ages[scname] = 0
             ages.append([scname] + branch_measures.tolist() +
                         measures_zeros.tolist() +
-                        ["leaf", getattr(node.up, 'name', None), taxon, fulltree.name])
+                        [1, "leaf", getattr(node.up, 'name', None), taxon, fulltree.name])
             print_if_verbose("Leaf")
         else:
             #try:
@@ -801,13 +823,12 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             # Compute the temporary measure of the node.
             rec_average(node, scname, subtree, measures)
 
-            if isdup(node, taxon):
-                node.add_feature('type', 'dup')
-            else:
-                node.add_feature('type', 'spe')
+            eventtype = 'dup' if isdup(node, taxon, subtree) else 'spe'
+            node.add_feature('type', eventtype)
 
-            if tocalibrate(node, taxon):
+            if tocalibrate(node, taxon, subtree):
                 # it is uncalibrated:
+                node.add_feature('cal', False)
                 print_if_verbose("Uncal.; m=%s" % subtree[scname]['tmp_m'])
 
                 # Store the age of the **next calibrated** node (propagate down).
@@ -815,8 +836,9 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                 # children[0] and children[1]:
                 ch_ages = [subtree[ch.name]['age'] for ch in node.children]
                 if len(set(ch_ages)) > 1:
+
                     print(("WARNING: at %r: unequal children's ages (next "
-                           "speciation ages): %s" % (scname, ch_ages)),
+                           "calibrated ages): %s" % (scname, ch_ages)),
                           file=sys.stderr)
                     #showtree(fulltree)
                     subtree[scname]['age'] = np.NaN
@@ -826,16 +848,18 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
 
             else:
                 # it is calibrated.
+                node.add_feature('cal', True)
                 print_if_verbose("Calibrated")
                 # store the age of this taxon
                 node_age = subtree[scname]['age'] = calibration[taxon]
                 subtree[scname]['cal_leaves'] = 1
                 ages.append([scname] + branch_measures.tolist() +
                             [node_age] * n_measures +
-                            ["spe", getattr(node.up, 'name', None), taxon, fulltree.name])
+                            [1, # calibrated
+                             eventtype, getattr(node.up, 'name', None), taxon, fulltree.name])
 
-                for i, m in enumerate(measures):
-                    node.add_feature('age_'+m, node_age)
+                
+                node.add_features(**{'age_'+m: node_age for m in measures})
                 # climb up tree until next speciation and assign an age to
                 # each duplication met on the way
                 branch_lengths = [node_age - subtree[ch.name]['age'] for ch in node.children]
@@ -856,7 +880,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                         ###     distance. TODO.
                         scaling_m = subtree[scname]['tmp_m'] * branch_length/mean_br_len
 
-                    print_if_verbose("    climb up to next speciation: " \
+                    print_if_verbose("    climb up to next calibration: " \
                                      "br_len=%s" % branch_length)
                     # Dynamic list during the climbing:
                     # store (node, measures for this node's branch)
@@ -869,12 +893,13 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                             err.args += ("Error: Node exists twice in the "
                               "tree. You may need to rerun `prune2family.py`",)
                             raise
-                        print_if_verbose("    - %s: measure(to speciation)=%s"\
-                                         "; measure(from speciation)=%s" % \
+                        print_if_verbose("    - %s: measure(to calib)=%s"\
+                                         "; measure(from calib)=%s" % \
                                             (nextnode.name,
                                              nextnode_m, next_path_m))
                         # or: any(nextnode_m > measures_zeros) ?
                         if nextnode_m is not measures_zeros:
+                            # It's a leaf
                             if method2:
                                 scaling_m = next_path_m + nextnode_m
 
@@ -889,7 +914,10 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                             nextnode_measures = subtree[nextnode.name]['br_m'].tolist()
                             ages.append([nextnode.name] + nextnode_measures + \
                                         age.tolist() + \
-                                        ["dup", nextnode.up.name, ch_taxon,
+                                        [0, #dated
+                                         eventtype, nextnode.up.name,
+                                         subtree[nextnode.name]['taxon'],
+                                         #ch_taxon,
                                          fulltree.name])
                             for i, m in enumerate(measures):
                                 nextnode.add_feature('age_'+m, age[i])
@@ -900,7 +928,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                                     for nch in nextnode.children)
                         subtree.pop(nextnode.name)
 
-                # copy the node so that it becomes the new root
+                # copy the node so that it becomes a rooted tree
                 nodecopy = node.copy()
                 cal_leaves = nodecopy.get_leaves(is_leaf_fn=is_subtree_leaf)
                 for clf in cal_leaves:
@@ -947,7 +975,7 @@ def save_fulltree(fulltree, opened_outfile):
     fulltree = del_singletons(fulltree)
 
     if fulltree.children:
-        opened_outfile.write(fulltree.write(features=['type', 'age_dS',
+        opened_outfile.write(fulltree.write(features=['cal', 'type', 'age_dS',
                                                       'age_dist', 'age_dN'],
                                             format=1,
                                             format_root_node=True) + '\n')
@@ -1038,12 +1066,14 @@ def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
     
 #def process_toages(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
 def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='.nwk',
-            measures=['dS'], method2=False, unweighted=False):
+            measures=['dS'], method2=False, unweighted=False, tocalibrate="isdup", 
+            keeproot=False):
     fulltree = setup_fulltree(mlcfile, phyltree, replace_nwk, replace_by, measures)
     
     ages, subtrees = bound_average(fulltree, ensembl_version, phyltree.ages,
                                    measures=measures, unweighted=unweighted,
-                                   method2=method2)
+                                   method2=method2, tocalibrate=tocalibrate, 
+                                   keeproot=keeproot)
     showtree(fulltree)
     return ages, fulltree, subtrees
 
@@ -1076,7 +1106,7 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
          phyltreefile=PHYLTREEFILE, method2=False,
          measures=['t', 'dN', 'dS', 'dist'], unweighted=False, verbose=False,
          show=None, replace_nwk='.mlc', replace_by='.nwk', ignore_errors=False,
-         saveas='ages'):
+         saveas='ages', tocalibrate='isdup', keeproot=False):
     nb_mlc = len(mlcfiles)
     
     # "compile" some functions to avoid redondant tests ("if verbose: ...")
@@ -1111,7 +1141,7 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
         if saveas == 'ages':
             header = ['name'] + ['branch_'+m for m in measures] + \
                      ['age_'+m for m in measures] + \
-                     ['type', 'parent', 'taxon', 'subgenetree']
+                     ['calibrated', 'type', 'parent', 'taxon', 'subgenetree']
             out.write('\t'.join(header) + '\n')
 
         for i, mlcfile in enumerate(mlcfiles, start=1):
@@ -1121,7 +1151,8 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
             try:
                 result = process(mlcfile, ensembl_version, phyltree,
                                  replace_nwk, replace_by, measures,
-                                 method2=method2, unweighted=unweighted)
+                                 method2=method2, unweighted=unweighted,
+                                 tocalibrate=tocalibrate, keeproot=keeproot)
                 save_result(result[saveas_i], out)
             except BaseException as err:
                 print()
@@ -1143,46 +1174,60 @@ def readfromfiles(filenames):
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__, 
                                 formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('outfile')
-    parser.add_argument('mlcfiles', nargs='+')
-    parser.add_argument('--fromfile', action='store_true',
-                        help='Take mlcfiles from a file (commented lines omitted).')
-    parser.add_argument('-e', '--ensembl-version', type=int,
-                        default=ENSEMBL_VERSION,
-                        help='[%(default)s]')
-    parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE,
-                        help='[%(default)s]')
-    parser.add_argument('--method2', action='store_true')
-    parser.add_argument('-t', '--tofulltree', dest='saveas', action='store_const',
-                        const='fulltree', default='ages',
-                        help='Do not compute the table, but save trees in one'\
-                            ' newick file with the chosen measure as distance')
-    parser.add_argument('-s', '--tosubtrees', dest='saveas', action='store_const',
-                        const='subtrees', default='ages',
-                        help='Do not compute the table, but save subtrees in '\
-                            'one newick file with the chosen measure as ' \
-                            'distance. "subtree" means the gene subtree '\
-                            'contained between two speciations.')
-    parser.add_argument('--measures', nargs='*',
-                        default=['t', 'dN', 'dS', 'dist'],
-                        choices=['t', 'dN', 'dS', 'dist'],
-                        help='Which distance measure: dist (from PhyML) or ' \
-                             'dS,dN,t (from codeml)')
-    parser.add_argument('-u', '--unweighted', action='store_true', 
-                        help='average weighted by the size of clusters')
-    parser.add_argument('-r', '--replace-nwk', default='\.mlc$',
-                        help='string to be replaced by REPLACE_BY to find the'\
-                               ' tree file [%(default)s]')
-    parser.add_argument('-R', '--replace-by', default='.nwk',
-                        help='replacement string file [%(default)s]')
-    parser.add_argument('--show',
+    # Input options
+    gi = parser.add_argument_group('Input parameters')
+    gi.add_argument('outfile')
+    gi.add_argument('mlcfiles', nargs='+')
+    gi.add_argument('--fromfile', action='store_true',
+                    help='Take mlcfiles from a file (commented lines omitted).')
+    gi.add_argument('-e', '--ensembl-version', type=int,
+                    default=ENSEMBL_VERSION,
+                    help='[%(default)s]')
+    gi.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE,
+                    help='[%(default)s]')
+    gi.add_argument('-r', '--replace-nwk', default='\.mlc$',
+                    help='string to be replaced by REPLACE_BY to find the'\
+                         ' tree file [%(default)s]')
+    gi.add_argument('-R', '--replace-by', default='.nwk',
+                    help='replacement string file [%(default)s]')
+    # Run options
+    gr = parser.add_argument_group('Run parameters')
+    gr.add_argument('-2', '--method2', action='store_true')
+    gr.add_argument('-u', '--unweighted', action='store_true', 
+                    help='average weighted by the size of clusters')
+    gr.add_argument('-c', '--tocalibrate', default="isdup",
+                    help='Which nodes to calibrate: values: "isdup", ' \
+                         '"isinternal", or a taxon name. [%(default)r]')
+    gr.add_argument('-k', '--keeproot', action='store_true', 
+                    help="Calibrate data immediately following the root " \
+                         "(not recommended).")
+    gr.add_argument("-i", "--ignore-errors", action="store_true", 
+                    help="On error, print the error and continue the loop.")
+    # Output options
+    go = parser.add_argument_group('Output parameters')
+    go.add_argument('--measures', nargs='*',
+                    default=['t', 'dN', 'dS', 'dist'],
+                    choices=['t', 'dN', 'dS', 'dist'],
+                    help='Which distance measure: dist (from the newick ' \
+                         'tree) or dS,dN,t (from codeml)')
+    go.add_argument('-t', '--tofulltree', dest='saveas', action='store_const',
+                    const='fulltree', default='ages',
+                    help='Do not compute the table, but save trees in one'\
+                        ' newick file with the chosen measure as distance')
+    go.add_argument('-s', '--tosubtrees', dest='saveas', action='store_const',
+                    const='subtrees', default='ages',
+                    help='Do not compute the table, but save subtrees in '\
+                        'one newick file with the chosen measure as ' \
+                        'distance. "subtree" means the gene subtree '\
+                        'contained between two speciations.')
+    # Display options
+    gd = parser.add_argument_group('Display parameters')
+    gd.add_argument('--show',
             help=('"gui": start the interactive ete3 tree browser\n'
                   '"notebook": create global var FULLTREE and TS for rendering\n'
                   'other value: save to file'))
-    parser.add_argument('-v', '--verbose', action='store_true', 
-                        help='print progression along tree')
-    parser.add_argument("-i", "--ignore-errors", action="store_true", 
-                        help="On error, print the error and continue the loop.")
+    gd.add_argument('-v', '--verbose', action='store_true', 
+                    help='print progression along tree')
     args = parser.parse_args()
     dictargs = vars(args)
     if dictargs.pop('fromfile'):

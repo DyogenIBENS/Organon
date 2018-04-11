@@ -168,27 +168,29 @@ class DataVisualizor(object):
         # graphical parameters:
         self.vertical = False
 
-        self.all_ages = pd.read_table(ages_file) #, names=['name','age','type'])
+        self.all_ages = pd.read_table(ages_file, sep='\t') #, names=['name','age','type'])
         #print(ages_file)
         #print(self.all_ages)
         ### TODO: if at least one of these is missing.
         if not set(('taxon', 'genetree')) & set(self.all_ages.columns):
             self.all_ages = splitname2taxongenetree(self.all_ages, "name")
 
-        self.dup_ages = self.all_ages[self.all_ages.type == 'dup'].copy()
-        print('shape:', self.dup_ages.shape)
-        assert self.dup_ages.shape[0] > 0, "No duplications in data."
+        self.ages = self.all_ages[self.all_ages['calibrated'] == 0].copy()
+        print('shape:', self.ages.shape)
 
         if no_edited:
             self.load_edited_set(no_edited)
-            self.not_edited = self.dup_ages.name.apply(lambda x: x not in self.edited_set)
-            self.dup_ages = self.dup_ages[self.not_edited]
+            self.not_edited = self.ages.name.apply(lambda x: x not in self.edited_set)
+            self.ages = self.ages[self.not_edited]
         
-        self.dup_ages.drop_duplicates(inplace=True)
-        print('shape after drop_dup:', self.dup_ages.shape)
-        self.dup_ages.reset_index(drop=True, inplace=True)
-        self.taxa_ages = self.dup_ages.groupby(['taxon'], sort=False)
-        self.taxa = sorted(self.taxa_ages.groups.keys())
+        self.ages.drop_duplicates(inplace=True)
+        assert self.ages.shape[0] > 0, "All data was filtered out."
+        print('shape after drop_dup:', self.ages.shape)
+        self.ages.reset_index(drop=True, inplace=True)
+        self.taxa_ages = self.ages.groupby(['taxon'], sort=False)
+        self.taxa_evt_ages = self.ages.groupby(['taxon', 'type'], sort=False)
+        self.taxa_evt = sorted(k for k in self.taxa_evt_ages.groups.keys() if k[1] != 'leaf')
+        self.taxa = sorted(set(taxon for taxon, evt in self.taxa_evt))
         self.all_taxa = self.all_ages.taxon.unique() # useful when considering extra groups
 
         #"""A dot is used to separate words (genre.species)"""
@@ -218,21 +220,29 @@ class DataVisualizor(object):
         cmap = plt.get_cmap(cmap_name, len(self.taxa))
         self.taxonalpha = alpha
         self.taxon2color = {taxon: cmap(i) for i, taxon in enumerate(self.taxa)}
-        self.dup_ages['taxoncolor'] = self.dup_ages.taxon.apply(self.taxon2color.get)
+        self.taxon_evt_2color = {(taxon, evt): col if evt=='dup' else '#00000088' \
+                                    for taxon, col in self.taxon2color.items() \
+                                    for evt in ('dup', 'spe')}
+        self.ages['taxoncolor'] = self.ages.taxon.apply(self.taxon2color.get)
+        self.ages['taxon_evt_color'] = self.ages[['taxon', 'type']].apply(
+                lambda k: self.taxon_evt_2color[tuple(k)], axis=1, raw=True)
 
 
     def scatter(self, x, y, xlim=None, ylim=None):
         """scatter plot of x~y, colorized by taxon."""
-        #self.ax = self.dup_ages.plot.scatter(x, y, c=self.dup_ages.taxoncolor,
+        #self.ax = self.ages.plot.scatter(x, y, c=self.ages.taxoncolor,
         #                                     alpha=self.taxonalpha)
         #self.fig = self.ax.figure
         self.fig, self.ax = plt.subplots()
-        for taxon in self.taxa:
-            data = self.taxa_ages.get_group(taxon)
+        for taxon, evt in self.taxa_evt:
+            #if evt == 'leaf': continue
+
+            data = self.taxa_evt_ages.get_group((taxa, evt))
+            datacolor = self.taxon2color[taxon] if evt == 'dup' else 'black'
             #print("Taxon: %s\n" % taxon, data.head())
             try:
                 data.plot.scatter(x, y, ax=self.ax,
-                                  color=self.taxon2color[taxon],
+                                  color=datacolor,
                                   alpha=self.taxonalpha, label=taxon)
             except KeyError as err:
                 print(('Data column %r not available for scatter plot. Check '
@@ -256,9 +266,9 @@ class DataVisualizor(object):
         #    data = self.taxa_ages.get_group(taxon)
         #if ylim:
         #    ylim = [float(yl) for yl in ylim.split(',')]
-        #    data = self.dup_ages[self.dup_ages[y] < ylim[1]]
+        #    data = self.ages[self.ages[y] < ylim[1]]
         #else:
-        data = self.dup_ages
+        data = self.ages
         violinplot(x, y, data=data, scale='width', cut=0, ax=self.ax)
         plt.setp(self.ax.xaxis.get_majorticklabels(), rotation=45, ha='right',
                  va='top')
@@ -275,20 +285,21 @@ class DataVisualizor(object):
         This data is given to matplotlib to plot a single histogram."""
         
         label_len = max(len(lab) for lab in self.taxa)
-        label_fmt = "%%-%ds" % label_len
+        label_fmt = "%%-%ds (%%s)" % label_len
 
-        taxa = taxa if taxa else self.taxa
+        taxa = taxa if taxa is not None else self.taxa
 
         #duptaxa = [k for k in self.taxa if k in self.taxa_ages.groups]
-        data = [self.taxa_ages.get_group(lab)[self.age_key].dropna() \
-                    for lab in taxa if lab in self.taxa_ages.groups]
+        data = [self.taxa_evt_ages.get_group((lab, evt))[self.age_key].dropna().as_matrix() \
+                    for lab, evt in self.taxa_evt \
+                    if lab in taxa]
                     #if lab in self.taxa_ages.groups else [] \
         #data = [self.taxa_ages.groups.get(lab, {self.age_key: []})[self.age_key].dropna() \
         #           for lab in taxa
-        colors      = [self.taxon2color[lab] for lab in taxa \
-                                              if lab in self.taxa_ages.groups]
-        labs_legend = [label_fmt % lab for lab in taxa \
-                                        if lab in self.taxa_ages.groups]
+        colors      = [self.taxon_evt_2color[key] for key in self.taxa_evt \
+                                                            if key[0] in taxa]
+        labs_legend = [label_fmt % (lab, evt) for lab, evt in self.taxa_evt \
+                                        if lab in taxa]
         #Quick fix when no rows in data (meaning, only NaN values)
         #Should dropna upstream!!!
         if not all(len(d) for d in data):
@@ -321,12 +332,13 @@ class DataVisualizor(object):
                      histtype='barstacked',
                      rwidth=1,
                      color=colors,
+                     alpha=self.taxonalpha,
                      edgecolor='none',
                      label=labels)
         self.ax.legend(fontsize='x-small')
-        self.ax.set_title("Distribution of the age of duplications")
+        self.ax.set_title("Distribution of %s" % self.age_key)
         self.ax.set_xlabel(self.age_key)
-        self.ax.set_ylabel("Number of duplications")
+        self.ax.set_ylabel("Number of nodes")
         #plt.gca().set_xlim(0,2)
         return self.ax
 
@@ -341,7 +353,7 @@ class DataVisualizor(object):
         """
         print("Loading species tree")
         #print(self.taxa)
-        root, subtree = self.phyltree.getSubTree(self.taxa)
+        root, subtree = self.phyltree.getSubAncTree(self.taxa)
 
         # reorder branches in a visually nice manner:
         ladderize(subtree, root)
@@ -491,13 +503,14 @@ class DataVisualizor(object):
 
         # oldest_age needed to scale all subplots identically (range=(0, oldest_age))
         # warning: return the index **name**, not the row number.
-        #print(self.dup_ages)
-        age_argmax = self.dup_ages[self.age_key].idxmax()
-        oldest_lab, oldest_age = self.dup_ages[['taxon', self.age_key]].loc[age_argmax]
+        #print(self.ages)
+        age_argmax = self.ages[self.age_key].idxmax()
+        oldest_lab, oldest_age = self.ages[['taxon', self.age_key]].loc[age_argmax]
         print("Oldest: %s (%s)" % (oldest_age, oldest_lab))
 
         fig, axes = plt.subplots(nrows, ncols, sharex=sharex, sharey=sharey,
-                                 figsize=figsize)
+                                 squeeze=False, figsize=figsize)
+        axes = axes.flatten()
         transfig = fig.transFigure.inverted()
         cmap = plt.cm.get_cmap("Dark2", len(self.taxa))
 
