@@ -99,8 +99,8 @@ def name_ancestors(timetreefile, to_table=False):
                         preserve_branch_length=True)
 
     print('Placing common ancestors', file=sys.stderr)
-    ncbi.annotate_tree(timetree, 'taxid')
-    #myannotate(timetree, ncbi)
+    #ncbi.annotate_tree(timetree, 'taxid')
+    myannotate(timetree, ncbi)
     matchrename_ncbitax(timetree)
     
     #print({ft:getattr(timetree, ft) for ft in timetree.features},

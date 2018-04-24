@@ -18,17 +18,19 @@ VAR = {'d': 'node.dist',
        'n': 'node.name',
        's': 'len(node)',
        'u': 'node.up',
-       'a': 'node.add_child',
        'l': 'node.is_leaf()',
        'r': 'node.is_root()',
-       'L': 'node.ladderize()',
        'f': 'node.features',
        'A': 'node.get_ancestors()'}
+       #'_': 'node'
 
 ACTIONS = {'w': 'print(node.write(format=outfmt, format_root_node=True)); return',
            'o': 'node.delete(prevent_nondicotomic=False, preserve_branch_length=True)',
            'p': 'print(node.name)',
-           'd': 'node.detach()'}
+           'a': 'node.add_child',
+           'L': 'node.ladderize()',
+           'd': 'node.detach()',
+           'F': 'node.add_feature'}
 
 EPILOG="""SHORTCUTS
 Variables:
@@ -62,7 +64,7 @@ def main(treefile, test, action, format, outfmt, strategy, is_leaf_fn,
             exec(action_str)
 
     if output:
-        print(tree.write(format=outfmt, format_root_node=True))
+        print(tree.write(format=outfmt, format_root_node=True))#features=
 
 
 if __name__ == '__main__':
