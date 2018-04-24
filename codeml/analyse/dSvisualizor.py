@@ -215,15 +215,18 @@ class DataVisualizor(object):
             #plt.close(self.fig)
 
 
-    def colorize_taxa(self, alpha=0.5, cmap_name='Dark2'):
+    def colorize_taxa(self, alpha=0.5, cmap_name='tab20b'): #'Dark2'
         """Create colormap for taxa (add a column to the data + create a dict)"""
-        cmap = plt.get_cmap(cmap_name, len(self.taxa))
+        cmaps = {'dup': plt.get_cmap(cmap_name, len(self.taxa)),
+                 'spe': plt.get_cmap('tab20c',  len(self.taxa))}
         self.taxonalpha = alpha
-        self.taxon2color = {taxon: cmap(i) for i, taxon in enumerate(self.taxa)}
-        self.taxon_evt_2color = {(taxon, evt): col if evt=='dup' else '#00000088' \
-                                    for taxon, col in self.taxon2color.items() \
+        #self.taxon2color = {taxon: cmap(i) for i, taxon in enumerate(self.taxa)}
+        #self.ages['taxoncolor'] = self.ages.taxon.apply(self.taxon2color.get)
+        self.taxon_evt_2color = {(taxon, evt): cmaps[evt](i) \
+                                    for i, taxon in enumerate(self.taxa) \
                                     for evt in ('dup', 'spe')}
-        self.ages['taxoncolor'] = self.ages.taxon.apply(self.taxon2color.get)
+        #use `hatch=` in plt.bar for patterning.
+
         self.ages['taxon_evt_color'] = self.ages[['taxon', 'type']].apply(
                 lambda k: self.taxon_evt_2color[tuple(k)], axis=1, raw=True)
 
@@ -238,7 +241,7 @@ class DataVisualizor(object):
             #if evt == 'leaf': continue
 
             data = self.taxa_evt_ages.get_group((taxa, evt))
-            datacolor = self.taxon2color[taxon] if evt == 'dup' else 'black'
+            datacolor = self.taxon_evt_2color[(taxon, evt)]
             #print("Taxon: %s\n" % taxon, data.head())
             try:
                 data.plot.scatter(x, y, ax=self.ax,
@@ -361,7 +364,8 @@ class DataVisualizor(object):
         #for anc, children in subtree.items():
         #    print(label_fmt % anc, children)
         get_children = lambda tree, node: tree.get(node, [])
-        dfw = dfw_descendants_generalized(subtree, get_children, queue=[root])
+        dfw = dfw_descendants_generalized(subtree, get_children, queue=[root])#,
+                                          #include_leaves=True)
                                           #queue=get_children(subtree, root))
         return reversed(list(dfw))
 
@@ -402,7 +406,7 @@ class DataVisualizor(object):
             self.subs_taxa[low_sub].add(anc1)
 
         # remove root from subs_taxa:
-        self.subs_taxa[low_sub].remove(anc1)
+        #self.subs_taxa[low_sub].remove(anc1)
 
         print(" ---\n Assigned coordinates (age, subplot)")
         for anc, coords in self.hist_coords.items():
