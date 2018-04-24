@@ -716,7 +716,9 @@ def isinternal(node, taxon=None, subtree=None):
     """True if node is neither a leaf or the root"""
     return not node.is_leaf() and not node.is_root()
 
-#example of a check for a given speciation node.
+#def 
+
+#example of a check for a given speciation node. Useless because cannot calibrate dups
 def is_murinae_spe(node, taxon, subtree):
     return taxon=='Murinae' and not isdup(node, taxon, subtree)
 
@@ -726,13 +728,19 @@ def def_is_target_speciation(target_sp):
         return taxon==target_sp and not isdup(node, taxon, subtree)
     return is_target_spe
 
+def def_is_any_taxon(target_taxa):
+    """define the speciation node check function"""
+    def is_any_taxon(node, taxon, subtree):
+        return taxon in target_taxa
+    return is_any_taxon
+
 def get_tocalibrate(key):
     tocalibrate_funcs = {'isdup': isdup,
                          'isinternal': isinternal}
     try:
         return tocalibrate_funcs[key]
     except KeyError:
-        return def_is_target_speciation(key)
+        return def_is_any_taxon(key.split(','))
     
 
 def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
@@ -1197,7 +1205,7 @@ if __name__=='__main__':
                     help='average weighted by the size of clusters')
     gr.add_argument('-c', '--tocalibrate', default="isdup",
                     help='Which nodes to calibrate: values: "isdup", ' \
-                         '"isinternal", or a taxon name. [%(default)r]')
+                         '"isinternal", or a comma-sep list of taxa. [%(default)r]')
     gr.add_argument('-k', '--keeproot', action='store_true', 
                     help="Calibrate data immediately following the root " \
                          "(not recommended).")
