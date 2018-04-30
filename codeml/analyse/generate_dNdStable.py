@@ -326,6 +326,8 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
     When a node has a single child: take the branch dS on which it is, 
     and divide proportionnally to each segment dist."""
 
+    colindex = {colname: i for i, colname in enumerate(dNdS['colnames'])}
+
     for node in fulltree.get_descendants('postorder'): # exclude root
         if len(node.children) != 1:
             parent = node.up
@@ -342,14 +344,12 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
             
             if parent.is_root():
                 # then this is a root with a single children: cannot have dS
-                t_tot = 0
-                dS_tot = 0
-                dN_tot = 0
+                totals = {valname: np.NaN for valname in colindex}
             else:
                 try:
-                    t_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][0]
-                    dS_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][5]
-                    dN_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][4]
+                    br = id2nb[parent.name] + '..' + id2nb[node.name]
+                    totals = {valname: dNdS[br][i] for valname, i in colindex.items()}
+
                 except KeyError as err:
                     raise
     
@@ -357,7 +357,7 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
                 if raise_at_intermediates:
                     raise AssertionError('Node %r has a single child.' % parent.name)
 
-                dist_tot = sum(n.dist for n in intermediates + [node])
+                dist_tot = sum(n.dist for n in (intermediates + [node]))
 
                 if dist_tot == 0:
                     print("WARNING: dS = 0 between %r and %r" % (parent.name,
@@ -365,18 +365,17 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
                             file=sys.stderr)
                     dist_tot = 1. # should set to NaN to be sure.
 
-                for inter_node in intermediates + [node]:
-                    inter_node.add_feature('t',
-                                           t_tot * inter_node.dist / dist_tot)
-                    inter_node.add_feature('dS',
-                                           dS_tot * inter_node.dist / dist_tot)
-                    inter_node.add_feature('dN',
-                                           dN_tot * inter_node.dist / dist_tot)
+                # Constant rates extrapolation.
+                for inter_node in (intermediates + [node]):
+                    dist_ratio = inter_node.dist / dist_tot
+                    for valname, val in totals.items():
+                        if valname in ('t', 'dN', 'dS', 'N*dN', 'S*dS'):
+                            inter_node.add_feature(valname, val * dist_ratio)
+                        else:
+                            inter_node.add_feature(valname, val)
             else:
-                node.add_feature('t', t_tot)
-                node.add_feature('dS', dS_tot)
-                node.add_feature('dN', dN_tot)
-    
+                for valname, val in totals.items():
+                    node.add_feature(valname, val)
 
 
 def rm_erroneous_ancestors(fulltree, phyltree):
@@ -759,19 +758,50 @@ def def_is_target_speciation(target_sp):
         return taxon==target_sp and not isdup(node, taxon, subtree)
     return is_target_spe
 
-def def_is_any_taxon(target_taxa):
+def def_is_any_taxon(*target_taxa):
     """define the speciation node check function"""
     def is_any_taxon(node, taxon, subtree):
         return taxon in target_taxa
     return is_any_taxon
 
+def negate(testfunc):
+    return lambda *args,**kwargs: not testfunc(*args, **kwargs)
+
 def get_tocalibrate(key):
-    tocalibrate_funcs = {'isdup': isdup,
-                         'isinternal': isinternal}
-    try:
-        return tocalibrate_funcs[key]
-    except KeyError:
-        return def_is_any_taxon(key.split(','))
+    """'Parse' the key argument to combine several tests together.
+    
+    Syntax:
+        - any whitespace means AND.
+        - '|' means OR. AND takes precedences over OR.
+        - tests may be any of: 'isdup', 'isinternal', 'taxon'.
+           The 'taxon' test must be written with taxa as arguments:
+               'taxon:mytaxon1,mytaxon2'
+    """
+    tocalibrate_funcs = {'isdup': isdup, 'd': isdup,
+            'isinternal': isinternal, 'isint': isinternal, 'i': isinternal,
+            'taxon': def_is_any_taxon, 't': def_is_any_taxon}
+
+    alt_tests = [] # Split by 'OR' operators first.
+    for alt_teststr in key.split('|'):
+        tests = []
+        for teststr in alt_teststr.split():
+            applynegate = False
+            if teststr[0] == '!':
+                teststr = teststr[1:]
+                applynegate = True
+            if ':' in teststr:
+                teststr, testargs = teststr.split(':')
+                testargs = testargs.split(',')
+                test = tocalibrate_funcs[teststr](*testargs)
+
+            if applynegate:
+                test = negate(test)
+
+            tests.append(test)
+
+        alt_tests.append(lambda *args: all(test(*args) for test in tests))
+
+    return lambda *args: any(alt_test(*args) for alt_test in alt_tests)
     
 
 def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
@@ -1169,8 +1199,10 @@ def readfromfiles(filenames):
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__, 
                                 formatter_class=argparse.RawTextHelpFormatter)
-    # Input options
+    
+    ### Input options
     gi = parser.add_argument_group('Input parameters')
+
     gi.add_argument('outfile')
     gi.add_argument('mlcfiles', nargs='+')
     gi.add_argument('--fromfile', action='store_true',
@@ -1185,8 +1217,10 @@ if __name__=='__main__':
                          ' tree file [%(default)s]')
     gi.add_argument('-R', '--replace-by', default='.nwk',
                     help='replacement string file [%(default)s]')
-    # Run options
+    
+    ### Run options
     gr = parser.add_argument_group('Run parameters')
+    
     gr.add_argument('-2', '--method2', action='store_true')
     gr.add_argument('-u', '--unweighted', action='store_true', 
                     help='average weighted by the size of clusters')
@@ -1198,8 +1232,10 @@ if __name__=='__main__':
                          "(not recommended).")
     gr.add_argument("-i", "--ignore-errors", action="store_true", 
                     help="On error, print the error and continue the loop.")
-    # Output options
+    
+    ### Output options
     go = parser.add_argument_group('Output parameters')
+    
     go.add_argument('--measures', nargs='*',
                     default=['t', 'dN', 'dS', 'dist'],
                     choices=['t', 'dN', 'dS', 'dist'],
@@ -1215,8 +1251,10 @@ if __name__=='__main__':
                         'one newick file with the chosen measure as ' \
                         'distance. "subtree" means the gene subtree '\
                         'contained between two speciations.')
-    # Display options
+    
+    ### Display options
     gd = parser.add_argument_group('Display parameters')
+    
     gd.add_argument('--show',
             help=('"gui": start the interactive ete3 tree browser\n'
                   '"notebook": create global var FULLTREE and TS for rendering\n'
