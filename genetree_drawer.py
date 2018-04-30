@@ -612,12 +612,9 @@ class GenetreeDrawer(object):
         print("root:", interspecies_trees)
 
                                                                 
-    def draw_gene_tree(self, extratitle='', branch_width=0.8):
+    def draw_gene_tree(self, extratitle='', genenames=False, branch_width=0.8):
         print(' --- Drawing genetree ---')
         # Duplicate the species tree axis to separate the plotting
-        #if hasattr(self, 'ax1'):
-        #    self.ax1.clear()
-        #else:
         self.ax1 = self.ax0.twinx()
         self.ax1.set_ylim(self.ax0.get_ylim())
         self.ax1.axis('off')
@@ -630,6 +627,9 @@ class GenetreeDrawer(object):
         cmap = plt.get_cmap('Dark2', 10) # TODO: as many as duplications
 
         color_index = 0
+
+        # Gene node names to be displayed (dup, leaf, spe)
+        genenames=set(genenames.split(',')) if genenames else set()
 
         #seen_genenames = set()
         for node in (n for genetree in self.genetrees \
@@ -746,6 +746,11 @@ class GenetreeDrawer(object):
                 self.ax1.plot((real_x,), (real_y,), '.', color=nodecolor, alpha=0.5)
                 #self.ax1.text(real_x, real_y, species, fontsize='xxx-small',
                 #              color=nodecolor)
+            if event in genenames:
+                self.ax1.text(real_x, real_y, node.name, alpha=0.5,
+                              fontsize='xx-small',
+                              ha=('left' if event=='leaf' else 'right'),
+                              va='top')
 
             self.real_gene_coords[nodeid] = (real_x, real_y)
             #self.fig.draw(self.fig.canvas.get_renderer())
@@ -754,12 +759,12 @@ class GenetreeDrawer(object):
             ### TODO: add onpick action: display node name
 
     def draw(self, genetree, extratitle='', angle_style=0, ages=False,
-             figsize=None):
+             figsize=None, genenames=False):
         """Once phyltree is loaded, perform all drawing steps."""
         self.load_reconciled_genetree(genetree)
         self.draw_species_tree(figsize=figsize, angle_style=angle_style, ages=ages)
         self.set_gene_coords()
-        self.draw_gene_tree(extratitle)
+        self.draw_gene_tree(extratitle, genenames=genenames)
 
 
 def check_extracted(genetrees, output):
@@ -849,7 +854,8 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 
 def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
         phyltreefile=None, colorize_clades=None, commonname=False,
-        latinname=False, treebest=False, show_cov=False, ages=False):
+        latinname=False, treebest=False, show_cov=False, ages=False,
+        genenames=False):
     #global plt
 
     figsize = None
@@ -880,7 +886,7 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
         extratitle = ', '.join(extratitles)
         print('INPUT FILE:', genetree, '(%s)' % extratitle)
         gd.draw(genetree, extratitle, angle_style=angle_style, ages=ages,
-                figsize=figsize)
+                figsize=figsize, genenames=genenames)
 
         display()
 
@@ -938,7 +944,10 @@ if __name__ == '__main__':
                         help='Show genome coverage information (grey shading)')
     parser.add_argument('-A', '--ages', action='store_true',
                         help='Place species nodes at their real age.')
-    
+    parser.add_argument('-g', '--genenames',
+            help='Display gene names: \n' \
+                 '- comma-sep list of "leaf", "dup", "spe";\n'
+                 '- "all" (identical to "leaf,dup,spe").')
     
     #parser.add_argument('-m', '--multiple-pdfs', action='store_true',
     #                    help='output one pdf file per genetree. [NOT implemented]')
