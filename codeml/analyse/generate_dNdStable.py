@@ -110,7 +110,9 @@ def def_showtree(measures, show=None):
 
 
 def load_fulltree(mlcfile, replace_nwk='.mlc', replace_by='.nwk'):
-    """return the ete3.Tree object corresponding to a given .mlc file.
+    """Return the ete3.Tree object corresponding to a given .mlc file.
+
+    It simply finds the newick file by replacing the extension of the mlc file.
     Catch errors (file does not exist / wrong format)"""
     #nwkfile = mlcfile.replace(replace_nwk, '.nwk')
     nwkfile = re.sub(replace_nwk, replace_by, mlcfile)
@@ -240,6 +242,7 @@ def branch2nb(mlc, fulltree):
     #showtree(fulltree)
     return id2nb, nb2id, tree_nbs, branch_tw
 
+# Needs a unit test for the above (are the missing nodes properly re-inserted?)
 
 def get_dNdS(mlc):
     """Parse table of dN/dS from codeml output file.
@@ -259,6 +262,7 @@ def get_dNdS(mlc):
         line = mlc.readline().rstrip()
     assert mlc.readline().rstrip() == ''  # skip blank line
     dNdS = {}
+    dNdS['colnames'] = line.split()[1:]
     line = mlc.readline().rstrip()
     while line != '':
         #print line
@@ -279,20 +283,48 @@ def get_dNdS(mlc):
     return dNdS, dStree, dNtree
     
 
+def tree_nb_annotate(tree, id2nb, tree_nbs):
+    """Add internal node names (numbers used by codeml) in the tree structure."""
+    parent_nbs = {tuple(sorted(ch.name for ch in n.children)): n.name \
+                for n in tree_nbs.traverse() if not n.is_leaf()}
+    for node in tree.traverse('postorder'):
+        if node.is_leaf():
+            node.add_feature('nb', id2nb[node.name])
+        else:
+            node.add_feature('nb',
+                    parent_nbs[tuple(sorted(ch.nb for ch in node.children))])
+
+
+def dNdS_precise(dNdS, br_tw, dStree, dNtree, id2nb, tree_nbs):
+    """Make the dNdS table from the codeml output file more precise:
+    dS and dN values have more decimal in the tree string than in the table."""
+    # First, update the dNdS table with the more accurate values br_lengths
+    # (br_len is actually 't' in the table)
+    colindex = {colname: i for i, colname in enumerate(dNdS['colnames'])}
+    for br, br_len, br_w in br_tw:
+        dNdS[br][colindex['t']] = br_len # 't'
+        dNdS[br][colindex['dN/dS']] = br_w   # 'dN/dS'
+
+    # Then update the dNdS table with the more accurate values in dStree dNtree
+    dStr = ete3.Tree(dStree)
+    dNtr = ete3.Tree(dNtree)
+    tree_nb_annotate(dStr, id2nb, tree_nbs)
+    tree_nb_annotate(dNtr, id2nb, tree_nbs)
+    for col, tr in ((colindex['dS'], dStr), (colindex['dN'], dNtr)):
+        for node in tr.traverse():
+            if not node.is_leaf():
+                for child in node.children:
+                    br = '%s..%s' % (node.nb, child.nb)
+                    dNdS[br][col] = child.dist
+    return dNdS
+
+
 #def set_dS_fulltree(fulltree, id2nb, dNdS):
-def set_dNdS_fulltree(fulltree, id2nb, dNdS, dStree, dNtree, br_tw,
-                      raise_at_intermediates=True):
+def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
     """Add codeml dS on each branch of the complete tree (with missing species
     nodes).
     When a node has a single child: take the branch dS on which it is, 
     and divide proportionnally to each segment dist."""
-    # First, update the dNdS table with the more accurate values br_lengths
-    # (br_len is actually 't' in the table)
-    for br, br_len, br_w in br_tw:
-        dNdS[br][0] = br_len
-        dNdS[br][3] = br_w
-
-    # Then update the dNdS table with the more accurate values in dStree dNtree
 
     for node in fulltree.get_descendants('postorder'): # exclude root
         if len(node.children) != 1:
@@ -307,7 +339,7 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, dStree, dNtree, br_tw,
             #                          id2nb[node.name],
             #                          node.name,
             #                          [ch.name for ch in parent.children]), file=sys.stderr)
-
+            
             if parent.is_root():
                 # then this is a root with a single children: cannot have dS
                 t_tot = 0
@@ -319,7 +351,6 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, dStree, dNtree, br_tw,
                     dS_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][5]
                     dN_tot = dNdS[id2nb[parent.name] + '..' + id2nb[node.name]][4]
                 except KeyError as err:
-                    
                     raise
     
             if intermediates: # this if is not necessary, maybe more efficient
@@ -999,51 +1030,6 @@ savefunctions = {'ages': save_ages,
                  'fulltree': save_fulltree,
                  'subtrees': save_subtrees} #save_subtrees}
 
-def process_mlc(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk'):
-    """main command: scale ages based on *dS* (method1)"""
-    fulltree = load_fulltree(mlcfile, replace_nwk, replace_by)
-    rm_erroneous_ancestors(fulltree, phyltree)
-    with open(mlcfile) as mlc:
-        id2nb, nb2id, tree_nbs = branch2nb(mlc, fulltree)
-        dNdS = get_dNdS(mlc)
-
-    #dN, dS = sum_average_dNdS(dNdS, nb2id, tree_nbs)
-    rm_erroneous_ancestors(fulltree, phyltree)
-    set_dS_fulltree(fulltree, id2nb, dNdS)
-    ages = bound_average_dS(dNdS, id2nb, fulltree, phyltree)
-    showtree(fulltree)
-    return ages
-
-def process_mlc2(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk'):
-    """main command: scale ages based on *dS* (method2)"""
-    fulltree = load_fulltree(mlcfile, replace_nwk, replace_by)
-    rm_erroneous_ancestors(fulltree, phyltree)
-    with open(mlcfile) as mlc:
-        id2nb, nb2id, tree_nbs = branch2nb(mlc, fulltree)
-        dNdS = get_dNdS(mlc)
-
-    #dN, dS = sum_average_dNdS(dNdS, nb2id, tree_nbs)
-    rm_erroneous_ancestors(fulltree, phyltree)
-    set_dS_fulltree(fulltree, id2nb, dNdS)
-    #ages = bound_average_dS_2(dNdS, id2nb, fulltree, phyltree)
-    ages = bound_average_2(fulltree, phyltree, measures=['dS'])
-    showtree(fulltree)
-    return ages
-
-
-def process_nwk(mlcfile, phyltree, replace_nwk='.mlc'):
-    """main command: scale ages based on *dist* (method1)"""
-    raise NotImplementedError
-
-
-def process_nwk2(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk'):
-    """main command: scale ages based on *dist* (method1)"""
-    fulltree = load_fulltree(mlcfile, replace_nwk, replace_by)
-    rm_erroneous_ancestors(fulltree, phyltree)
-    ages = bound_average_2(fulltree, phyltree, measures=['dist'])
-    showtree(fulltree)
-    return ages
-
 
 def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
                    measures=['dS']):
@@ -1054,7 +1040,8 @@ def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
             id2nb, nb2id, tree_nbs, br_tw = branch2nb(mlc, fulltree)
             dNdS, dStree, dNtree = get_dNdS(mlc)
 
-        set_dNdS_fulltree(fulltree, id2nb, dNdS, dStree, dNtree, br_tw)
+        dNdS = dNdS_precise(dNdS, br_tw, dStree, dNtree, id2nb, tree_nbs)
+        set_dNdS_fulltree(fulltree, id2nb, dNdS)
     return fulltree
 
 
