@@ -775,7 +775,8 @@ def get_tocalibrate(key):
         - '|' means OR. AND takes precedences over OR.
         - tests may be any of: 'isdup', 'isinternal', 'taxon'.
            The 'taxon' test must be written with taxa as arguments:
-               'taxon:mytaxon1,mytaxon2'
+               'taxon:mytaxon1,mytaxon2'.
+        - tests can be negated by prefixing with '!'.
     """
     tocalibrate_funcs = {'isdup': isdup, 'd': isdup,
             'isinternal': isinternal, 'isint': isinternal, 'i': isinternal,
@@ -793,6 +794,8 @@ def get_tocalibrate(key):
                 teststr, testargs = teststr.split(':')
                 testargs = testargs.split(',')
                 test = tocalibrate_funcs[teststr](*testargs)
+            else:
+                test = tocalibrate_funcs[teststr]
 
             if applynegate:
                 test = negate(test)
@@ -1224,9 +1227,8 @@ if __name__=='__main__':
     gr.add_argument('-2', '--method2', action='store_true')
     gr.add_argument('-u', '--unweighted', action='store_true', 
                     help='average weighted by the size of clusters')
-    gr.add_argument('-c', '--tocalibrate', default="isdup",
-                    help='Which nodes to calibrate: values: "isdup", ' \
-                         '"isinternal", or a comma-sep list of taxa. [%(default)r]')
+    gr.add_argument('-c', '--tocalibrate', default="isdup", metavar='TESTS',
+                    help=get_tocalibrate.__doc__ + '[%(default)r]')
     gr.add_argument('-k', '--keeproot', action='store_true', 
                     help="Calibrate data immediately following the root " \
                          "(not recommended).")
