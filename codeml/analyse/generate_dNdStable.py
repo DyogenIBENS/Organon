@@ -987,7 +987,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                             ages.append([nextnode.name] + nextnode_measures + \
                                         age.tolist() + \
                                         [0, #dated
-                                         eventtype, nextnode.up.name,
+                                         nextnode.type, nextnode.up.name,
                                          subtree[nextnode.name]['taxon'],
                                          #ch_taxon,
                                          fulltree.name])
