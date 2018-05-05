@@ -16,6 +16,7 @@ from select_leaves_from_specieslist import convert_gene2species
 
 #from codeml.codemlparser import mlc_parser
 
+np.set_printoptions(formatter={"float_kind": lambda x: "%g" %x})
 
 ENSEMBL_VERSION = 85
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0:d}/PhylTree.Ensembl.{0:d}.conf"
@@ -684,12 +685,16 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
 
                 
                 node.add_features(**{'age_'+m: node_age for m in measures})
-                # climb up tree until next speciation and assign an age to
+                
+                # Climb up tree until next speciation and assign an age to
                 # each duplication met on the way
-                branch_lengths = [node_age - subtree[ch.name]['age'] for ch in node.children]
-                mean_br_len = sum(branch_lengths) / len(branch_lengths)
 
-                for ch, branch_length in zip(node.children, branch_lengths):
+                # age between this node and the descendant calibrations
+                dists_to_calib = [node_age - subtree[ch.name]['age'] \
+                                  for ch in node.children]
+                mean_dists_to_calib = sum(dists_to_calib) / len(dists_to_calib)
+
+                for ch, dist_to_calib in zip(node.children, dists_to_calib):
                     ch_taxon = subtree[ch.name]['taxon']
                     ### This is where version _2 is different
                     # walk descendants until speciation.
@@ -702,10 +707,14 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                         ###     Or at least for each child, choose a proportion of
                         ###     scaling_m corresponding to the relative speciation
                         ###     distance. TODO.
-                        scaling_m = subtree[scname]['tmp_m'] * branch_length/mean_br_len
+                        scaling_m = subtree[scname]['tmp_m'] * dist_to_calib/mean_dists_to_calib
+                    else:
+                        scaling_m = None
 
                     print_if_verbose("    climb up to next calibration: " \
-                                     "br_len=%s" % branch_length)
+                                     "dist_to_calib=%s scaling_m=%s tmp_m=%s" \
+                                     % (dist_to_calib, scaling_m,
+                                        subtree[scname]['tmp_m']))
                     # Dynamic list during the climbing:
                     # store (node, measures for this node's branch)
                     nextnodes = [(ch, subtree[ch.name]['br_m'])]
@@ -733,7 +742,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                                       (scaling_m, nextnode.name),
                                       file=sys.stderr)
                             age = node_age - \
-                                  (1 - nextnode_m/scaling_m) * branch_length
+                                  (1 - nextnode_m/scaling_m) * dist_to_calib
                             #ages[nextnode.name] = age
                             nextnode_measures = subtree[nextnode.name]['br_m'].tolist()
                             ages.append([nextnode.name] + nextnode_measures + \

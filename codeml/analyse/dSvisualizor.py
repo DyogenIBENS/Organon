@@ -169,6 +169,12 @@ class DataVisualizor(object):
         self.vertical = False
 
         self.all_ages = pd.read_table(ages_file, sep='\t') #, names=['name','age','type'])
+
+        # Check the integrity of the file (dtype object means some rows are wrong,
+        # for example there is a header row in the middle of the document)
+        assert (self.all_ages.dtypes != np.dtype(np.object)).any(), \
+                "Data types of columns not understood, check their integrity. %s" % \
+                    self.all_ages.dtypes
         #print(ages_file)
         #print(self.all_ages)
         ### TODO: if at least one of these is missing.
