@@ -17,13 +17,17 @@ import LibsDyogen.myProteinTree as ProteinTree
 INFINITE_DIST = 10000
 
 
-def lock_targets(nodedata, nodeinfo):
+def lock_targets(nodedata, nodeinfo, tree):
     """Return which children to delete"""
     try:
         targets = {child: i for i,(child,dist) in enumerate(nodedata) if dist >= INFINITE_DIST}
     except ValueError as err:
         err.args += (nodedata,)
         raise
+
+    # Gene splits
+    targets.update({child: i for i,(child,_) in enumerate(nodedata) \
+            if tree.info[child]['Duplication'] == 10)
 
     if nodeinfo['Duplication'] == 3:
         children, dists = zip(*nodedata)
@@ -32,6 +36,8 @@ def lock_targets(nodedata, nodeinfo):
         children = list(children)
         edited_child = children.pop(edited)
         targets[edited_child] = edited
+    #elif nodeinfo['Duplication'] == 10:
+    #    targets[]
 
     return targets
 
@@ -62,7 +68,7 @@ def filterbranches(tree, node):
 
     if data:
         info = tree.info[node]
-        targets = lock_targets(data, info)
+        targets = lock_targets(data, info, tree)
         if targets:
             del_count      += len(targets)
             del_leaf_count += knock_targets(targets, tree, data, info)
