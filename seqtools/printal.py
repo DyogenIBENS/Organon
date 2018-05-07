@@ -183,7 +183,7 @@ def makeruler(length, base=1, stepwidth=1):
 
 
 def colorizerecord(record):
-    return ''.join(nucl2col.get(nucl, '')+nucl+RESET for nucl in record.seq)
+    return ''.join(nucl2col.get(nucl.upper(), '')+nucl+RESET for nucl in record.seq)
 
 
 def iter_codons(seq):
@@ -199,7 +199,7 @@ def codoncolorizerecord(record):
     unknown_codons = set()
     for codon in iter_codons(record.seq):
         try:
-            codoncol = CODON2COL[codon]
+            codoncol = CODON2COL[codon.upper()]
         except KeyError:
             unknown_codons.add(codon)
             codoncol = RED
