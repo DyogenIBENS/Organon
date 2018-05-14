@@ -49,6 +49,7 @@ RGB_ESCAPE = "\033[38;2;%d;%d;%dm"
 
 nucl2col = {'A': BG_RED,
             'T': BG_BLUE,
+            'U': BG_CYAN,
             'G': BG_YELLOW,
             'C': BG_GREEN,
             'N': GREY,
