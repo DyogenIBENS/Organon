@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 
 
+"""Remove **columns only containing gaps**. Runs in codon mode by default"""
+
+
 from sys import stderr, stdin, stdout
 import argparse as ap
 from itertools import islice
@@ -55,7 +58,7 @@ def main(infile, format='fasta', nucl=False, outfile=None):
 
 if __name__ == '__main__':
     parser = ap.ArgumentParser(description=__doc__)
-    parser.add_argument('infile', type=ap.FileType('r'), default=stdin)
+    parser.add_argument('infile', nargs='?', type=ap.FileType('r'), default=stdin)
     parser.add_argument('-f', '--format', default='fasta',
                         help='Input sequence format [%(default)s]')
     parser.add_argument('-n', '--nucl', action='store_true',
