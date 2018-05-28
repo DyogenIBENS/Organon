@@ -28,6 +28,7 @@ def load_genetreelist(genetreelistfile):
                 gt_list.append(line.rstrip())
     return gt_list
 
+
 def rewrite_all_genetrees(gt_list, split_genes):
     """Do not use"""
     tot_SG = 0

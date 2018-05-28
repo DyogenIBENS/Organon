@@ -671,9 +671,10 @@ if __name__ == '__main__':
                         help='Do not display global scores')
     parser.add_argument('-w', '--figwidth', default=16, type=float,
                         help='Figure width (inches) [%(default)s]')
-    parser.add_argument('--plotlist',
-                        help='comma-sep list of plots. Valid values are:'\
-                             'al,gap,entropy,gap_entropy,sp,manh,pearson,part_sp')
+    parser.add_argument('-p', '--plotlist', default='al,gap',
+                        help='comma-sep list of plots. Valid values are: '\
+                             'al,gap,entropy,gap_entropy,sp,manh,pearson,'
+                             'part_sp. [%(default)s]')
     
     args = parser.parse_args()
 
