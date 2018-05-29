@@ -65,6 +65,5 @@ if __name__ == '__main__':
                         help='Read as nucleotide alignment (default: codon)')
     parser.add_argument('-o', '--outfile', type=ap.FileType('w'), default=stdout)
     
-    
     args = parser.parse_args()
     main(**vars(args))
