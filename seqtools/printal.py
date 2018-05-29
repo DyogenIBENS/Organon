@@ -241,10 +241,14 @@ def printal(infile, wrap=False, format=None, slice=None, codon=False,
 
     if slice:
         # -1 because coords are taken in base 1
+        sliceparts = slice.split(':')
+        if not sliceparts[0]: sliceparts[0] = 0
+        if not sliceparts[1]: sliceparts[1] = length
+
         if codon:
-            slstart, slend = [(int(pos)-start1)*3 for pos in slice.split(':')]
+            slstart, slend = [(int(pos)-start1)*3 for pos in sliceparts]
         else:
-            slstart, slend = [int(pos)-start1 for pos in slice.split(':')]
+            slstart, slend = [int(pos)-start1 for pos in sliceparts]
 
         length = slend - slstart
     else:
