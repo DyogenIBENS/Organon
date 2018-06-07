@@ -198,6 +198,7 @@ class DataVisualizor(object):
         self.taxa_evt = sorted(k for k in self.taxa_evt_ages.groups.keys() if k[1] != 'leaf')
         self.taxa = sorted(set(taxon for taxon, evt in self.taxa_evt))
         self.all_taxa = self.all_ages.taxon.unique() # useful when considering extra groups
+        #print('taxa:', ', '.join(self.taxa))
 
         #"""A dot is used to separate words (genre.species)"""
         
@@ -313,7 +314,7 @@ class DataVisualizor(object):
         #Should dropna upstream!!!
         if not all(len(d) for d in data):
             data, colors, labs_legend = zip(*[(d,c,l) for d,c,l in \
-                                                zip(data,colors,labs_legends) \
+                                                zip(data,colors,labs_legend) \
                                                 if len(d)])
             print('WARNING: Only NaN for some taxa', file=sys.stderr)
         return data, colors, labs_legend
@@ -411,10 +412,12 @@ class DataVisualizor(object):
             self.hist_coords[anc1] = (age_anc1, low_sub)
             self.subs_taxa[low_sub].add(anc1)
 
+        assert len(self.subs_taxa), \
+                "No subplots for taxa [%s]. Use the 'lineage' command." % ", ".join(self.taxa)
         # remove root from subs_taxa:
         #self.subs_taxa[low_sub].remove(anc1)
 
-        print(" ---\n Assigned coordinates (age, subplot)")
+        print(" ---\n Assigned coordinates (age, subplot):")
         for anc, coords in self.hist_coords.items():
             print(label_fmt % anc, ":", "%3d, %2d" % coords)
         for i, subdatalabels in enumerate(self.subs_taxa):
