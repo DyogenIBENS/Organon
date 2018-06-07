@@ -30,7 +30,7 @@ def get_chunks(a):
 def intersection_type(target_chunks, test_chunk):
     """- target_chunks: 2D array: chunks in rows (column 0: start, column 1: end)"""
     start_in = (test_chunk[0] >= target_chunks[:,0]) & (test_chunk[0] <  target_chunks[:,1])
-    end_in   = (test_chunk[0] >  target_chunks[:,0]) & (test_chunk[1] <= target_chunks[:,1])
+    end_in   = (test_chunk[1] >  target_chunks[:,0]) & (test_chunk[1] <= target_chunks[:,1])
     return start_in, end_in
 
 def which_chunk_intersect(target_chunks, test_chunk):
@@ -103,10 +103,22 @@ def al_merge_splits(align, split_seqs):
                     print('Discarding smaller conflicting fragment %s from %s'\
                             %(conflict_chunk, split_seqs[i]), file=stderr)
                 else:
-                    raise ValueError('unexpected error with conflict chunk: %s'\
-                                     ' in newseq (%s) or mergedseq (%s)' % \
-                                     (conflict_chunk, newseq_conflict_src,
-                                         mergedseq_conflict_src))
+                    assert chunk_contained_in(newseq_conflict_src, conflict_chunk).all() and \
+                           chunk_contained_in(mergedseq_conflict_src, conflict_chunk).all(), \
+                           "Coordinate error: %s from %s or %s" % (conflict_chunk,
+                                    newseq_conflict_src,
+                                    mergedseq_conflict_src)
+
+                    src_chunk_lengths = [(ch[1] - ch[0]) for ch in \
+                                         (newseq_conflict_src[0],
+                                          mergedseq_conflict_src[0])]
+                    if src_chunk_lengths[0] > src_chunk_lengths[1]:
+                        # newseq has the longest source. keep.
+                        print('Discarding smaller conflicting fragment %s from %s'\
+                                %(conflict_chunk, split_seqs[i]), file=stderr)
+                    else:
+                        print('Discarding smaller conflicting fragment %s from %s'\
+                                %(conflict_chunk, split_seqs[0]), file=stderr)
 
         new_seq[merged_positions] = merged_seq[merged_positions]
 
@@ -118,15 +130,19 @@ def al_merge_splits(align, split_seqs):
     return new_al
 
 
-def main(input_al, split_seqs_file, output_al, format='fasta'):
-    #with open(split_seqs_file) as f:
-    split_seqs_list = [line.split() for line in split_seqs_file]
-
+def main_fromlist(input_al, split_seqs_list, output_al, format='fasta'):
     align = AlignIO.read(input_al, format=format)
     for split_seqs in split_seqs_list:
         align = al_merge_splits(align, split_seqs)
 
     AlignIO.write(align, output_al, format)
+
+
+def main(input_al, split_seqs_file, output_al, format='fasta'):
+    #with open(split_seqs_file) as f:
+    split_seqs_list = [line.split() for line in split_seqs_file]
+
+    main_fromlist(input_al, split_seqs_list, output_al, format)
 
 
 if __name__ == '__main__':
