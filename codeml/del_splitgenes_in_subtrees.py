@@ -75,36 +75,67 @@ def load_cladeof(templatefile="~/ws2/lewitusfamilies/clade_%s.txt"):
     return cladeof
 
 
+def find_src_files(split_ancgene, cladeof, alignments_dir, src_subtreedir,
+                   end='*.nwk', exclude_end='_codeml.nwk'):
+    ancestor_i = split_ancgene.index('ENSGT00')
+    try:
+        suffix_i = split_ancgene.index('.', ancestor_i)
+    except ValueError:
+        suffix_i = len(split_ancgene)
+    clade = cladeof[split_ancgene[:ancestor_i]]
+    genetree = split_ancgene[ancestor_i:suffix_i]
+
+    candidate_pattern = op.join(alignments_dir,
+                                genetree,
+                                src_subtreedir,
+                                clade + genetree + end)
+    candidate_files = glob(candidate_pattern)
+    src_files = [f for f in candidate_files \
+        if not f.endswith(exclude_end) and \
+           split_ancgene[ancestor_i:].startswith(\
+                    op.splitext(op.basename(f))[0].replace(clade, '').split('_')[0])]
+    assert len(src_files) == 1, "At genesplit %s\n" \
+                    "glob failed with pattern %r: found %d files from %d candidates" \
+                                % (split_ancgene, candidate_pattern,
+                                    len(src_files), len(candidate_files)) + str(candidate_files)
+    src_file, = src_files
+    return src_file
+
+def max_delete(node):
+    while len(node.up.children) == 1:
+        node = node.up
+    node.detach()
+
+def edit_split(subtree, split_ancgene, edit_func=max_delete):
+    """Delete all descendants from a gene split."""
+    splitgene_nodes = subtree.search_nodes(name=split_ancgene)
+    assert len(splitgene_nodes) <= 1
+    if len(splitgene_nodes) == 0:
+        raise LookupError('%r not found.' % split_ancgene)
+    splitgene_node, = splitgene_nodes
+    edit_func(splitgene_node)
+
+
+def keep_1_leaf(node):
+    """Keep only one descendant leaf. (The first, alphabetically)"""
+    kept_leaf = sorted(node.get_leaf_names())[0]
+    node.prune([kept_leaf], preserve_branch_length=True)
+    node.delete(prevent_nondicotomic=False, preserve_branch_length=True)
+
+
 def main(SGlistfile, alignments_dir='.', src_subtreedir='subtreesCleanO2', 
-         out_subtreedir='subtreesCleanO2noSG'):
+         out_subtreedir='subtreesCleanO2noSG', action='del'):
+
+    edit_functions = {'del': max_delete,
+                      'keep1': keep_1_leaf}
+
     cladeof = load_cladeof()
 
     outputted = []
     count_genesplits = 0
 
     for split_ancgene, split_descendants in iter_splitgenes_ancgenes(SGlistfile):
-        ancestor_i = split_ancgene.index('ENSGT00')
-        try:
-            suffix_i = split_ancgene.index('.', ancestor_i)
-        except ValueError:
-            suffix_i = len(split_ancgene)
-        clade = cladeof[split_ancgene[:ancestor_i]]
-        genetree = split_ancgene[ancestor_i:suffix_i]
-
-        candidate_pattern = op.join(alignments_dir,
-                                       genetree,
-                                       src_subtreedir,
-                                       clade + genetree + '*.nwk')
-        candidate_files = glob(candidate_pattern)
-        src_files = [f for f in candidate_files \
-            if not f.endswith('_codeml.nwk') and \
-               split_ancgene[ancestor_i:].startswith(\
-                        op.splitext(op.basename(f))[0].replace(clade, ''))]
-        assert len(src_files) == 1, "At genesplit %d: %s\n" \
-                                "glob failed with pattern %r: found %d files" \
-                                    % (count_genesplits+1, split_ancgene,
-                                            candidate_pattern, len(src_files))
-        src_file, = src_files
+        src_file = find_src_files(split_ancgene, cladeof, alignments_dir, src_subtreedir)
         out_file = src_file.replace(src_subtreedir, out_subtreedir)
         out_dir = op.dirname(out_file)
         
@@ -112,19 +143,15 @@ def main(SGlistfile, alignments_dir='.', src_subtreedir='subtreesCleanO2',
             src_file = out_file
         
         subtree = ete3.Tree(src_file, format=1)
-        splitgene_nodes = subtree.search_nodes(name=split_ancgene)
-        assert len(splitgene_nodes) <= 1
-        if len(splitgene_nodes) == 0:
+        try:
+            edit_split(subtree, split_ancgene, edit_func=edit_functions[action])
+        except LookupError:
             if out_file in outputted:
                 print('%r not found in already edited tree %s' \
                         % (split_ancgene, src_file), file=stderr)
                 continue
             else:
                 raise LookupError('%r not found in %s' % (split_ancgene, src_file))
-        splitgene_node, = splitgene_nodes
-        while len(splitgene_node.up.children) == 1:
-            splitgene_node = splitgene_node.up
-        splitgene_node.detach()
 
         count_genesplits += 1
         
@@ -144,7 +171,9 @@ if __name__ == '__main__':
     parser.add_argument('SGlistfile')
     #parser.add_argument('genetreelistfile')
     parser.add_argument('alignments_dir', nargs='?', default='.')
-    
+    parser.add_argument('--out_subtreedir', default='subtreesCleanO2noSG')
+    parser.add_argument('-a', '--action', default='del', choices=['del', 'keep1'])
+
     args = parser.parse_args()
     main(**vars(args))
 
