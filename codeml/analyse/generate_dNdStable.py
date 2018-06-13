@@ -535,6 +535,7 @@ def get_tocalibrate(key):
             'isinternal': isinternal, 'isint': isinternal, 'i': isinternal,
             'taxon': def_is_any_taxon, 't': def_is_any_taxon}
 
+    ## TODO: parse parentheses for precedence.
     alt_tests = [] # Split by 'OR' operators first.
     for alt_teststr in key.split('|'):
         tests = []

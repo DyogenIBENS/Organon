@@ -12,7 +12,7 @@ USAGE:
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
                    "PhylTree.Ensembl.{0}.conf"
 ENSEMBL_VERSION = 85
-DEFAULT_NBINS   = 50
+DEFAULT_NBINS   = 100
 DEFAULT_AGE_KEY = 'age_dS'
 
 
@@ -21,12 +21,14 @@ COMMANDS = ['lineage', 'tree', 'scatter', 'violin']
 CMD_ARGS = {
         'lineage': [(('-l', '--lineage'),),
                     (('-p', '--phyltreefile'),   {'default': PHYLTREEFILE}),
-                    (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION})],
+                    (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION}),
+                    (('-x', '--xlim'),)],
         'tree':    [(('-v', '--vertical'),       {'action':'store_true'}),
                     (('-p', '--phyltreefile'),   {'default': PHYLTREEFILE}),
-                    (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION})],
-        'scatter': [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)],
-        'violin':  [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)]}
+                    (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION}),
+                    (('-x', '--xlim'),)],
+        'scatter': [(('-x', '--xlim'),), (('-y', '--ylim'),)],
+        'violin':  [(('-x', '--xlim'),), (('-y', '--ylim'),)]}
 
 
 import sys
@@ -258,10 +260,10 @@ class DataVisualizor(object):
                 print(('Data column %r not available for scatter plot. Check '
                        'if your data can be converted to float'), file=sys.stderr)
                 raise
-        if xlim:
-            self.ax.set_xlim(*(float(x) for x in xlim.split(',')))
-        if ylim:
-            self.ax.set_ylim(*(float(y) for y in ylim.split(',')))
+        if xlim is not None:
+            self.ax.set_xlim(xlim)
+        if ylim is not None:
+            self.ax.set_ylim(ylim)
 
         self.ax.legend()
         #self.save_or_show(outfile)
@@ -282,8 +284,7 @@ class DataVisualizor(object):
         violinplot(x, y, data=data, scale='width', cut=0, ax=self.ax)
         plt.setp(self.ax.xaxis.get_majorticklabels(), rotation=45, ha='right',
                  va='top')
-        if ylim:
-            ylim = [float(yl) for yl in ylim.split(',')]
+        if ylim is not None:
             self.ax.set_ylim(ylim)
 
         return self.ax
@@ -460,7 +461,7 @@ class DataVisualizor(object):
         print("executed onpick action")
 
 
-    def tree_hist(self, nbins=None, vertical=False):
+    def tree_hist(self, nbins=None, vertical=False, xlim=None):
         # labels, newdata, self.taxa_ages, hist_coords, subs_labels, treeforks, 
         """Draw histograms on top of a given tree structure.
         
@@ -571,7 +572,10 @@ class DataVisualizor(object):
                 ax.spines[spine].set_visible(False)
             #invert_axis(ax)
             if vertical: ax.invert_yaxis()
+
         label_ageaxis(axes, self.age_key + ' (My)')
+        if xlim is not None:
+            axes[-1].set_xlim(xlim)
 
         # draw tree branches
         print("n_subs =", n_subs)
@@ -663,6 +667,10 @@ def run(command, ages_file, phyltreefile=None, ensembl_version=None,
                 plt.switch_backend("TkAgg")
 
     dv = DataVisualizor(ages_file, no_edited=no_edited, age_key=age_key)
+    if xlim is not None:
+        xlim = tuple(float(x) for x in xlim.split(','))
+    if ylim is not None:
+        ylim = tuple(float(y) for y in ylim.split(','))
     
     if command in ('tree', 'lineage'):
         dv.colorize_taxa(alpha=1)
@@ -671,7 +679,7 @@ def run(command, ages_file, phyltreefile=None, ensembl_version=None,
             dv.lineage_hist(lineage, nbins)
         elif command == 'tree':
             dv.assign_subplots()
-            dv.tree_hist(nbins, vertical)
+            dv.tree_hist(nbins, vertical, xlim)
             print("finished drawing tree & hist.")
         if show_edited:
             dv.add_edited_prop(show_edited)
