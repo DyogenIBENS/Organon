@@ -13,12 +13,18 @@ from Bio import AlignIO
 
 def main(infile, format='fasta', nucl=False, outfile=None):
     align = AlignIO.read(infile, format=format)
+    ungapped_al = ungap(align, nucl=nucl)
+    AlignIO.write((ungapped_al,), outfile, format=format)
+
+def ungap(align, nucl=False):
     N = align.get_alignment_length()
     gaps = []
     curr_gap_start = None
+
+    step = 1 if nucl else 3
     #curr_gap_end = None
-    for i in islice(range(N), 0, N, 3):
-        if all(rec.seq == '---' for rec in align[:, i:(i+3)]):
+    for i in islice(range(N), 0, N, step):
+        if all(rec.seq == '-'*step for rec in align[:, i:(i+step)]):
             if curr_gap_start is None:
                 curr_gap_start = i
         else:
@@ -38,7 +44,7 @@ def main(infile, format='fasta', nucl=False, outfile=None):
         gap_start, gap_end = gaps.pop(0)
     except IndexError:
         print('No need to remove gaps', file=stderr)
-        return
+        return align
 
     ungapped_al = align[:, 0:gap_start]
 
@@ -47,13 +53,9 @@ def main(infile, format='fasta', nucl=False, outfile=None):
         ungapped_al += align[:, gap_end:next_gap_start]
         gap_end = next_gap_end
 
-        #print(gap_end, next_gap_start, next_gap_end, ':', len(ungapped_al), ungapped_al.get_alignment_length(), file=stderr)
-
     ungapped_al += align[:, next_gap_end:N]
-
-    #print(len(ungapped_al), ungapped_al.get_alignment_length(), file=stderr)
-
-    AlignIO.write((ungapped_al,), outfile, format=format)
+    
+    return ungapped_al
 
 
 if __name__ == '__main__':
