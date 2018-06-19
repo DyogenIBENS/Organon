@@ -113,7 +113,7 @@ def get_taxon_treebest(node, *args):
     
     *args are not used, they are here for compatibility with `get_taxon`"""
     try:
-        return node.S
+        return node.S.replace('.', ' ')
     except AttributeError:
         print(node.name)
         print(node)
@@ -320,7 +320,7 @@ class GenetreeDrawer(object):
         for genetree in genetrees:
             genetree.ladderize()
 
-            root = get_taxon(genetree, self.ancgene2sp, self.ensembl_version)
+            root = self.get_taxon(genetree, self.ancgene2sp, self.ensembl_version)
             alldescendants |= self.phyltree.allDescendants[root]
 
             # Add the branch leading to the current root, if **duplications** in
@@ -928,7 +928,7 @@ if __name__ == '__main__':
                               "2: parent node y: mean of children nodes;\n"
                               "3: branches always at 45 degrees;\n"
                               "4: parent node y: weighted average of children y;\n"
-                              "5: equal angles."
+                              "5: equal angles.\n[%(default)s]"
                               ))
     parser.add_argument('-C', '--commonname', action='store_true', 
                         help='Species common names only')
