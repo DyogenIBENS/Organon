@@ -77,13 +77,12 @@ def main(alignment_file, format='fasta'):
     global_stats, *seq_stats = compo_freq(alignment, format)
 
     n_stats = len(global_stats)
-    print('\t'.join(['%8s']*n_stats) % ('len', 'GC', 'N', 'gaps', 'CpG'))
-    print('\t'.join(['%8d'] + ['%8.4g']*(n_stats-1)) % global_stats)
-    seq_stat_template = '\t'.join(['%8.4g']*n_stats)
+    print('\t'.join(['%8s']*(n_stats+1)) % ('', 'len', 'GC', 'N', 'gaps', 'CpG'))
+    print('\t'.join(['%8s' % 'glob', '%8d'] + ['%8.4g']*(n_stats-1)) % global_stats)
+    seq_stat_template = '\t'.join(['%8s'] + ['%8.4g']*n_stats)
 
     for desc, seq_stat in zip(['mean', 'med', 'std'], seq_stats):
-        print(desc)
-        print(seq_stat_template % tuple(seq_stat))
+        print(seq_stat_template % tuple([desc] + seq_stat))
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)

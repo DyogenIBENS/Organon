@@ -53,7 +53,7 @@ def ungap(align, nucl=False):
         ungapped_al += align[:, gap_end:next_gap_start]
         gap_end = next_gap_end
 
-    ungapped_al += align[:, next_gap_end:N]
+    ungapped_al += align[:, gap_end:N]
     
     return ungapped_al
 

@@ -21,7 +21,7 @@ def algrep(alignment, pattern, negate=False):
     return Align.MultipleSeqAlignment(out_records)
 
 
-def main(filename, pattern, negate=False, format='fasta', outfile=stdout):
+def main(pattern, filename, negate=False, format='fasta', outfile=stdout):
     #al = AlignIO.read(alignment_file, format=format)
     sequences = SeqIO.parse(filename, format=format)
     SeqIO.write(seqrecords_grep(sequences, pattern, negate), outfile, format)
@@ -29,9 +29,9 @@ def main(filename, pattern, negate=False, format='fasta', outfile=stdout):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('pattern')
     parser.add_argument('filename', nargs='?', type=argparse.FileType('r'),
                         default=stdin)
-    parser.add_argument('pattern')
     parser.add_argument('-o', '--outfile', nargs='?', type=argparse.FileType('w'),
                         default=stdout)
     parser.add_argument('-F', '--format', default='fasta')
