@@ -287,8 +287,8 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                               ensembl_version=ENSEMBL_VERSION, treebest=False):
     if treebest:
         print_if_verbose("  Reading from TreeBest format", file=sys.stderr)
-        get_species    = lambda node: (node.S, node.name.split('_')[0])
-        split_ancestor = lambda node: (node.S, node.name) 
+        get_species    = lambda node: (node.S.replace('.', ' '), node.name.split('_')[0])
+        split_ancestor = lambda node: (node.S.replace('.', ' '), node.name) 
     else:
         get_species = lambda node: (ultimate_seq2sp(node.name, ensembl_version),
                                     node.name)
@@ -299,7 +299,7 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
     ### Beware not to iterate on these new nodes:
     ### iterate from leaves to root ('postorder') and insert between node and child
     for node in tree.traverse('postorder'):
-        print_if_verbose(" * " + node.name)
+        print_if_verbose(" * %r" % node.name)
         # Copying this list is CRUCIAL: children get inserted in node.children,
         # so you will iterate over your inserted children otherwise.
         node_children = copy(node.children)
@@ -307,8 +307,8 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
             parent_sp, parent_gn = split_ancestor(node)
             ### Delete this node if species is not recognized
             if parent_sp is None:
-                print("WARNING: taxon not found in %r. Deleting node." %
-                        parent_gn, file=sys.stderr)
+                print("WARNING: taxon not found in (%r, %r). Deleting node." %
+                        (parent_sp, parent_gn), file=sys.stderr)
                 node.delete(prevent_nondicotomic=False,
                             preserve_branch_length=True)
                 continue
