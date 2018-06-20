@@ -26,4 +26,5 @@ forestfile=argv[1]
 for tree in ProteinTree.loadTree(forestfile):
     #for node, children in tree.data.items():
     #    print(node, children)
-    tree.printNewick(stdout, withDist=True, withTags=True)
+    tree.printNewick(stdout, withDist=True, withTags=True,
+                     withAncSpeciesNames=True, withAncGenesNames=True)
