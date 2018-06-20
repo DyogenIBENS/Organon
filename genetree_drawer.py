@@ -663,8 +663,8 @@ class GenetreeDrawer(object):
                 children_rel_ys = [self.branchings[ch][2] for ch in children]
 
                 assert all((ch_rel_y >= 0) for ch_rel_y in children_rel_ys)
-                assert all((children_rel_ys[i+1] - children_rel_ys[i] > 0) for
-                           i in range(nch-1)), "Children's relative Y not sorted!"
+                if not all((children_rel_ys[i+1] - children_rel_ys[i] > 0) for i in range(nch-1)): 
+                    print("WARNING: Children's relative Y not sorted!", file=sys.stderr)
 
                 # Compute coordinates of the base of the fork: delta_ys
                 # (Keep only two children if multifurcation)
