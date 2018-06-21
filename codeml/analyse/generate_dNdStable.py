@@ -116,9 +116,10 @@ def load_fulltree(mlcfile, replace_nwk='.mlc', replace_by='.nwk'):
     It simply finds the newick file by replacing the extension of the mlc file.
     Catch errors (file does not exist / wrong format)"""
     #nwkfile = mlcfile.replace(replace_nwk, '.nwk')
-    nwkfile = re.sub(replace_nwk, replace_by, mlcfile)
+    rootname = re.sub(re.escape(replace_nwk) + '$', '', mlcfile)
+    nwkfile = rootname + replace_by
     try:
-        return ete3.Tree(nwkfile, format=1)
+        fulltree = ete3.Tree(nwkfile, format=1)
     except ete3.parser.newick.NewickError as e:
         if os.path.exists(nwkfile):
             print("\nNewickError: Malformed newick tree structure in %r" \
@@ -128,6 +129,9 @@ def load_fulltree(mlcfile, replace_nwk='.mlc', replace_by='.nwk'):
             print("\nNewickError: Unexisting tree file %r" % nwkfile,
                     file=sys.stderr)
         sys.exit(1)
+
+    fulltree.add_feature('treename', os.path.basename(rootname))
+    return fulltree
 
 
 def branch2nb(mlc, fulltree):
@@ -501,9 +505,11 @@ def isinternal(node, taxon=None, subtree=None):
     """True if node is neither a leaf or the root"""
     return not node.is_leaf() and not node.is_root()
 
-#example of a check for a given speciation node. Useless because cannot calibrate dups
-def is_murinae_spe(node, taxon, subtree):
-    return taxon=='Murinae' and not isdup(node, taxon, subtree)
+#def is_descendant_of(node, taxon=None, subtree=None):
+
+# Example of a check for a given speciation node. Useless because cannot calibrate dups
+#def is_murinae_spe(node, taxon, subtree):
+#    return taxon=='Murinae' and not isdup(node, taxon, subtree)
 
 def def_is_target_speciation(target_sp):
     """define the speciation node check function"""
@@ -629,7 +635,8 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             #ages[scname] = 0
             ages.append([scname] + branch_measures.tolist() +
                         measures_zeros.tolist() +
-                        [1, "leaf", getattr(node.up, 'name', None), taxon, fulltree.name])
+                        [1, "leaf", getattr(node.up, 'name', None), taxon,
+                            fulltree.name, fulltree.treename])
             print_if_verbose("Leaf")
         else:
             #try:
@@ -682,7 +689,8 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                 ages.append([scname] + branch_measures.tolist() +
                             [node_age] * n_measures +
                             [1, # calibrated
-                             eventtype, getattr(node.up, 'name', None), taxon, fulltree.name])
+                             eventtype, getattr(node.up, 'name', None), taxon,
+                             fulltree.name, fulltree.treename])
 
                 
                 node.add_features(**{'age_'+m: node_age for m in measures})
@@ -752,7 +760,8 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                                          nextnode.type, nextnode.up.name,
                                          subtree[nextnode.name]['taxon'],
                                          #ch_taxon,
-                                         fulltree.name])
+                                         fulltree.name,
+                                         fulltree.treename])
                             for i, m in enumerate(measures):
                                 nextnode.add_feature('age_'+m, age[i])
                             # When climbing up to next spe, need to increment
@@ -931,7 +940,7 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
         if saveas == 'ages':
             header = ['name'] + ['branch_'+m for m in measures] + \
                      ['age_'+m for m in measures] + \
-                     ['calibrated', 'type', 'parent', 'taxon', 'subgenetree']
+                     ['calibrated', 'type', 'parent', 'taxon', 'root', 'subgenetree']
             out.write('\t'.join(header) + '\n')
 
         for i, mlcfile in enumerate(mlcfiles, start=1):
