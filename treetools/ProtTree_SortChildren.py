@@ -11,6 +11,7 @@ Default to stdin/stdout if no argument."""
 
 from sys import argv, exit, stdin, stdout
 from LibsDyogen import myProteinTree
+from LibsDyogen import myFile
 
 
 def sort_children(tree):
@@ -37,6 +38,7 @@ if __name__ == '__main__':
         except IndexError:
             infile = stdin
 
-    for tree in myProteinTree.loadTree(infile):
-        sort_children(tree)
-        tree.printTree(outfile)
+    with myFile.openFile(outfile, 'w') as out:
+        for tree in myProteinTree.loadTree(infile):
+            sort_children(tree)
+            tree.printTree(out)

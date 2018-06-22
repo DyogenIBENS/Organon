@@ -249,6 +249,10 @@ def comp_parts(alint, compare_parts=None):
     return np.stack((manh_dist, split_sc,))
 
 
+def parsimony_score(alint, tree):
+    """Computes the column-wise parsimony score based on the provided tree."""
+
+
 def al_stats(align, nucl=False, allow_N=False):
     """Compute gap proportion and entropy value for each position of the alignment"""
     al_len = align.get_alignment_length()
