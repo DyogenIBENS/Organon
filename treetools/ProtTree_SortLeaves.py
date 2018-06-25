@@ -8,11 +8,14 @@ Input/output trees are in Dyogen ProteinTree format.
 """
 
 
-from sys import stdin, stdout, stderr
+from sys import stdin, stdout, stderr, setrecursionlimit
 import argparse
 
 from sorting import leaf_sort
 from LibsDyogen import myProteinTree, myFile
+
+
+setrecursionlimit(20000)
 
 
 def ProteinTree_getchildren(tree, node_and_dist):
