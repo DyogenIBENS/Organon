@@ -12,7 +12,7 @@ from sys import stdin, stdout, stderr, setrecursionlimit
 import argparse
 
 from sorting import leaf_sort
-from LibsDyogen import myProteinTree, myFile
+from LibsDyogen import myProteinTree, myFile #, myTools
 
 
 setrecursionlimit(20000)
@@ -45,26 +45,33 @@ def ProteinTree_LeafSort(tree, ProteinTree_getattribute=ProteinTree_getId):
               get_attribute=ProteinTree_getattribute)
 
 
-def main(infile, outfile, byattr=None):
-    if byattr:
-        get_attribute = lambda *args: ProteinTree_getnodeattr(*args, attrname=byattr)
+def main(proteinTree, outFile, sortAttr=None):
+    if sortAttr:
+        get_attribute = lambda *args: ProteinTree_getnodeattr(*args, attrname=sortAttr)
     else:
         get_attribute = ProteinTree_getId
 
-    with myFile.openFile(outfile, 'w') as out:
-        for tree in myProteinTree.loadTree(myFile.openFile(infile, 'r')):
+    with myFile.openFile(outFile, 'w') as out:
+        for tree in myProteinTree.loadTree(proteinTree):
             ProteinTree_LeafSort(tree, get_attribute)
             tree.printTree(out)
 
 
 if __name__ == '__main__':
     
-    parser = argparse.ArgumentParser(__doc__)
-    parser.add_argument("infile", nargs='?', default=stdin)
-    parser.add_argument("outfile", nargs='?', default=stdout)
-    parser.add_argument("-a", "--byattr", help="Leaf attribute to select:" \
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("proteinTree", nargs='?', default=stdin,
+                        help="Default to stdin")
+    parser.add_argument("outFile", nargs='?', default=stdout,
+                        help="Default to stdout")
+    parser.add_argument("-a", "--sortAttr", help="Leaf attribute to select:\n"\
                         "can be 'gene_name', 'protein_name', 'taxon_name', ...")
 
-    args = parser.parse_args()
-    main(args.infile, args.outfile, args.byattr)
+    args = vars(parser.parse_args())
+
+    #args = myTools.checkArgs(
+    #        [("proteinTree", str), ("outFile", str)],
+    #        [("sortAttr", str, None)],
+    #        __doc__)
+    main(**args)
 
