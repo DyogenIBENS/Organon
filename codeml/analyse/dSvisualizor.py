@@ -26,7 +26,9 @@ CMD_ARGS = {
         'tree':    [(('-v', '--vertical'),       {'action':'store_true'}),
                     (('-p', '--phyltreefile'),   {'default': PHYLTREEFILE}),
                     (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION}),
-                    (('-x', '--xlim'),)],
+                    (('-x', '--xlim'),),
+                    (('-t', '--title'),),
+                    (('--sharescale',), {'action':'store_true'})],
         'scatter': [(('-x', '--xlim'),), (('-y', '--ylim'),)],
         'violin':  [(('-x', '--xlim'),), (('-y', '--ylim'),)]}
 
@@ -461,7 +463,8 @@ class DataVisualizor(object):
         print("executed onpick action")
 
 
-    def tree_hist(self, nbins=None, vertical=False, xlim=None):
+    def tree_hist(self, nbins=None, vertical=False, xlim=None, sharescale=False,
+                  title=None):
         # labels, newdata, self.taxa_ages, hist_coords, subs_labels, treeforks, 
         """Draw histograms on top of a given tree structure.
         
@@ -471,6 +474,7 @@ class DataVisualizor(object):
         ---------
         nbins: total number of bins for a row.
         vertical   : True/False, whether to draw tree from bottom to top.
+        sharescale : whether the duplication axis should have the same limits.
 
         Used attributes
         ---------------
@@ -495,7 +499,7 @@ class DataVisualizor(object):
         ticklocator = lambda: MaxNLocator(integer=True, nbins='auto')
         if vertical:
             nrows, ncols = (1, n_subs)
-            sharex, sharey = False, True
+            sharex, sharey = sharescale, True
             bar_orientation = 'horizontal'
             text_rotation = 'horizontal'
             get_hist_coords = lambda lab: (self.hist_coords[lab][1],
@@ -506,7 +510,7 @@ class DataVisualizor(object):
             fix_dupticks = lambda ax: ax.xaxis.set_major_locator(ticklocator())
         else:
             nrows, ncols = (n_subs, 1)
-            sharex, sharey = True, False
+            sharex, sharey = True, sharescale
             bar_orientation = 'vertical'
             text_rotation = 'vertical'
             get_hist_coords = lambda lab: self.hist_coords[lab]
@@ -597,6 +601,8 @@ class DataVisualizor(object):
             #ax2.plot(anc1_age, 0, 'ro', markersize=20)
             fig.lines.append(line)
 
+        if title:
+            fig.suptitle(title)
         fig.canvas.mpl_connect('pick_event', self.onpick_bar_printdata)
 
         self.fig = fig
@@ -653,7 +659,8 @@ class DataVisualizor(object):
 def run(command, ages_file, phyltreefile=None, ensembl_version=None,
         outfile=None, lineage=None,
         show_edited=None, no_edited=False, age_key=DEFAULT_AGE_KEY,
-        nbins=DEFAULT_NBINS, vertical=False, x=None, y=None, xlim=None, ylim=None):
+        nbins=DEFAULT_NBINS, vertical=False, x=None, y=None, xlim=None, ylim=None,
+        sharescale=False, title=None):
 
     curr_backend = mpl.get_backend()
     if not outfile and "inline" not in curr_backend and curr_backend != "nbagg":
@@ -679,7 +686,7 @@ def run(command, ages_file, phyltreefile=None, ensembl_version=None,
             dv.lineage_hist(lineage, nbins)
         elif command == 'tree':
             dv.assign_subplots()
-            dv.tree_hist(nbins, vertical, xlim)
+            dv.tree_hist(nbins, vertical, xlim, sharescale, title)
             print("finished drawing tree & hist.")
         if show_edited:
             dv.add_edited_prop(show_edited)
