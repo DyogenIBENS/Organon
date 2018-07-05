@@ -2,10 +2,8 @@
 # -*- coding: utf-8 -*-
 
 from sys import stdin, stdout
-#import fileinput
 import argparse
 import re
-#import fileinput
 
 RE_SPACE = re.compile(r'\s+')
 RE_STRUCT = re.compile(r',|\(|\)|\[\&\&NHX:|\'|\"') # Exclude contents between quotes and in comments
@@ -32,17 +30,22 @@ STRUCT_DO = {',': go_same,
              '(': go_in,
              ')': go_out}
 
-def main(inputtree, outputfile, indent=INDENT):
+def main(inputtree, outputfile, inplace=False, indent=INDENT):
     #if inputtree is not '-':
     #with open(inputtree) as intree:
-    all_treetxt = RE_SPACE.sub('', inputtree.read())
+    #all_treetxt = RE_SPACE.sub('', inputtree.read())
+    all_treetxt = inputtree.read()
     #else:
     #    all_treetxt = RE_SPACE.sub('', ''.join(line.rstrip() for line in stdin.readlines()))
     all_trees = all_treetxt.rstrip('; \t\n\r').split(';')
     #print(len(all_trees))
     #print(len(all_trees), all_trees)
 
-    out = outputfile
+    if inplace:
+        inputtree.close()
+        out = open(inputtree.name, 'w')
+    else:
+        out = outputfile
     
     try:
         for treetxt in all_trees:
@@ -57,7 +60,7 @@ def main(inputtree, outputfile, indent=INDENT):
                 if struct in STRUCT_DO:
                     nindent, newstruct = STRUCT_DO[struct](nindent, indent)
 
-                    out.write(treetxt[:start] + newstruct)
+                    out.write(treetxt[:start].rstrip().lstrip() + newstruct)
 
                     treetxt = treetxt[end:]
                 elif struct in PROTECT:
@@ -83,6 +86,8 @@ if __name__ == '__main__':
                         default=stdin)
     parser.add_argument('outputfile', nargs='?', type=argparse.FileType('w'),
                         default=stdout)
+    parser.add_argument('-i', '--inplace', action='store_true',
+                        help='Edit input file in place')
     
     main(**vars(parser.parse_args()))
 
