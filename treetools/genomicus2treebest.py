@@ -11,8 +11,9 @@ USAGE:
 from __future__ import print_function
 
 
-from sys import argv, exit, stderr, stdout
+from sys import argv, exit, stderr, stdout, setrecursionlimit
 import LibsDyogen.myProteinTree as ProteinTree
+
 
 if len(argv) != 2:
     print(__doc__, file=stderr)
@@ -22,6 +23,8 @@ elif argv[1] in ('-h', '--help'):
     exit()
 
 forestfile=argv[1]
+
+setrecursionlimit(20000)
 
 for tree in ProteinTree.loadTree(forestfile):
     #for node, children in tree.data.items():
