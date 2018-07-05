@@ -62,7 +62,14 @@ def print_if_verbose(*args, **kwargs):
 #                        err.args += ("ERROR: Invalid nodename %r" % nodename,)
 #                        raise
 #    return nodename[:idx].replace('.', ' '), nodename[idx:]
-UCSC_CONVERSION = load_conversion()
+ucsc_conv_filename = '~/ws2/UCSC_genome_releases_full.tsv'
+try:
+    UCSC_CONVERSION = load_conversion(ucsc_conv_filename)
+except FileNotFoundError:
+    print("WARNING: conversion file not found: %r" % ucsc_conv_filename,
+            file=sys.stderr)
+    UCSC_CONVERSION = {}
+
 
 def ultimate_seq2sp(seqname, ensembl_version=ENSEMBL_VERSION):
     """From a sequence name, find the corresponding species.
