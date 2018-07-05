@@ -686,6 +686,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     #print_if_verbose("* treefile: " + treefile)
     #print("treebest = %s" % treebest, file=sys.stderr)
     outfiles_set = set() # check whether I write twice to the same outfile
+    if treefile == '-': treefile = '/dev/stdin'
     try:
         tree = ete3.Tree(treefile, format=1)
     except ete3.parser.newick.NewickError as err:
@@ -893,6 +894,7 @@ if __name__ == '__main__':
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-i", "--ignore-errors", action="store_true", 
                         help="On error, print the error and continue the loop.")
+    #parser.add_argument("-O", "--to-stdout", action="store_true")
     
     args = parser.parse_args()
     dargs = vars(args)

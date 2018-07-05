@@ -49,7 +49,12 @@ PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
                "PhylTree.Ensembl.{0}.conf"
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS') # NOT USED
 
-UCSC_CONVERSION = load_conversion()
+try:
+    ucsc_conv_filename = "~glouvel/ws2/UCSC_genome_releases_full.tsv"
+    UCSC_CONVERSION = load_conversion(ucsc_conv_filename)
+except FileNotFoundError:
+    print("WARNING: UCSC species name conversion file %r not found" % ucsc_conv_filename, file=sys.stderr)
+    UCSC_CONVERSION = {}
 
 ### Matplotlib graphical parameters ###
 grey10 = '#1a1a1a'
@@ -301,6 +306,9 @@ class GenetreeDrawer(object):
             self.genetreename = genetreename
         elif filename.startswith('/dev/fd/'):
             self.genetreename = filename
+        elif filename == '-':
+            filename = '/dev/stdin'
+            self.genetreename = 'stdin'
         else:
             self.genetreename = os.path.splitext(os.path.basename(filename))[0]
 
@@ -629,7 +637,7 @@ class GenetreeDrawer(object):
         color_index = 0
 
         # Gene node names to be displayed (dup, leaf, spe)
-        genenames=set(genenames.split(',')) if genenames else set()
+        genenames=set(genenames.split(',', maxsplit=1)) if genenames else set()
 
         #seen_genenames = set()
         for node in (n for genetree in self.genetrees \
@@ -908,9 +916,9 @@ if __name__ == '__main__':
     parser.add_argument('outfile', help=("pdf file, or '-'. If '-', will use "
                                          "Qt to display the figure."))
     parser.add_argument('genetrees', nargs='*', default=[],
-        help=("must be a genetree (nwk"
-        " format with internal nodes labelling) reconciled with species tree, "
-        " or a genetree formatted like `TreeBest` output."))
+        help=("must be a genetree (nwk format with internal nodes labelling) "
+            "reconciled with species tree, or a genetree formatted like "
+            "`TreeBest` output. '-' means standard input."))
     parser.add_argument('--fromfile', action='store_true',
                         help='take genetree paths and description from a file')
     parser.add_argument('-e', '--ensembl-version', type=int,
