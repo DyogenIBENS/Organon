@@ -24,7 +24,10 @@ try:
 except ImportError:
     import argparse
 
+from functools import reduce
+
 from plottools import stackedbar
+from glou_duphist import dfw_descendants_generalized
 
 #try:
 #    mpl.style.use('softer')
@@ -123,6 +126,7 @@ def category2int(array, converter_dict, allow_N=False):
         #ufunc = lambda residue: converter_dict.get(residue, np.NaN)
         Ncodon_regex = re.compile('[NATCG]+$')
         Ncodon_int = max(converter_dict.values()) + 1
+        
         def ufunc(residue):
             try:
                 return converter_dict[residue]
@@ -144,6 +148,21 @@ def count_matrix(vint, minlength=66):
 def freq_matrix(vint, minlength=66):
     """Convert matrix of integers to frequencies (per column)"""
     return count_matrix(vint, minlength).astype(float) / np.alen(vint)
+
+def presence_matrix(vint, minlength=66):
+    """Convert a sequence of integers into a boolean matrix of presence of each value."""
+
+    assert vint.shape[0] == 1, "Can't give more than one sequence."
+    count_mat = count_matrix(vint, minlength)
+    # Convert gaps (integer zero) and 'N' (integer minlength-1) to unknown: True everywhere.
+    presence = count_matrix[1:(minlength-1), :].astype(bool)
+    # Broadcast row of gaps on all rows of `presence`.
+    presence |= count_matrix[0, :].astype(bool)
+    # Broadcast row of 'N' on all rows of `presence`.
+    presence |= count_matrix[(minlength-1), :].astype(bool)
+
+    return presence
+
 
 def filename2format(filename):
     _, ext = os.path.splitext(filename)
@@ -249,8 +268,35 @@ def comp_parts(alint, compare_parts=None):
     return np.stack((manh_dist, split_sc,))
 
 
-def parsimony_score(alint, tree):
+def parsimony_score(alint, tree, seqlabels, minlength=66):
     """Computes the column-wise parsimony score based on the provided tree."""
+
+    assert all(sl == clade.name for sl, clade in zip(seqlabels, tree.get_terminals())), \
+        "The alignment is not ordered as the tree."
+    get_children = lambda tree, node: node.clades
+    iter_tree = dfw_descendants_generalized(tree, get_children,
+                                            include_leaves=False)
+
+    # Holds the currently seen nodes, and their parsimony score and sequence.
+    process_sequences = {}
+
+    leaf_nb = 0
+    score = np.zeros(alint.shape[1], dtype=int)
+
+    for parent, children in reversed(list(iter_tree)):
+        if len(children) > 2:
+            print("WARNING: more than 2 children at", parent.name, file=stderr)
+        if not children:
+            # Parent is a leaf. Obtain the sequence.
+            process_sequences[parent] = presence_matrix(alint[leaf_nb,:], minlength)
+            leaf_nb += 1
+        else:
+            # .pop(ch) ?
+            children_seqs = [process_sequences[ch] for ch in children]
+            score += reduce(np.logical_and, children_seqs).any(axis=0)
+            process_sequences[parent] = reduce(np.logical_or, children_seqs)
+
+    return score
 
 
 def al_stats(align, nucl=False, allow_N=False):
@@ -374,8 +420,11 @@ class AlignPlotter(object):
                   'part_sp':     default_step}
 
 
-    def __init__(self, alint, seqlabels=None, valid_range=(1,64)):
+    def __init__(self, alint, seqlabels=None, valid_range=(1,64), tree=None):
         """Initialize the Plotter instance from a matrix of integers.
+        
+        - alint: alignment provided as a numpy 2D array of integers.
+        - tree: tree in Bio.Phylo format.
         """
         self.alint = alint
         self.x = np.arange(self.alint.shape[1]) # X values for plotting
@@ -387,6 +436,7 @@ class AlignPlotter(object):
         #print(np.unique(self.malint))
         #print(np.unique(self.malint - self.malint.max()))
         self.valid_range = valid_range
+        self.tree = tree
 
         #cmap_size = valid_range[1] - valid_range[0] # If len(valid_range) > 1
         # Dark2, tab20b, tab20, Set1
@@ -440,8 +490,6 @@ class AlignPlotter(object):
 
             align = Align.MultipleSeqAlignment([align[r] for r in records])
 
-
-        
         if slice:
             slstart, slend = [int(pos) for pos in slice.split(':')]
             if not nucl:
@@ -462,7 +510,7 @@ class AlignPlotter(object):
 
         # Init and setup the class instance
         valid_range = (1, 4) if nucl else (1, 64)
-        instance = cls(alint, seqlabels, valid_range)
+        instance = cls(alint, seqlabels, valid_range, tree)
         instance.fromfile_params = {'infile': infile, 'format': format,
                                     'slice': (slstart, slend),
                                     'records': records}
@@ -501,6 +549,10 @@ class AlignPlotter(object):
         #self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop[:, 1])
         self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop.sum(axis=0))
         self.sp_score = sp_score(self.alint)
+        if self.tree is not None:
+            self.parsimony_score = parsimony_score(self.alint, self.tree,
+                                                   minlength=(max_valid+2),
+                                                   seqlabels=self.seqlabels)
         
         self.plotlist.extend(('gap', 'entropy', 'gap_entropy', 'sp'))
         self.plotdata.update(gap=(self.x, self.gap_prop,),
