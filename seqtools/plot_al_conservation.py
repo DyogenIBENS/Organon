@@ -143,7 +143,10 @@ def count_matrix(vint, minlength=66):
     """column-wise matrix of counts of integers"""
     assert vint.dtype == int
     return np.stack([np.bincount(vint[:,i], minlength=minlength) \
-                        for i in range(vint.shape[1])], axis=-1)
+                        for i in range(vint.shape[-1])], axis=-1)
+
+#count_matrix = np.vectorize(lambda array_1D: np.bincount(array_1D, minlength=minlength)
+# Nope because this processes columns
 
 def freq_matrix(vint, minlength=66):
     """Convert matrix of integers to frequencies (per column)"""
@@ -152,14 +155,15 @@ def freq_matrix(vint, minlength=66):
 def presence_matrix(vint, minlength=66):
     """Convert a sequence of integers into a boolean matrix of presence of each value."""
 
-    assert vint.shape[0] == 1, "Can't give more than one sequence."
+    assert len(vint.shape) == 2 and vint.shape[0] == 1, \
+            "Can't give more than one sequence." + str(vint.shape)
     count_mat = count_matrix(vint, minlength)
     # Convert gaps (integer zero) and 'N' (integer minlength-1) to unknown: True everywhere.
-    presence = count_matrix[1:(minlength-1), :].astype(bool)
+    presence = count_mat[1:(minlength-1), :].astype(bool)
     # Broadcast row of gaps on all rows of `presence`.
-    presence |= count_matrix[0, :].astype(bool)
+    presence |= count_mat[0, :].astype(bool)
     # Broadcast row of 'N' on all rows of `presence`.
-    presence |= count_matrix[(minlength-1), :].astype(bool)
+    presence |= count_mat[(minlength-1), :].astype(bool)
 
     return presence
 
@@ -271,30 +275,49 @@ def comp_parts(alint, compare_parts=None):
 def parsimony_score(alint, tree, seqlabels, minlength=66):
     """Computes the column-wise parsimony score based on the provided tree."""
 
-    assert all(sl == clade.name for sl, clade in zip(seqlabels, tree.get_terminals())), \
-        "The alignment is not ordered as the tree."
     get_children = lambda tree, node: node.clades
     iter_tree = dfw_descendants_generalized(tree, get_children,
-                                            include_leaves=False)
+                                            include_leaves=True)
 
     # Holds the currently seen nodes, and their parsimony score and sequence.
     process_sequences = {}
 
-    leaf_nb = 0
+    # Index of encountered leaves/sequences
+    leaf_nb = alint.shape[0] - 1
+    assert leaf_nb+1 == len(seqlabels)
+
+    # column-wise parsimony score
     score = np.zeros(alint.shape[1], dtype=int)
 
     for parent, children in reversed(list(iter_tree)):
+        #print('*', parent, children)
         if len(children) > 2:
             print("WARNING: more than 2 children at", parent.name, file=stderr)
         if not children:
             # Parent is a leaf. Obtain the sequence.
-            process_sequences[parent] = presence_matrix(alint[leaf_nb,:], minlength)
-            leaf_nb += 1
+            assert parent.name == seqlabels[leaf_nb], \
+                "The alignment is not ordered as the tree. Seq %d: %s != leaf %s" \
+                    % (leaf_nb, seqlabels[leaf_nb], parent.name)
+            process_sequences[parent] = presence_matrix(alint[np.newaxis,leaf_nb,:], minlength)
+            leaf_nb -= 1
         else:
             # .pop(ch) ?
-            children_seqs = [process_sequences[ch] for ch in children]
-            score += reduce(np.logical_and, children_seqs).any(axis=0)
-            process_sequences[parent] = reduce(np.logical_or, children_seqs)
+            try:
+                children_seqs = [process_sequences[ch] for ch in children]
+            except KeyError:
+                print(process_sequences, leaf_nb, file=stderr)
+                raise
+            children_inter = reduce(np.logical_and, children_seqs)
+            children_union = reduce(np.logical_or, children_seqs)
+            #print(children_inter, children_union, sep='\n')
+            # Add one to each column where a substitution is needed
+            empty_inter = ~children_inter.any(axis=0)
+            score += empty_inter
+            # The new nucleotide set is the intersection if it's not empty,
+            # otherwise the union
+            process_sequences[parent] = children_inter
+            process_sequences[parent][:, empty_inter] = children_union[:, empty_inter]
+        #print(process_sequences[parent])
 
     return score
 
@@ -396,6 +419,7 @@ class AlignPlotter(object):
                               'ylabel': 'Alignment'},
                        'gap': {'ylabel': 'Proportion of gaps\n(G)'},
                                #'ylim': (-0.05,1.05)},
+                       'pars': {'ylabel': 'Parsimony score (min number of changes)'},
                        'entropy': {'ylabel': 'Entropy\n(H)'},
                        'gap_entropy': {'ylabel': 'Gap-entropy score:\n(1-H)*(1-G)'},
                        'sp': {'ylabel': 'SP score\n(Sum-of-pair differences)'},
@@ -412,6 +436,7 @@ class AlignPlotter(object):
                   #                ('invert_yaxis', {})],
                   #'gap':         default_step, #default_bar, "stackplot"
                   'gap':         [(stackedbar, {'width': 1, 'edgecolor': 'none'})],
+                  'pars':        default_bar,
                   'entropy':     default_bar,
                   'gap_entropy': default_bar,
                   'sp':          default_bar,
@@ -549,16 +574,19 @@ class AlignPlotter(object):
         #self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop[:, 1])
         self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop.sum(axis=0))
         self.sp_score = sp_score(self.alint)
-        if self.tree is not None:
-            self.parsimony_score = parsimony_score(self.alint, self.tree,
-                                                   minlength=(max_valid+2),
-                                                   seqlabels=self.seqlabels)
-        
+
         self.plotlist.extend(('gap', 'entropy', 'gap_entropy', 'sp'))
         self.plotdata.update(gap=(self.x, self.gap_prop,),
                              entropy=(self.x, self.entropy,),
                              gap_entropy=(self.x, self.gap_entropy,),
                              sp=(self.x, self.sp_score,))
+
+        if self.tree is not None:
+            self.parsimony_score = parsimony_score(self.alint, self.tree,
+                                                   minlength=(max_valid+2),
+                                                   seqlabels=self.seqlabels)
+            self.plotlist.insert(1, 'pars')
+            self.plotdata['pars'] = (self.x, self.parsimony_score)
 
 
     def annotate_parts(self, ax):
@@ -727,9 +755,9 @@ if __name__ == '__main__':
                         help='Do not display global scores')
     parser.add_argument('-w', '--figwidth', default=16, type=float,
                         help='Figure width (inches) [%(default)s]')
-    parser.add_argument('-p', '--plotlist', default='al,gap',
+    parser.add_argument('-p', '--plotlist', default='al,gap,pars',
                         help='comma-sep list of plots. Valid values are: '\
-                             'al,gap,entropy,gap_entropy,sp,manh,pearson,'
+                             'al,gap,pars,entropy,gap_entropy,sp,manh,pearson,'
                              'part_sp. [%(default)s]')
     
     args = parser.parse_args()
