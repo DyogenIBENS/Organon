@@ -272,10 +272,10 @@ class GenetreeDrawer(object):
         self.show_cov = show_cov
         if show_cov:
             self.legend_coverage = [
-                    lines.Line2D([], [], alpha=1, linestyle=' ', label='high coverage'),
-                    lines.Line2D([], [], alpha=0.6, linestyle=' ', label='6X coverage'),
-                    lines.Line2D([], [], alpha=0.3, linestyle=' ', label='2X coverage')
-                   ]
+                lines.Line2D([], [], alpha=1, linestyle=' ', label='high coverage'),
+                lines.Line2D([], [], alpha=0.6, linestyle=' ', label='6X coverage'),
+                lines.Line2D([], [], alpha=0.3, linestyle=' ', label='2X coverage')
+               ]
 
         # add legend elements for the clade information
         self.colorize_species  = {}
@@ -326,7 +326,8 @@ class GenetreeDrawer(object):
         self.taxa = set()
 
         for genetree in genetrees:
-            genetree.ladderize()
+            ### TODO: actually, ladderizing is useless, it should sort speciation
+            ###       nodes according to the average y position of next spe node.
 
             root = self.get_taxon(genetree, self.ancgene2sp, self.ensembl_version)
             alldescendants |= self.phyltree.allDescendants[root]
@@ -503,7 +504,8 @@ class GenetreeDrawer(object):
 
             if node.is_leaf():
                 taxon_gene_coords.append(node.id)
-                node_y = len(taxon_gene_coords) - 1
+                node_y = len(taxon_gene_coords) - 1 # This list is being
+                                                    # extended later on.
                 interspecies_trees[node.id] = {'taxon': taxon,
                                                'ndup': 0,
                                                'x': 1,
@@ -533,7 +535,7 @@ class GenetreeDrawer(object):
                               (node.name, [ch.name for ch in node.children]),
                               file=sys.stderr)
 
-                    # It is a duplication
+                    # It is a **duplication**
                     children_ys   = []
                     children_ndup = []
                     for ch in node.children:
@@ -543,6 +545,8 @@ class GenetreeDrawer(object):
                     # TODO: tilt according to the parent speciation node.
                     # should fit in the triangle defined by parent and descendants.
                     #node_y    = (min(children_ys) + max(children_ys)) / 2
+                    
+                    # weighted average of the children positions.
                     node_y    = sum(cy*(cd+1) for cy,cd in \
                                                zip(children_ys, children_ndup))
                     node_y   /= (sum(children_ndup) + len(children_ndup))
@@ -554,8 +558,9 @@ class GenetreeDrawer(object):
                             'x': 1, # modified later
                             'y': node_y}
                 else:
-                    # It is a speciation
+                    # It is a **speciation**
                     event = 'spe'
+
                     ### FIXME 
                     if len(children_taxa)==1:
                         msg = "WARNING: the node %r -> %s" % \
@@ -568,10 +573,10 @@ class GenetreeDrawer(object):
                         #           "descendant."
                             #if not node.is_root(): event = 'dup'
                             # TODO: check this in the duplication block above.
-                        print(msg, file=sys.stderr)
+                            print(msg, file=sys.stderr)
 
-                    if event!='dup':
-                        taxon_gene_coords.append(node.id)
+                    #if event!='dup':
+                    taxon_gene_coords.append(node.id)
 
                     node_y = len(taxon_gene_coords) - 1
                     interspecies_trees[node.id] = {
@@ -582,8 +587,8 @@ class GenetreeDrawer(object):
                     self.branchings[node.id] = [taxon, 0, node_y, event,
                                                 [ch.id for ch in
                                                     node.children]]
-                    if event == 'dup':
-                        continue
+                    #if event == 'dup':
+                    #    continue
 
                     #print('Speciation %r' % taxon, self.branchings[node.id])
                     
@@ -639,14 +644,9 @@ class GenetreeDrawer(object):
         # Gene node names to be displayed (dup, leaf, spe)
         genenames=set(genenames.split(',', maxsplit=1)) if genenames else set()
 
-        #seen_genenames = set()
         for node in (n for genetree in self.genetrees \
                      for n in genetree.traverse('postorder')):
             nodeid = node.id
-            #if nodeid in seen_genenames:
-            #    print('WARNING: %r already seen' % nodeid)
-            #else:
-            #    seen_genenames.add(nodeid)
             
             species, rel_x, rel_y, event, children = self.branchings[nodeid]
             pos_list = self.gene_coords[species]
@@ -671,8 +671,10 @@ class GenetreeDrawer(object):
                 children_rel_ys = [self.branchings[ch][2] for ch in children]
 
                 assert all((ch_rel_y >= 0) for ch_rel_y in children_rel_ys)
-                if not all((children_rel_ys[i+1] - children_rel_ys[i] > 0) for i in range(nch-1)): 
-                    print("WARNING: Children's relative Y not sorted!", file=sys.stderr)
+                if any((children_rel_ys[i+1] - children_rel_ys[i] < 0) for i in range(nch-1)): 
+                    print("WARNING: Children's relative Y not sorted! (%s: %s)" % (event, node.name), file=sys.stderr)
+                elif any((children_rel_ys[i+1] - children_rel_ys[i] == 0) for i in range(nch-1)):
+                    print("WARNING: Some children's relative Y are identical! (%s: %s)" % (event, node.name), file=sys.stderr)
 
                 # Compute coordinates of the base of the fork: delta_ys
                 # (Keep only two children if multifurcation)
