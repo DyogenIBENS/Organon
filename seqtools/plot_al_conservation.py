@@ -419,7 +419,7 @@ class AlignPlotter(object):
                               'ylabel': 'Alignment'},
                        'gap': {'ylabel': 'Proportion of gaps\n(G)'},
                                #'ylim': (-0.05,1.05)},
-                       'pars': {'ylabel': 'Parsimony score (min number of changes)'},
+                       'pars': {'ylabel': 'Parsimony score\n(min number of changes)'},
                        'entropy': {'ylabel': 'Entropy\n(H)'},
                        'gap_entropy': {'ylabel': 'Gap-entropy score:\n(1-H)*(1-G)'},
                        'sp': {'ylabel': 'SP score\n(Sum-of-pair differences)'},
