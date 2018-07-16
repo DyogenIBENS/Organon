@@ -249,6 +249,50 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
             yield parent, coords[parent], child, coords[child]
 
 
+def infer_gene_event(node, taxon, children_taxa):
+    """Tell whether a gene tree node (ete3 format) is a leaf, a speciation or
+    a duplication, using the taxon information."""
+    #if node.is_leaf():
+    if not children_taxa:
+        return 'leaf'
+    elif (getattr(node, 'D', None) is not None and node.D == 'Y') \
+           or (taxon in children_taxa):
+       #(len(children_taxa) == 1 and taxon in children_taxa): #\
+                    #and len(node.children) > 1 \
+       #or \
+       #(len(node.children) == 1 and taxon in children_taxa):
+        # Should rather check if taxon in children_taxa.
+        if len(children_taxa) > 1:
+            print("WARNING: the node %r -> %s "\
+                  "is a duplication + a speciation. Not " \
+                  "truly reconciled tree." % \
+                  (node.name, [ch.name for ch in node.children]),
+                  file=sys.stderr)
+        elif len(node.children) == 1:
+            print("WARNING: the node %r -> %s "\
+                  " is a duplication/speciation with one " \
+                  "descendant." % \
+                  (node.name, [ch.name for ch in node.children]),
+                  file=sys.stderr)
+        return 'dup'
+    else:
+        ### FIXME 
+        if len(children_taxa)==1:
+            msg = "WARNING: the node %r -> %s" % \
+                  (node.name, [ch.name for ch in node.children])
+            if len(node.children) > 1:
+                msg += " is a duplication + a speciation. Not " \
+                       "truly reconciled tree."
+            #else:
+            #    msg += " is a duplication/speciation with one " \
+            #           "descendant."
+                #if not node.is_root(): event = 'dup'
+                # TODO: check this in the duplication block above.
+                print(msg, file=sys.stderr)
+
+        return 'spe'
+
+
 class GenetreeDrawer(object):
     """Draw a gene tree inside a species tree"""
 
@@ -376,8 +420,6 @@ class GenetreeDrawer(object):
         root = "root" if "root" in roots else self.phyltree.lastCommonAncestor(list(roots))
         self.taxa.add(root)
         
-
-
     def draw_species_tree(self, figsize=None, angle_style=0, branch_width=0.8,
                           colorize_clades=None, ages=False):
         """Init figure + draw branches of the species tree.
@@ -476,6 +518,86 @@ class GenetreeDrawer(object):
         self.ax0 = ax0
 
 
+    def minimize_gene_branch_crossing(self):
+        """Reduce the number of gene branches crossing at speciation nodes, 
+        by rotating duplication forks."""
+
+        _, phylsubtree = self.phyltree.getSubTree(self.taxa)
+
+        # Store for each node the number of species deletion going down or up.
+        deletion_count = {} # +1 for deletion in high taxon, -1 in low taxon
+        get_taxon_y = lambda taxon: self.species_coords[taxon][1]
+        cached_taxa = {}
+
+        def orient_deletion(children_taxa, expected_children_taxa):
+            """Tell if the deleted gene branch belong to a species branch going
+            up (+1) or down (-1)"""
+            assert expected_children_taxa, children_taxa
+            expected_children_taxa_ys = sorted(expected_children_taxa, key=get_taxon_y)
+            low_taxon = expected_children_taxa_ys[0]
+            high_taxon = expected_children_taxa_ys[-1]
+
+            if low_taxon not in children_taxa:
+                return -1
+            elif high_taxon not in children_taxa:
+                return 1
+
+        def iter_missing_branches(child_taxon, expected_children_taxa):
+            while child_taxon not in expected_children_taxa:
+                tmp_taxon = self.phyltree.parent[child_taxon].name
+                print("  - get intermediate parent of %s: %s" % \
+                        (child_taxon, tmp_taxon), file=sys.stderr)
+                while tmp_taxon not in phylsubtree:
+                    tmp_taxon = self.phyltree.parent[tmp_taxon].name
+
+                yield tmp_taxon, child_taxon
+                
+                child_taxon = tmp_taxon
+
+        for node in (n for genetree in self.genetrees \
+                                      for n in genetree.traverse('postorder')):
+            taxon = self.get_taxon(node, self.ancgene2sp, self.ensembl_version)
+            cached_taxa[node] = taxon
+            children_taxa = set(cached_taxa[ch] for ch in node.children)
+            event = infer_gene_event(node, taxon, children_taxa)
+
+            deletion_count[node] = sum(deletion_count[ch] for ch in node.children)
+
+            if event == 'spe':
+
+                expected_children_taxa = set(phylsubtree[taxon])
+                
+                if expected_children_taxa != children_taxa:
+
+                    tmp_children_taxa = []
+                
+                    # if intermediate speciation nodes are missing, count deletions.
+                    for child_taxon in children_taxa:
+
+                        for tmp_taxon, child_taxon in iter_missing_branches(child_taxon,
+                                                          expected_children_taxa):
+
+                            tmp_expected_children_taxa = phylsubtree[tmp_taxon]
+
+                            deletion_count[node] += orient_deletion(set((tmp_taxon,)), tmp_expected_children_taxa)
+                        tmp_children_taxa.append(child_taxon)
+
+                    deletion_count[node] += orient_deletion(children_taxa, expected_children_taxa)
+
+            elif event == 'dup':
+                if len(children_taxa) > 1:
+                    for child in node.children:
+                        child_taxon = cached_taxa[child]
+                        if child_taxon != taxon:
+                            for tmp_taxon, _ in iter_missing_branches(child_taxon,
+                                                        expected_children_taxa):
+                                deletion_count[child] += orient_deletion(set((tmp_taxon,)), tmp_expected_children_taxa)
+
+                node.children = sorted(node.children, key=deletion_count.get)
+
+        self.genetrees = sorted(self.genetrees, key=deletion_count.get)
+
+
     def set_gene_coords(self):
         ### TODO: enable repeted calls to set multiple gene trees
         ### TODO: propagate deleted lineage : draw invisible lines, just to
@@ -493,6 +615,8 @@ class GenetreeDrawer(object):
 
         # x and y are relative to the branch considered. (between 0 and 1)
 
+        self.minimize_gene_branch_crossing()
+
         for nodeid, node in enumerate(n for genetree in self.genetrees \
                                       for n in genetree.traverse('postorder')):
             # set up a *unique* node ID, to avoid relying on node.name.
@@ -502,126 +626,93 @@ class GenetreeDrawer(object):
             taxon = self.get_taxon(node, self.ancgene2sp, self.ensembl_version)
             taxon_gene_coords = self.gene_coords.setdefault(taxon, [])
 
-            if node.is_leaf():
-                taxon_gene_coords.append(node.id)
+            children_taxa = set(interspecies_trees[ch.id]['taxon'] for ch
+                                in node.children)
+            event = infer_gene_event(node, taxon, children_taxa)
+
+            if event == 'leaf':
+                taxon_gene_coords.append(nodeid)
                 node_y = len(taxon_gene_coords) - 1 # This list is being
                                                     # extended later on.
-                interspecies_trees[node.id] = {'taxon': taxon,
+                interspecies_trees[nodeid] = {'taxon': taxon,
                                                'ndup': 0,
                                                'x': 1,
                                                'y': node_y}
-                self.branchings[node.id] = [taxon, 0, node_y, 'leaf', []]
+                self.branchings[nodeid] = [taxon, 0, node_y, 'leaf', []]
+            elif event == 'dup':
+
+                # It is a **duplication**
+                children_ys   = []
+                children_ndup = []
+                for ch in node.children:
+                    children_ys.append(interspecies_trees[ch.id]['y'])
+                    children_ndup.append(interspecies_trees[ch.id]['ndup'])
+
+                # TODO: tilt according to the parent speciation node.
+                # should fit in the triangle defined by parent and descendants.
+                #node_y    = (min(children_ys) + max(children_ys)) / 2
+                
+                # weighted average of the children positions.
+                node_y    = sum(cy*(cd+1) for cy,cd in \
+                                           zip(children_ys, children_ndup))
+                node_y   /= (sum(children_ndup) + len(children_ndup))
+                node_ndup = max(children_ndup) + 1
+
+                interspecies_trees[nodeid] = {
+                        'taxon': taxon,
+                        'ndup': node_ndup,
+                        'x': 1, # modified later
+                        'y': node_y}
             else:
-                children_taxa = set(interspecies_trees[ch.id]['taxon'] for ch
-                                    in node.children)
-                if (getattr(node, 'D', None) is not None and node.D == 'Y') \
-                   or \
-                   (taxon in children_taxa):
-                   #(len(children_taxa) == 1 and taxon in children_taxa): #\
-                                #and len(node.children) > 1 \
-                   #or \
-                   #(len(node.children) == 1 and taxon in children_taxa):
-                    # Should rather check if taxon in children_taxa.
-                    if len(children_taxa) > 1:
-                        print("WARNING: the node %r -> %s "\
-                              "is a duplication + a speciation. Not " \
-                              "truly reconciled tree." % \
-                              (node.name, [ch.name for ch in node.children]),
-                              file=sys.stderr)
-                    elif len(node.children) == 1:
-                        print("WARNING: the node %r -> %s "\
-                              " is a duplication/speciation with one " \
-                              "descendant." % \
-                              (node.name, [ch.name for ch in node.children]),
-                              file=sys.stderr)
+                # It is a **speciation**
 
-                    # It is a **duplication**
-                    children_ys   = []
-                    children_ndup = []
-                    for ch in node.children:
-                        children_ys.append(interspecies_trees[ch.id]['y'])
-                        children_ndup.append(interspecies_trees[ch.id]['ndup'])
+                #if event!='dup':
+                taxon_gene_coords.append(nodeid)
 
-                    # TODO: tilt according to the parent speciation node.
-                    # should fit in the triangle defined by parent and descendants.
-                    #node_y    = (min(children_ys) + max(children_ys)) / 2
-                    
-                    # weighted average of the children positions.
-                    node_y    = sum(cy*(cd+1) for cy,cd in \
-                                               zip(children_ys, children_ndup))
-                    node_y   /= (sum(children_ndup) + len(children_ndup))
-                    node_ndup = max(children_ndup) + 1
+                node_y = len(taxon_gene_coords) - 1
+                interspecies_trees[nodeid] = {
+                        'taxon': taxon,
+                        'ndup': (1 if event=='dup' else 0),#0, 
+                        'x': (1 if event=='dup' else 0),
+                        'y': node_y}
+                self.branchings[nodeid] = [taxon, 0, node_y, event,
+                                            [ch.id for ch in
+                                                node.children]]
+                #if event == 'dup':
+                #    continue
 
-                    interspecies_trees[node.id] = {
-                            'taxon': taxon,
-                            'ndup': node_ndup,
-                            'x': 1, # modified later
-                            'y': node_y}
-                else:
-                    # It is a **speciation**
-                    event = 'spe'
+                #print('Speciation %r' % taxon, self.branchings[nodeid])
+                
+                for ch in node.children:
+                    n_steps = interspecies_trees[ch.id]['ndup'] + 1
 
-                    ### FIXME 
-                    if len(children_taxa)==1:
-                        msg = "WARNING: the node %r -> %s" % \
-                              (node.name, [ch.name for ch in node.children])
-                        if len(node.children) > 1:
-                            msg += " is a duplication + a speciation. Not " \
-                                   "truly reconciled tree."
-                        #else:
-                        #    msg += " is a duplication/speciation with one " \
-                        #           "descendant."
-                            #if not node.is_root(): event = 'dup'
-                            # TODO: check this in the duplication block above.
-                            print(msg, file=sys.stderr)
+                    delta_x = 1 / n_steps
 
-                    #if event!='dup':
-                    taxon_gene_coords.append(node.id)
+                    # climb up this subtree until next speciation
+                    # (toward present)
+                    nextnodes = [ch]
+                    while nextnodes:
+                        nextnode = nextnodes.pop(0)
+                        try:
+                            nextnode_ndup = interspecies_trees[nextnode.id]['ndup']
+                        except KeyError as err:
+                            raise KeyError('Non unique node name: %r', nextnode.id)
 
-                    node_y = len(taxon_gene_coords) - 1
-                    interspecies_trees[node.id] = {
-                            'taxon': taxon,
-                            'ndup': (1 if event=='dup' else 0),#0, 
-                            'x': (1 if event=='dup' else 0),
-                            'y': node_y}
-                    self.branchings[node.id] = [taxon, 0, node_y, event,
-                                                [ch.id for ch in
-                                                    node.children]]
-                    #if event == 'dup':
-                    #    continue
+                        if nextnode_ndup > 0:
+                            nextnode_x = 1 - nextnode_ndup * delta_x
+                            nextnode_y = interspecies_trees[nextnode.id]['y']
+                            nextnode_taxon = interspecies_trees[nextnode.id]['taxon']
+                            nextnode_ch = [nnch.id for nnch in nextnode.children]
 
-                    #print('Speciation %r' % taxon, self.branchings[node.id])
-                    
-                    for ch in node.children:
-                        n_steps = interspecies_trees[ch.id]['ndup'] + 1
+                            self.branchings[nextnode.id] = [
+                                                            nextnode_taxon,
+                                                            nextnode_x,
+                                                            nextnode_y,
+                                                            'dup',
+                                                            nextnode_ch]
+                            nextnodes.extend(nextnode.children)
 
-                        delta_x = 1 / n_steps
-
-                        # climb up this subtree until next speciation
-                        # (toward present)
-                        nextnodes = [ch]
-                        while nextnodes:
-                            nextnode = nextnodes.pop(0)
-                            try:
-                                nextnode_ndup = interspecies_trees[nextnode.id]['ndup']
-                            except KeyError as err:
-                                raise KeyError('Non unique node name: %r', nextnode.id)
-
-                            if nextnode_ndup > 0:
-                                nextnode_x = 1 - nextnode_ndup * delta_x
-                                nextnode_y = interspecies_trees[nextnode.id]['y']
-                                nextnode_taxon = interspecies_trees[nextnode.id]['taxon']
-                                nextnode_ch = [nnch.id for nnch in nextnode.children]
-
-                                self.branchings[nextnode.id] = [
-                                                                nextnode_taxon,
-                                                                nextnode_x,
-                                                                nextnode_y,
-                                                                'dup',
-                                                                nextnode_ch]
-                                nextnodes.extend(nextnode.children)
-
-                            interspecies_trees.pop(nextnode.id)
+                        interspecies_trees.pop(nextnode.id)
         print("root:", interspecies_trees)
 
                                                                 
