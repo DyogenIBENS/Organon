@@ -29,6 +29,7 @@ def lock_targets(nodedata, nodeinfo, tree):
     targets.update({child: i for i,(child,_) in enumerate(nodedata) \
             if tree.info[child]['Duplication'] == 10)
 
+    # THAT'S NOT THE ONLY CRITERION TO FIND AN EDITED NODE.
     if nodeinfo['Duplication'] == 3:
         children, dists = zip(*nodedata)
         maxdist = max(dists)
