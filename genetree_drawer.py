@@ -591,6 +591,7 @@ class GenetreeDrawer(object):
                         if child_taxon != taxon:
                             for tmp_taxon, _ in iter_missing_branches(child_taxon,
                                                         expected_children_taxa):
+                                tmp_expected_children_taxa = phylsubtree[tmp_taxon]
                                 deletion_count[child] += orient_deletion(set((tmp_taxon,)), tmp_expected_children_taxa)
 
                 node.children = sorted(node.children, key=deletion_count.get)
