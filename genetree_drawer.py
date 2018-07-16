@@ -326,7 +326,6 @@ class GenetreeDrawer(object):
         self.taxa = set()
 
         for genetree in genetrees:
-            genetree.ladderize(direction=1)
             ### TODO: actually, ladderizing is useless, it should sort speciation
             ###       nodes according to the average y position of next spe node.
 
