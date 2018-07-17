@@ -293,7 +293,7 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                               fix_suffix=True, force_mrca=False,
                               ensembl_version=ENSEMBL_VERSION, treebest=False):
     if treebest:
-        print_if_verbose("  Reading from TreeBest format", file=sys.stderr)
+        print_if_verbose("  Reading from TreeBest format")
         get_species    = lambda node: (node.S.replace('.', ' '), node.name.split('_')[0])
         split_ancestor = lambda node: (node.S.replace('.', ' '), node.name) 
     else:
@@ -548,13 +548,6 @@ def search_by_ancestorlist(tree, ancestorlist, latest_ancestor=False):
     return tree.iter_leaves(is_leaf_fn=stop_at_any_ancestor)
 
 
-def save_subtrees_byspecieslist(tree, specieslist, outdir='.'):
-    ancestor = PHYLTREE.lastCommonAncestor(specieslist)
-    for node in search_by_ancestorspecies(tree, ancestor):
-        outfile = os.path.join(outdir, node.name + '.nwk')
-        node.write(format=1, outfile=outfile)
-
-
 def with_dup(leafnames):
     #leafspecies = [convert_gene2species(leaf) for leaf in leafnames]
     leafspecies = [ultimate_seq2sp(leaf) for leaf in leafnames]
@@ -729,34 +722,39 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                     #                                  node.name,
                     #                                  ancestor,
                     #                                  outname))
+
                     outfile = os.path.join(outdir, outname + '.nwk')
-                    if outfile in outfiles_set:
-                        # Not sure this case can happen, but better prevent it
+                    if outdir == '-':
+                        outfile = None
+                    elif outfile in outfiles_set:
+                        # Not sure this case can happen, but better prevent it.
                         # Months later: this case happened.
                         print("ERROR: Cannot output twice to %r" % outfile,
                               file=sys.stderr)
                         sys.exit(1)
-                    else:
-                        # Add requested outgroups:
-                        root = reroot_with_outgroup(node, outgroups)
-                        if not root:
-                            continue
+                    
+                    # Add requested outgroups:
+                    root = reroot_with_outgroup(node, outgroups)
+                    if not root:
+                        continue
 
-                        if dry_run:
-                            print("node %r (%s)\n\\-> %s" % (node.name, ancestor, outfile))
-                        else:
-                            print_if_verbose("Writing to %r." % outfile)
-                            root.write(format=1,
-                                       format_root_node=True,
-                                       outfile=outfile,
-                                       features=["reinserted"])
-                        outfiles_set.add(outfile)
+                    if dry_run:
+                        print("node %r (%s)\n\\-> %s" % (node.name, ancestor, outfile))
+                    else:
+                        print_if_verbose("Writing to %r." % outfile)
+                        outtree = root.write(format=1,
+                                             format_root_node=True,
+                                             outfile=outfile,
+                                             features=["reinserted"])
+                        if outtree is not None:
+                            print(outtree)
+                    outfiles_set.add(outfile)
     #print_if_verbose("Output %d trees." % len(outfiles_set))
     return list(outfiles_set)
 
 
 def save_subtrees_process(params):
-    print("* Input tree: %r" % params[0])
+    print("* Input tree: %r" % params[0], file=sys.stderr)
     ignore_errors = params.pop()
     try:
         outfiles = save_subtrees(*params)
@@ -826,7 +824,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       ignore_errors] for treefile in treefiles]
 
     n_input = len(treefiles)
-    print("To process: %d input trees" % n_input)
+    print("To process: %d input trees" % n_input, file=sys.stderr)
     if ncores > 1:
         pool = mp.Pool(ncores)
         outputs = pool.map(save_subtrees_process, generate_args)
@@ -841,7 +839,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
             progress += return_value
             outfiles.extend(some_outfiles)
     print("Finished processing %d/%d input trees. Output %d trees." % \
-            (progress, n_input, len(outfiles)))
+            (progress, n_input, len(outfiles)), file=sys.stderr)
     return outfiles
 
 
