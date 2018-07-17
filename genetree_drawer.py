@@ -125,15 +125,6 @@ def get_taxon_treebest(node, *args):
         raise
 
 
-### Unused function
-def get_taxa_set(etegenetree, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
-    taxa_set = set()
-    for node in etegenetree.traverse():
-        taxon = get_taxon(node, ancgene2sp, ensembl_version)
-        taxa_set.add(taxon)
-    return taxa_set
-
-
 def walk_phylsubtree(phyltree, taxa):
     """Return an iterator that will progress on the tree from leaves to root.
     
