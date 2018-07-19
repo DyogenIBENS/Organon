@@ -961,7 +961,10 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
                         show_cov=show_cov)
     display = lambda: plt.show() # Display function for shell or notebook usage
     if __name__=='__main__' and outfile == '-':
-        plt.switch_backend('Qt4Agg')
+        try:
+            plt.switch_backend('Qt4Agg')
+        except ImportError:
+            plt.switch_backend('TkAgg')
         #mpl.use('Qt4Agg')
         #from importlib import reload; reload(plt)
     elif outfile.endswith('.pdf'):
