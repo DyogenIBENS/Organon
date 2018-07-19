@@ -18,6 +18,7 @@ import sys
 import os
 import os.path
 import re
+import warnings
 try:
     import argparse_custom as argparse # Less verbose help message
 except ImportError:
@@ -45,15 +46,14 @@ from seqtools.specify import load_conversion
 
 
 ENSEMBL_VERSION = 85
-PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
-               "PhylTree.Ensembl.{0}.conf"
+PHYLTREEFILE = "/users/ldog/glouvel/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf"
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS') # NOT USED
 
 try:
     ucsc_conv_filename = "~glouvel/ws2/UCSC_genome_releases_full.tsv"
     UCSC_CONVERSION = load_conversion(ucsc_conv_filename)
 except FileNotFoundError:
-    print("WARNING: UCSC species name conversion file %r not found" % ucsc_conv_filename, file=sys.stderr)
+    warnings.warn("UCSC species name conversion file %r not found" % ucsc_conv_filename)
     UCSC_CONVERSION = {}
 
 ### Matplotlib graphical parameters ###
@@ -256,22 +256,20 @@ def infer_gene_event(node, taxon, children_taxa):
        #(len(node.children) == 1 and taxon in children_taxa):
         # Should rather check if taxon in children_taxa.
         if len(children_taxa) > 1:
-            print("WARNING: the node %r -> %s "\
+            warnings.warn("The node %r -> %s "\
                   "is a duplication + a speciation. Not " \
                   "truly reconciled tree." % \
-                  (node.name, [ch.name for ch in node.children]),
-                  file=sys.stderr)
+                  (node.name, [ch.name for ch in node.children]))
         elif len(node.children) == 1:
-            print("WARNING: the node %r -> %s "\
+            warnings.warn("The node %r -> %s "\
                   " is a duplication/speciation with one " \
                   "descendant." % \
-                  (node.name, [ch.name for ch in node.children]),
-                  file=sys.stderr)
+                  (node.name, [ch.name for ch in node.children]))
         return 'dup'
     else:
         ### FIXME 
         if len(children_taxa)==1:
-            msg = "WARNING: the node %r -> %s" % \
+            msg = "The node %r -> %s" % \
                   (node.name, [ch.name for ch in node.children])
             if len(node.children) > 1:
                 msg += " is a duplication + a speciation. Not " \
@@ -281,7 +279,7 @@ def infer_gene_event(node, taxon, children_taxa):
             #           "descendant."
                 #if not node.is_root(): event = 'dup'
                 # TODO: check this in the duplication block above.
-                print(msg, file=sys.stderr)
+                warnings.warn(msg)
 
         return 'spe'
 
@@ -757,9 +755,9 @@ class GenetreeDrawer(object):
 
                 assert all((ch_rel_y >= 0) for ch_rel_y in children_rel_ys)
                 if any((children_rel_ys[i+1] - children_rel_ys[i] < 0) for i in range(nch-1)): 
-                    print("WARNING: Children's relative Y not sorted! (%s: %s)" % (event, node.name), file=sys.stderr)
+                    warnings.warn("Children's relative Y not sorted! (%s: %s)" % (event, node.name))
                 elif any((children_rel_ys[i+1] - children_rel_ys[i] == 0) for i in range(nch-1)):
-                    print("WARNING: Some children's relative Y are identical! (%s: %s)" % (event, node.name), file=sys.stderr)
+                    warnings.warn("Some children's relative Y are identical! (%s: %s)" % (event, node.name))
 
                 # Compute coordinates of the base of the fork: delta_ys
                 # (Keep only two children if multifurcation)
