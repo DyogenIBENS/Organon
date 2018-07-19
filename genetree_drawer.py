@@ -242,7 +242,9 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
 
 def infer_gene_event(node, taxon, children_taxa):
     """Tell whether a gene tree node (ete3 format) is a leaf, a speciation or
-    a duplication, using the taxon information."""
+    a duplication, using the taxon information.
+    
+    Children taxa must be a set (because len() is used)"""
     #if node.is_leaf():
     if not children_taxa:
         return 'leaf'
