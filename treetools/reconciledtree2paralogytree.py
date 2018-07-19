@@ -40,7 +40,8 @@ def buildparalogies(genetree, get_taxon, ancgene2sp, ensembl_version=ENSEMBL_VER
         # Empty paralogs if genes reached a speciation node.
         # Otherwise, replace the node by the duplication descendants and start a new paralogy
         print('    '*indent + '## Call: ', callnb)
-        print('    '*indent + taxon, 'paralogs:', [p.name for p in paralogs], 'node:', paralogy_node is not None)
+        print('    '*indent + taxon, 'paralogs:', [p.name for p in paralogs],
+                'node:', paralogy_node is not None)
         while paralogs:
             paralog = paralogs.pop()
 
@@ -51,7 +52,8 @@ def buildparalogies(genetree, get_taxon, ancgene2sp, ensembl_version=ENSEMBL_VER
             if event == 'dup':
                 print('    '*indent + '- Dup;', end=' ')
                 new_paralogy = ete3.TreeNode(name='-'.join(ch.name for ch in paralog.children))
-                new_paralogy.add_feature("taxon", taxon)
+                new_paralogy.add_feature("S", taxon)
+                new_paralogy.add_feature("D", "Y")
                 paralogs.update(paralog.children)
                 print('    '*indent + 'updated paralogs:', [p.name for p in paralogs])
 
@@ -62,7 +64,7 @@ def buildparalogies(genetree, get_taxon, ancgene2sp, ensembl_version=ENSEMBL_VER
                 else:
                     # Duplicated paralogy (stem from a set of paralogs)
                     paralogy_node.add_child(new_paralogy)
-                    print('    '*indent + 'Extend paralogy from', paralogy_node.name)
+                    print('    '*indent + 'dup-extend paralogy from', paralogy_node.name)
 
                 #assert len(paralog.children) > 1
                 extendparalogy(set(paralog.children), taxon, new_paralogy, indent+1)
@@ -89,14 +91,17 @@ def buildparalogies(genetree, get_taxon, ancgene2sp, ensembl_version=ENSEMBL_VER
             # Speciated paralogy
             if len(speciated_paralogs) > 1:
                 new_paralogy = ete3.TreeNode(name='-'.join(ch.name for ch in speciated_paralogs))
-                new_paralogy.add_feature("taxon", child_taxon)
-                if paralogy_node is None:
-                    import ipdb; ipdb.set_trace(context=1)
-                    paralogies.append(new_paralogy)
-                    print('    '*indent + 'Create new paralogy', new_paralogy.name)
-                else:
+                new_paralogy.add_feature("S", child_taxon)
+                new_paralogy.add_feature("D", "N")
+                #if paralogy_node is None:
+                    # Means that there already was a creation from dup. Pass.
+                    #import ipdb; ipdb.set_trace(context=1)
+                    #paralogies.append(new_paralogy)
+                    #print('    '*indent + 'Create new paralogy', new_paralogy.name)
+                #else:
+                if paralogy_node is not None:
                     paralogy_node.add_child(new_paralogy)
-                    print('    '*indent + 'Extend paralogy from', paralogy_node.name)
+                    print('    '*indent + 'speciation-extend paralogy from', paralogy_node.name)
             else:
                 print('    '*indent + 'Continue with no paralogy with', [p.name for p in speciated_paralogs])
                 new_paralogy = None
@@ -124,10 +129,10 @@ def main(inputnwk, outputnwk, ensembl_version=ENSEMBL_VERSION,
 
     genetree = ete3.Tree(inputnwk or stdin.read(), format=1)
 
-    if treebest: get_taxon = get_taxon_treebest
+    #get_taxon = get_taxon_treebest if treebest else get_taxon
     
     for paralogy in buildparalogies(genetree, get_taxon, ancgene2sp, ensembl_version):
-        out = paralogy.write(format=1, format_root_node=True, features=['taxon'], outfile=outputnwk)
+        out = paralogy.write(format=1, format_root_node=True, features=['S', 'D'], outfile=outputnwk)
         if out:
             print(out)
 
