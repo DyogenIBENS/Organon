@@ -27,6 +27,7 @@ CMD_ARGS = {
                     (('-p', '--phyltreefile'),   {'default': PHYLTREEFILE}),
                     (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION}),
                     (('-x', '--xlim'),),
+                    (('-y', '--ylim'),),
                     (('-t', '--title'),),
                     (('--sharescale',), {'action':'store_true'})],
         'scatter': [(('-x', '--xlim'),), (('-y', '--ylim'),)],
@@ -243,7 +244,7 @@ class DataVisualizor(object):
 
 
     def scatter(self, x, y, xlim=None, ylim=None):
-        """scatter plot of x~y, colorized by taxon."""
+        """Scatter plot of y~x, colorized by taxon."""
         #self.ax = self.ages.plot.scatter(x, y, c=self.ages.taxoncolor,
         #                                     alpha=self.taxonalpha)
         #self.fig = self.ax.figure
@@ -273,6 +274,7 @@ class DataVisualizor(object):
 
 
     def violin(self, x, y, xlim=None, ylim=None):
+        """Violin plot of y~x"""
         # Here, otherwise it changes my matplotlib rcParams
         from seaborn import violinplot
         self.fig, self.ax = plt.subplots()
@@ -324,7 +326,9 @@ class DataVisualizor(object):
 
 
     def lineage_hist(self, lineage=None, nbins=None):
-        """lineage: species name"""
+        """Histogram of duplications along a selected lineage.
+        
+        Lineage: a species name"""
         nbins = nbins if nbins else self.default_nbins
         
         taxa = set(self.taxa)
@@ -463,10 +467,10 @@ class DataVisualizor(object):
         print("executed onpick action")
 
 
-    def tree_hist(self, nbins=None, vertical=False, xlim=None, sharescale=False,
+    def tree_hist(self, nbins=None, vertical=False, xlim=None, ylim=None, sharescale=False,
                   title=None):
         # labels, newdata, self.taxa_ages, hist_coords, subs_labels, treeforks, 
-        """Draw histograms on top of a given tree structure.
+        """Draw histograms on top of a given phylogenetic tree (e.g species tree).
         
         It needs a list of data, and the list of tree forks positions.
 
@@ -495,6 +499,8 @@ class DataVisualizor(object):
 
         n_subs = len(self.subs_taxa)
         figsize = (15, 11)
+        
+        if ylim: sharescale = True
 
         ticklocator = lambda: MaxNLocator(integer=True, nbins='auto')
         if vertical:
@@ -580,6 +586,8 @@ class DataVisualizor(object):
         label_ageaxis(axes, self.age_key + ' (My)')
         if xlim is not None:
             axes[-1].set_xlim(xlim)
+        if ylim is not None:
+            axes[-1].set_ylim(ylim)
 
         # draw tree branches
         print("n_subs =", n_subs)
@@ -686,7 +694,7 @@ def run(command, ages_file, phyltreefile=None, ensembl_version=None,
             dv.lineage_hist(lineage, nbins)
         elif command == 'tree':
             dv.assign_subplots()
-            dv.tree_hist(nbins, vertical, xlim, sharescale, title)
+            dv.tree_hist(nbins, vertical, xlim, ylim, sharescale, title)
             print("finished drawing tree & hist.")
         if show_edited:
             dv.add_edited_prop(show_edited)
@@ -699,36 +707,24 @@ def run(command, ages_file, phyltreefile=None, ensembl_version=None,
     dv.save_or_show(outfile)
 
 
-# TODO: delete
-def cmd_lineage(command, ages_file, outfile=None, lineage=None, show_edited=None,
-        no_edited=False, age_key=DEFAULT_AGE_KEY, nbins=DEFAULT_NBINS):
-    """histogram of duplications along a selected lineage"""
 
-def cmd_tree(ages_file, outfile=None, nbins=DEFAULT_NBINS, vertical=False,
-             show_edited=None, no_edited=False):
-    """Histogram on top of a phylogenetic tree"""
-#
-def cmd_scatter(ages_file, x, y, outfile=None, show_edited=None, no_edited=False):
-    """Scatter plot"""
-
-def cmd_violin(ages_file, x, y, outfile=None, show_edited=None, no_edited=False):
-    """Violin plot"""
+#def document_commands():
+#    """Add description of each script command to the module docstring."""
+#    global __doc__
+#    global_objects = globals()
+#    
+#    cmd_fmt = '  - {:%d}: {}' % max(len(cmd) for cmd_name in COMMANDS)
+#    
+#    __doc__ += '\n\nCOMMANDS:\n'
+#    for cmd_name in COMMANDS:
+#        cmd_func = global_objects['cmd_' + cmd_name]
+#        __doc__ += cmd_fmt.format(cmd_name, cmd_func.__doc__) + '\n'
 
 
-def document_commands():
-    """Add description of each script command to the module docstring."""
-    global __doc__
-    global_objects = globals()
-    
-    cmd_fmt = '  - {:%d}: {}' % max(len(cmd) for cmd_name in COMMANDS)
-    
-    __doc__ += '\n\nCOMMANDS:\n'
-    for cmd_name in COMMANDS:
-        cmd_func = global_objects['cmd_' + cmd_name]
-        __doc__ += cmd_fmt.format(cmd_name, cmd_func.__doc__) + '\n'
-
-
-CMD_FUNC = {cmd_name: globals()['cmd_' + cmd_name] for cmd_name in COMMANDS}
+CMD_FUNC = {'lineage': DataVisualizor.lineage_hist,
+            'tree': DataVisualizor.tree_hist,
+            'scatter': DataVisualizor.scatter,
+            'violin': DataVisualizor.violin}
 
 
 if __name__=='__main__':
