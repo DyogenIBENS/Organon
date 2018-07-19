@@ -21,22 +21,26 @@ from LibsDyogen import myPhylTree
 from genetree_drawer import get_taxon, get_taxon_treebest, infer_gene_event
 
 ENSEMBL_VERSION = 85
-PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
-                   "PhylTree.Ensembl.{0}.conf"
+PHYLTREEFILE = "/users/ldog/glouvel/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf"
 
 
 def buildparalogies(genetree, get_taxon, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
     
     # List of trees representing paralogies
     paralogies = []
+    callnb = 0
 
-    def extendparalogy(paralogs, taxon, paralogy_node=None):
-        
+    def extendparalogy(paralogs, taxon, paralogy_node=None, indent=0):
+        nonlocal callnb
+        callnb += 1
+
         # set of paralogs for each child speciation
         paralogs_at_speciation = {}
         
         # Empty paralogs if genes reached a speciation node.
         # Otherwise, replace the node by the duplication descendants and start a new paralogy
+        print('    '*indent + '## Call: ', callnb)
+        print('    '*indent + taxon, 'paralogs:', [p.name for p in paralogs], 'node:', paralogy_node is not None)
         while paralogs:
             paralog = paralogs.pop()
 
@@ -45,39 +49,59 @@ def buildparalogies(genetree, get_taxon, ancgene2sp, ensembl_version=ENSEMBL_VER
             event = infer_gene_event(paralog, taxon, set(children_taxa))
 
             if event == 'dup':
+                print('    '*indent + '- Dup;', end=' ')
                 new_paralogy = ete3.TreeNode(name='-'.join(ch.name for ch in paralog.children))
                 new_paralogy.add_feature("taxon", taxon)
+                paralogs.update(paralog.children)
+                print('    '*indent + 'updated paralogs:', [p.name for p in paralogs])
+
                 if paralogy_node is None:
                     # Root paralogy
                     paralogies.append(new_paralogy)
+                    print('    '*indent + 'Create new paralogy', new_paralogy.name)
                 else:
                     # Duplicated paralogy (stem from a set of paralogs)
                     paralogy_node.add_child(new_paralogy)
+                    print('    '*indent + 'Extend paralogy from', paralogy_node.name)
 
                 #assert len(paralog.children) > 1
-                extendparalogy(set(paralog.children), taxon, new_paralogy)
-
-                paralogs.update(paralog.children)
+                extendparalogy(set(paralog.children), taxon, new_paralogy, indent+1)
+                print('    '*indent + '## Back to parent call after dup.')
 
             else:
+                print('    '*indent + '- Spe/Leaf;', end=' ')
+                print('    '*indent + paralog.name, '->', children_taxa, [chp.name for chp in paralog.children])
+
                 for child_taxon, speciated_paralog in zip(children_taxa, paralog.children):
-                    child_taxon_paralogs = paralogs_at_speciation.setdefault(taxon, set())
-                    child_taxon_paralogs.update(speciated_paralog)
+                    child_taxon_paralogs = paralogs_at_speciation.setdefault(child_taxon, set())
+                    child_taxon_paralogs.add(speciated_paralog)
+                    print('    '*indent + 'speciated_paralog:', child_taxon, speciated_paralog.name)
 
-        assert taxon not in paralogs_at_speciation, "Intermediate speciation nodes are missing."
+        assert taxon not in paralogs_at_speciation, \
+            "Intermediate speciation nodes are missing at: %s -> %s" % \
+            (taxon, tuple(paralogs_at_speciation.keys()))
 
-        for child_taxon, speciated_paralogs in paralogs_at_speciation.item():
+        print('    '*indent + 'paralogs at speciation:\n' + '    '*indent + ((',\n'+'    '*indent).join('%r: %s' % (cht, [p.name for p in chp]) for cht,chp in paralogs_at_speciation.items()) if paralogs_at_speciation else '{}'))
+
+        #for child_taxon, speciated_paralogs in paralogs_at_speciation.items():
+        while paralogs_at_speciation:
+            child_taxon, speciated_paralogs = paralogs_at_speciation.popitem()
             # Speciated paralogy
             if len(speciated_paralogs) > 1:
                 new_paralogy = ete3.TreeNode(name='-'.join(ch.name for ch in speciated_paralogs))
                 new_paralogy.add_feature("taxon", child_taxon)
                 if paralogy_node is None:
+                    import ipdb; ipdb.set_trace(context=1)
                     paralogies.append(new_paralogy)
+                    print('    '*indent + 'Create new paralogy', new_paralogy.name)
                 else:
                     paralogy_node.add_child(new_paralogy)
+                    print('    '*indent + 'Extend paralogy from', paralogy_node.name)
             else:
+                print('    '*indent + 'Continue with no paralogy with', [p.name for p in speciated_paralogs])
                 new_paralogy = None
-            extendparalogy(speciated_paralogs, child_taxon, new_paralogy)
+            extendparalogy(speciated_paralogs, child_taxon, new_paralogy, indent+1)
+            print('    '*indent + '## Back to parent call after spe.')
 
     
     taxon = get_taxon(genetree, ancgene2sp, ensembl_version)
