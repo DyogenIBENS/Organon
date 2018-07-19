@@ -12,6 +12,7 @@ from glob import glob
 from Bio import AlignIO
 from codeml.select_leaves_from_specieslist import SP2GENEID
 from seqtools import ungap, algrep, compo_freq
+from codeml import codemlparser
 import LibsDyogen.myPhylTree as PhylTree
 
 ENSEMBL_VERSION = 85
@@ -19,9 +20,31 @@ ENSEMBL_VERSION = 85
 def get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version=ENSEMBL_VERSION):
     return [SP2GENEID[ensembl_version][sp] for sp in phyltree.species[ancestor]]
 
+def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
+                             subtreesdir='subtreesCleanO2'):
+    countlines = 0
+    countalfiles = 0
+    for line in genetreelistfile:
+        countlines += 1
+        genetree = line.rstrip()
+        alfiles_pattern = op.join(rootdir, genetree, subtreesdir,
+                                  ancestor + genetree + '*' + filesuffix)
+        alfiles_reg = re.compile(re.escape(alfiles_pattern).replace('\\*', '(.*)'))
+        
+        print(alfiles_pattern, alfiles_reg.pattern, file=stderr)
+        for subtreefile in glob(alfiles_pattern):
+            countalfiles += 1
+            subtreesuffix = alfiles_reg.search(subtreefile).group(1)
+            subtree = ancestor + genetree + subtreesuffix
+            yield subtreefile, subtree, genetree
 
-def main(genetreelistfile, ancestor, phyltreefile, rootdir='.',
+    print('%d lines, %d subtrees' % (countlines, countalfiles), file=stderr)
+
+
+def make_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
          subtreesdir='subtreesCleanO2', ensembl_version=ENSEMBL_VERSION):
+    """Gather characteristics of the **input alignments**, and output them as
+    a tsv file."""
 
     phyltree = PhylTree.PhylogeneticTree(phyltreefile)
     ensembl_ids_anc = get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version)
@@ -35,36 +58,47 @@ def main(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
     print('\t'.join(stats_header))
 
-    countlines = 0
-    countalfiles = 0
-    for line in genetreelistfile:
-        countlines += 1
-        genetree = line.rstrip()
-        alfiles_pattern = op.join(rootdir, genetree, subtreesdir,
-                                  ancestor + genetree + '*_genes.fa')
-        alfiles_reg = re.compile(re.escape(alfiles_pattern).replace('\\*', '(.*)'))
+    for alfile, subtree, genetree in iter_glob_genetree_files(genetreelistfile,
+                                                              ancestor,
+                                                              '_genes.fa',
+                                                              root_dir,
+                                                              subtrees_dir):
+        al = AlignIO.read(alfile, format='fasta')
+        al = ungap(al)
+        al_stats = compo_freq(al)
         
-        print(alfiles_pattern, alfiles_reg.pattern, file=stderr)
-        for alfile in glob(alfiles_pattern):
-            countalfiles += 1
-            subtreesuffix = alfiles_reg.search(alfile).group(1)
-            subtree = ancestor + genetree + subtreesuffix
+        ingroup_al = ungap(algrep(al, pattern))
+        ingroup_al_stats = compo_freq(ingroup_al)
+        
+        stats_row = ['%g' % s for stat in (al_stats + ingroup_al_stats) for s in stat]
 
-            al = AlignIO.read(alfile, format='fasta')
-            al = ungap(al)
-            al_stats = compo_freq(al)
-            
-            ingroup_al = ungap(algrep(al, pattern))
-            ingroup_al_stats = compo_freq(ingroup_al)
-            
-            stats_row = ['%g' % s for stat in (al_stats + ingroup_al_stats) for s in stat]
-
-            print('\t'.join([subtree, genetree] + stats_row))
+        print('\t'.join([subtree, genetree] + stats_row))
             
         #treefiles_pattern = alfiles_pattern.replace('_genes.fa', '.nwk')
-    print('%d lines, %d subtrees' % (countlines, countalfiles), file=stderr)
 
-            
+
+def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
+         subtreesdir='subtreesCleanO2', ensembl_version=ENSEMBL_VERSION):
+    """Gather characteristics of the **codeml results**, and output them as
+    a tsv file."""
+
+    print('\t'.join(stats_header))
+
+    stats_header = ['subtree', 'genetree']
+    stats_name   = ['ls', 'treelen', 'brlen_mean', 'brlen_std', 'kappa',
+                    'dN_treelen', 'dS_treelen', 'time used']
+
+    for mlcfile, subtree, genetree in iter_glob_genetree_files(genetreelistfile,
+                                                              ancestor,
+                                                              '_m1w04.mlc',
+                                                              root_dir,
+                                                              subtrees_dir):
+        mlc = codemlparser.parse_mlc(mlcfile)
+        stats_row = [mlc[]]
+        print('\t'.join([subtree, genetree] + stats_row))
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('genetreelistfile', nargs='?',
@@ -78,5 +112,5 @@ if __name__ == '__main__':
                         help="[%(default)s]")
     
     args = parser.parse_args()
-    main(**vars(args))
+    make_al_stats(**vars(args))
 
