@@ -9,6 +9,7 @@ import re
 import argparse
 import os.path as op
 from glob import glob
+import numpy as np
 from Bio import AlignIO
 from codeml.select_leaves_from_specieslist import SP2GENEID
 from seqtools import ungap, algrep, compo_freq
@@ -85,8 +86,10 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     print('\t'.join(stats_header))
 
     stats_header = ['subtree', 'genetree']
-    stats_name   = ['ls', 'treelen', 'brlen_mean', 'brlen_std', 'kappa',
-                    'dN_treelen', 'dS_treelen', 'time used']
+    stats_name   = ['ls', 'ns', 'Nbranches', 'treelen', 'brlen_mean', 'brlen_std', 'kappa',
+                    'dN_treelen', 'dS_treelen', 'brdS_mean', 'brdS_std', 'time used']
+    
+    print('\t'.join(stats_header + stats_name))
 
     for mlcfile, subtree, genetree in iter_glob_genetree_files(genetreelistfile,
                                                               ancestor,
@@ -94,7 +97,18 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                               root_dir,
                                                               subtrees_dir):
         mlc = codemlparser.parse_mlc(mlcfile)
-        stats_row = [mlc[]]
+        stats_row = [mlc['nsls']['ls'],
+                     mlc['nsls']['ns'],
+                     len(mlc['output']['lnL']['branches']),
+                     mlc['output']['lnL']['tree length'],
+                     np.mean(mlc['output']['lnL']['branch_lengths']),
+                     np.std(mlc['output']['lnL']['branch_lengths']),
+                     mlc['output']['kappa'],
+                     mlc['output']['tree length for dN'],
+                     mlc['output']['tree length for dS'],
+                     np.mean(mlc['output'][]),
+                     np.std(
+                     ]
         print('\t'.join([subtree, genetree] + stats_row))
 
 
