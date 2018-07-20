@@ -9,8 +9,7 @@ USAGE:
     ./dSvisualizor.py command <ages_file> <outfile>
 """
 
-PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
-                   "PhylTree.Ensembl.{0}.conf"
+PHYLTREEFILE = "~/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf"
 ENSEMBL_VERSION = 85
 DEFAULT_NBINS   = 100
 DEFAULT_AGE_KEY = 'age_dS'
@@ -213,8 +212,9 @@ class DataVisualizor(object):
         phyltreefile = phyltreefile if phyltreefile else self.phyltreefile
         ensembl_version = ensembl_version if ensembl_version else \
                           self.ensembl_version
-        self.phyltree = PhylTree.PhylogeneticTree(phyltreefile.format(
-                                                            ensembl_version))
+        self.phyltree = PhylTree.PhylogeneticTree(
+                            os.path.expanduser(
+                                phyltreefile.format(ensembl_version)))
 
     ### Plotting utility methods ###
     def save_or_show(self, outfile=None):
