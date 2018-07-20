@@ -30,6 +30,7 @@ def buildparalogies(genetree, get_taxon, ancgene2sp, ensembl_version=ENSEMBL_VER
     paralogies = []
     callnb = 0
 
+    # Paralog_packs
     def extendparalogy(paralogs, taxon, paralogy_node=None, indent=0):
         nonlocal callnb
         callnb += 1
@@ -42,8 +43,9 @@ def buildparalogies(genetree, get_taxon, ancgene2sp, ensembl_version=ENSEMBL_VER
         print('    '*indent + '## Call: ', callnb)
         print('    '*indent + taxon, 'paralogs:', [p.name for p in paralogs],
                 'node:', paralogy_node is not None)
+        #for paralogs in paralog_packs:
         while paralogs:
-            paralog = paralogs.pop()
+            paralog = paralogs.pop() # if isinstance(paralog, tuple)
 
             children_taxa = [get_taxon(ch, ancgene2sp, ensembl_version) \
                              for ch in paralog.children]
@@ -54,7 +56,7 @@ def buildparalogies(genetree, get_taxon, ancgene2sp, ensembl_version=ENSEMBL_VER
                 new_paralogy = ete3.TreeNode(name='-'.join(ch.name for ch in paralog.children))
                 new_paralogy.add_feature("S", taxon)
                 new_paralogy.add_feature("D", "Y")
-                paralogs.update(paralog.children)
+                paralogs.add(tuple(paralog.children))
                 print('    '*indent + 'updated paralogs:', [p.name for p in paralogs])
 
                 if paralogy_node is None:
@@ -93,13 +95,13 @@ def buildparalogies(genetree, get_taxon, ancgene2sp, ensembl_version=ENSEMBL_VER
                 new_paralogy = ete3.TreeNode(name='-'.join(ch.name for ch in speciated_paralogs))
                 new_paralogy.add_feature("S", child_taxon)
                 new_paralogy.add_feature("D", "N")
-                #if paralogy_node is None:
+                if paralogy_node is None:
                     # Means that there already was a creation from dup. Pass.
                     #import ipdb; ipdb.set_trace(context=1)
-                    #paralogies.append(new_paralogy)
-                    #print('    '*indent + 'Create new paralogy', new_paralogy.name)
-                #else:
-                if paralogy_node is not None:
+                    paralogies.append(new_paralogy)
+                    print('    '*indent + 'Create new paralogy', new_paralogy.name)
+                else:
+                #if paralogy_node is not None:
                     paralogy_node.add_child(new_paralogy)
                     print('    '*indent + 'speciation-extend paralogy from', paralogy_node.name)
             else:
