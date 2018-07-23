@@ -62,8 +62,8 @@ def make_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     for alfile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                               ancestor,
                                                               '_genes.fa',
-                                                              root_dir,
-                                                              subtrees_dir):
+                                                              rootdir,
+                                                              subtreesdir):
         al = AlignIO.read(alfile, format='fasta')
         al = ungap(al)
         al_stats = compo_freq(al)
@@ -84,9 +84,13 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     a tsv file."""
 
     stats_header = ['subtree', 'genetree']
-    stats_name   = ['ls', 'ns', 'Nbranches', 'treelen', 'brlen_mean', 'brlen_std', 'kappa',
-                    'dN_treelen', 'dS_treelen', 'brdS_mean', 'brdS_std', 'time used']
+    stats_name   = ['ls', 'ns', 'Nbranches', 'treelen',
+                    'NnonsynSites', 'NsynSites', 'kappa',
+                    'brlen_mean', 'brlen_std',
+                    'dN_treelen', 'dS_treelen', 'brdS_mean', 'brdS_std',
+                    'lnL', 'Niter', 'time used']
     
+    # TODO: number of dN or dS values of zero
     br_len_reg = re.compile(r': ([0-9]+\.[0-9]+)[,)]')
 
     print('\t'.join(stats_header + stats_name))
@@ -94,31 +98,37 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     for mlcfile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                               ancestor,
                                                               '_m1w04.mlc',
-                                                              root_dir,
-                                                              subtrees_dir):
+                                                              rootdir,
+                                                              subtreesdir):
         mlc = codemlparser.parse_mlc(mlcfile)
         
         Nbr = len(mlc['output']['branches'])
-        br_lengths = mlc['output']['lnL']['branch lengths'][:Nbr]
-        dS_len = [float(x) for x in br_len_reg.finditer(mlc['output']['dS tree'])]
+        br_lengths = mlc['output']['branch lengths + parameters'][:Nbr]
+        dNdS_rows = mlc['output']['dNdS']['rows'].values()
+        dS_len = [float(x) for x in br_len_reg.findall(mlc['output']['dS tree'])]
         assert len(dS_len) == Nbr
         
         stats_row = [mlc['nsls']['ls'],
                      mlc['nsls']['ns'],
                      Nbr,
-                     len(mlc['output']['lnL']['branches']),
-                     mlc['output']['lnL']['tree length'],
+                     mlc['output']['tree length'],
+                     \
+                     dNdS_row0[0][1],
+                     dNdS_row0[0][2],
+                     mlc['output']['kappa'],
+                     \
                      np.mean(br_lengths),
                      np.std(br_lengths),
-                     mlc['output']['kappa'],
+                     \
                      mlc['output']['tree length for dN'],
                      mlc['output']['tree length for dS'],
                      np.mean(dS_len),
                      np.std(dS_len),
-                     mlc['Time used']
+                     \
+                     mlc['output']['lnL']['loglik'],
+                     mlc['output']['lnL']['ntime']
                      ]
-        print('\t'.join([subtree, genetree] + stats_row))
-
+        print('\t'.join([subtree, genetree] + ['%g' % s for s in stats_row] + [mlc['Time used']]))
 
 
 if __name__ == '__main__':
