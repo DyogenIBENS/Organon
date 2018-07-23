@@ -59,7 +59,7 @@ def make_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
     print('\t'.join(stats_header))
 
-    for alfile, subtree, genetree in iter_glob_genetree_files(genetreelistfile,
+    for alfile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                               ancestor,
                                                               '_genes.fa',
                                                               root_dir,
@@ -83,31 +83,39 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     """Gather characteristics of the **codeml results**, and output them as
     a tsv file."""
 
-    print('\t'.join(stats_header))
-
     stats_header = ['subtree', 'genetree']
     stats_name   = ['ls', 'ns', 'Nbranches', 'treelen', 'brlen_mean', 'brlen_std', 'kappa',
                     'dN_treelen', 'dS_treelen', 'brdS_mean', 'brdS_std', 'time used']
     
+    br_len_reg = re.compile(r': ([0-9]+\.[0-9]+)[,)]')
+
     print('\t'.join(stats_header + stats_name))
 
-    for mlcfile, subtree, genetree in iter_glob_genetree_files(genetreelistfile,
+    for mlcfile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                               ancestor,
                                                               '_m1w04.mlc',
                                                               root_dir,
                                                               subtrees_dir):
         mlc = codemlparser.parse_mlc(mlcfile)
+        
+        Nbr = len(mlc['output']['branches'])
+        br_lengths = mlc['output']['lnL']['branch lengths'][:Nbr]
+        dS_len = [float(x) for x in br_len_reg.finditer(mlc['output']['dS tree'])]
+        assert len(dS_len) == Nbr
+        
         stats_row = [mlc['nsls']['ls'],
                      mlc['nsls']['ns'],
+                     Nbr,
                      len(mlc['output']['lnL']['branches']),
                      mlc['output']['lnL']['tree length'],
-                     np.mean(mlc['output']['lnL']['branch_lengths']),
-                     np.std(mlc['output']['lnL']['branch_lengths']),
+                     np.mean(br_lengths),
+                     np.std(br_lengths),
                      mlc['output']['kappa'],
                      mlc['output']['tree length for dN'],
                      mlc['output']['tree length for dS'],
-                     np.mean(mlc['output'][]),
-                     np.std(
+                     np.mean(dS_len),
+                     np.std(dS_len),
+                     mlc['Time used']
                      ]
         print('\t'.join([subtree, genetree] + stats_row))
 
@@ -126,5 +134,6 @@ if __name__ == '__main__':
                         help="[%(default)s]")
     
     args = parser.parse_args()
-    make_al_stats(**vars(args))
+    #make_al_stats(**vars(args))
+    make_codeml_stats(**vars(args))
 
