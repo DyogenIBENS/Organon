@@ -100,35 +100,40 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                               '_m1w04.mlc',
                                                               rootdir,
                                                               subtreesdir):
-        mlc = codemlparser.parse_mlc(mlcfile)
-        
-        Nbr = len(mlc['output']['branches'])
-        br_lengths = mlc['output']['branch lengths + parameters'][:Nbr]
-        dNdS_rows = mlc['output']['dNdS']['rows'].values()
-        dS_len = [float(x) for x in br_len_reg.findall(mlc['output']['dS tree'])]
-        assert len(dS_len) == Nbr
-        
-        stats_row = [mlc['nsls']['ls'],
-                     mlc['nsls']['ns'],
-                     Nbr,
-                     mlc['output']['tree length'],
-                     \
-                     dNdS_row0[0][1],
-                     dNdS_row0[0][2],
-                     mlc['output']['kappa'],
-                     \
-                     np.mean(br_lengths),
-                     np.std(br_lengths),
-                     \
-                     mlc['output']['tree length for dN'],
-                     mlc['output']['tree length for dS'],
-                     np.mean(dS_len),
-                     np.std(dS_len),
-                     \
-                     mlc['output']['lnL']['loglik'],
-                     mlc['output']['lnL']['ntime']
-                     ]
-        print('\t'.join([subtree, genetree] + ['%g' % s for s in stats_row] + [mlc['Time used']]))
+        try:
+            mlc = codemlparser.parse_mlc(mlcfile)
+            
+            Nbr = len(mlc['output']['branches'])
+            br_lengths = mlc['output']['branch lengths + parameters'][:Nbr]
+            dNdS_rows = list(mlc['output']['dNdS']['rows'].values())
+            dS_len = [float(x) for x in br_len_reg.findall(mlc['output']['dS tree'])]
+            assert len(dS_len) == Nbr
+            
+            stats_row = [mlc['nsls']['ls'],
+                         mlc['nsls']['ns'],
+                         Nbr,
+                         mlc['output']['tree length'],
+                         \
+                         dNdS_rows[0][1],
+                         dNdS_rows[0][2],
+                         mlc['output']['kappa'],
+                         \
+                         np.mean(br_lengths),
+                         np.std(br_lengths),
+                         \
+                         mlc['output']['tree length for dN'],
+                         mlc['output']['tree length for dS'],
+                         np.mean(dS_len),
+                         np.std(dS_len),
+                         \
+                         mlc['output']['lnL']['loglik'],
+                         mlc['output']['lnL']['ntime']
+                         ]
+
+            print('\t'.join([subtree, genetree] + ['%g' % s for s in stats_row] + [mlc['Time used']]))
+        except BaseException as err:
+            err.args = (err.args[0] + ". File %s" % mlcfile,) + err.args[1:]
+            raise
 
 
 if __name__ == '__main__':
