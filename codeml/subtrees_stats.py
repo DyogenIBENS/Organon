@@ -13,7 +13,7 @@ import numpy as np
 from Bio import AlignIO
 from codeml.select_leaves_from_specieslist import SP2GENEID
 from seqtools import ungap, algrep, compo_freq
-from codeml import codemlparser
+from codeml.codemlparser2 import parse_mlc
 import LibsDyogen.myPhylTree as PhylTree
 
 ENSEMBL_VERSION = 85
@@ -101,7 +101,7 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                               rootdir,
                                                               subtreesdir):
         try:
-            mlc = codemlparser.parse_mlc(mlcfile)
+            mlc = parse_mlc(mlcfile)
             
             Nbr = len(mlc['output']['branches'])
             br_lengths = mlc['output']['branch lengths + parameters'][:Nbr]

@@ -26,6 +26,19 @@ class ParseError(BaseException):
     pass
 
 
+def floatlist(line):
+    return [float(x) for x in line.split()]
+
+
+def dictfloatlist(line):
+    key, *fields = line.split()
+    return {key: [float(x) for x in fields]}
+
+
+def strlist(line):
+    return line.split()
+
+
 class ParseBloc(object):
     """Aim to structure multiple ParseUnits/ParseBlocs"""
     def __init__(self, name, units=None):#, struct=OrderedDict):
@@ -33,38 +46,41 @@ class ParseBloc(object):
         self.units = units or []
         #self.struct = struct
 
-    def parse(self, line_iterable):
-        lines = iter(line_iterable)
+    def parse(self, text):
 
         parsed = OrderedDict()
 
         for unit in self.units:
-            parsed[unit.name], lines = unit.parse(lines)
-            if not lines: break
+            parsed[unit.name], text = unit.parse(text)
+            if not text: break
 
-        return parsed
+        return parsed, text
 
 
 class ParseUnit(object):
     def __init__(self, name, pattern, keys=None, types=None,
-                 optional=False, repeat=False, flags=0,
-                 fixed=False):
+                 optional=False, repeat=False, merge=False, flags=re.M,
+                 fixed=False, convert=None):
         self.name = name
         self.regex = pattern if fixed else re.compile(pattern, flags=flags)
         self.keys = keys or []
         self.types = types or []
+        self.convert = convert
 
         assert (self.regex.groups == len(self.types) or len(self.types) == 0) and \
                (self.regex.groups == len(self.keys) or len(self.keys) == 0)
 
+        #assert merge is False or self.regex.groups > 1 and not self.keys, name
+
         self.optional = optional
         self.repeat = repeat
+        self.merge = merge
         self.fixed = fixed
         
     def parse(self, text):
         if self.fixed:
             raise NotImplementedError
-        
+
         if self.repeat:
             matches = self.regex.finditer(text)
         else:
@@ -75,7 +91,7 @@ class ParseUnit(object):
             if self.optional:
                 return [], text
             else:
-                raise ParseError
+                raise ParseError("%s: '%s'" % (self.name, self.regex.pattern))
 
         allparsed = []
 
@@ -83,24 +99,34 @@ class ParseUnit(object):
             if self.regex.groups:
                 groups = m.groups()
             else:
-                groups = [m.group()]
+                groups = []
+                # Would be more interesting not to store things when no capturing parentheses
 
             if self.types:
                 groups = [typ(g) for typ,g in zip(self.types, groups)]
 
             if self.keys:
                 groups = OrderedDict((key, g) for key,g in zip(self.keys, groups))
-            elif len(groups) == 1:
-                groups, = groups
             
-            allparsed.append(groups)
+            if self.merge or len(groups) <= 1:
+                if self.keys:
+                    warnings.warn('Useless key for single value. Discarding the key.')
+                allparsed.extend(groups) #merge should make no difference if len(groups) was 1
+            else:
+                allparsed.append(groups)
 
-        assert allparsed
+        #assert allparsed
 
         if len(allparsed) == 1:
             allparsed, = allparsed
 
-        return allparsed, text[(m.span[1]+1):]
+        if self.convert:
+            allparsed = self.convert(allparsed)
+
+        assert m is not None and m.span() is not None, self.name
+
+        remainingtext = text[(m.span()[1]+1):]
+        return allparsed, remainingtext
 
 
 
