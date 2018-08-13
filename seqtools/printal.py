@@ -106,9 +106,72 @@ CODON_TO_256 = {
     'GGT': (236,),  'GGC': (239,), 'GGA': (242,), 'GGG': (245,)
     }
 
+# tuples of (bg, fg) codes
+AA_TO_256 = {
+    '*': (15,16),  # Stop
+    #'X': (),      # Unknown
+    'M': (16,),    # Methionine
+    'F': (17,),    # Phenylalanine
+    'S': (46,16),  # Serine
+    'Y': (52,),    # Tyrosine
+    'C': (53,),    # Cysteine
+    'W': (197,),   # Tryptophane
+    'L': (139,16), # Leucine
+    'P': (24,),    # Proline
+    'H': (58,),    # Histidine
+    'Q': (130,),   # Glutamine
+    'R': (38,16),  # Arginine
+    'I': (23,),    # Isoleucine
+    'T': (60,),    # Threonine
+    'N': (167,),   # Asparagine
+    'K': (134,),   # Lysine
+    'V': (142,16), # Valine
+    'A': (179,16), # Alanine
+    'D': (214,16), # Aspartic acid
+    'E': (220,16), # Glutamic acid
+    'G': (236,)    # Glycine
+    #'B': , # Aspartic acid/Asparagine
+    #'Z':   # Glutamic acid/Glutamine
+    }
+
+AA3_TO_256 = {
+    'TERM': (15,16), # Stop
+    #'Xaa': (),      # Unknown
+    'Met': (16,),    # Methionine
+    'Phe': (17,),    # Phenylalanine
+    'Ser': (46,16),  # Serine
+    'Tyr': (52,),    # Tyrosine
+    'Cys': (53,),    # Cysteine
+    'Trp': (197,),   # Tryptophane
+    'Leu': (139,16), # Leucine
+    'Pro': (24,),    # Proline
+    'His': (58,),    # Histidine
+    'Gln': (130,),   # Glutamine
+    'Arg': (38,16),  # Arginine
+    'Ile': (23,),    # Isoleucine
+    'Thr': (60,),    # Threonine
+    'Asn': (167,),   # Asparagine
+    'Lys': (134,),   # Lysine
+    'Val': (142,16), # Valine
+    'Ala': (179,16), # Alanine
+    'Asp': (214,16), # Aspartic acid
+    'Glu': (220,16), # Glutamic acid
+    'Gly': (236,)    # Glycine
+    #'Asx': , # Aspartic acid/Asparagine
+    #'Glx':   # Glutamic acid/Glutamine
+    }
+
 CODON2COL = {codon: ((BG_COL + COL) % code if len(code)>1 else BG_COL % code) \
                 for codon, code in CODON_TO_256.items()}
 CODON2COL.update({'---': DGREY})
+
+AA2COL = {aa: ((BG_COL + COL) % code if len(code)>1 else BG_COL % code) \
+                for aa, code in AA_TO_256.items()}
+AA2COL.update({'-': DGREY})
+
+AA32COL = {aa3: ((BG_COL + COL) % code if len(code)>1 else BG_COL % code) \
+                for aa3, code in AA3_TO_256.items()}
+AA32COL.update({'---': DGREY})
 
 ext2fmt = {'.fa':    'fasta',
            '.fasta': 'fasta',
@@ -183,38 +246,38 @@ def makeruler(length, base=1, stepwidth=1):
     return ''.join(ticks)
 
 
-def colorizerecord(record):
-    return ''.join(nucl2col.get(nucl.upper(), '')+nucl+RESET for nucl in record.seq)
+def fastcolorizerecord(record, residu2col=nucl2col):
+    return ''.join(residu2col.get(r.upper(), '')+r+RESET for r in record.seq)
 
 
-def iter_codons(seq):
+def iter_step(seq, stepwidth=3):
     Nnucl = len(seq)
-    assert Nnucl % 3 == 0
+    assert Nnucl % stepwidth == 0
     #N = Nnucl // 3
-    for i in range(0, Nnucl, 3):
-        yield str(seq[i:(i+3)])
+    for i in range(0, Nnucl, stepwidth):
+        yield str(seq[i:(i+stepwidth)])
     
 
-def codoncolorizerecord(record):
+def colorizerecord(record, residu2col=CODON2COL, stepwidth=3):
     colorized=''
-    unknown_codons = set()
-    for codon in iter_codons(record.seq):
+    unknown_residus = set()
+    for residu in iter_step(record.seq, stepwidth):
         try:
-            codoncol = CODON2COL[codon.upper()]
+            residucol = residu2col[residu.upper()]
         except KeyError:
-            unknown_codons.add(codon)
-            codoncol = RED
-        colorized += codoncol + codon + RESET
+            unknown_residus.add(residu)
+            residucol = RED
+        colorized += residucol + residu + RESET
 
-    if unknown_codons:
-        print("WARNING: unknown codons: %s" % ' '.join(unknown_codons),
+    if unknown_residus:
+        print("WARNING: unknown codons: %s" % ' '.join(unknown_residus),
                 file=sys.stderr)
 
     return colorized
 
 #def printblock(records, namefmt, pad):
 
-def printal(infile, wrap=False, format=None, slice=None, codon=False,
+def printal(infile, wrap=False, format=None, slice=None, alphabet='codon',
             start0=False):
     padlen = 4
     pad = padlen*' '
@@ -227,12 +290,23 @@ def printal(infile, wrap=False, format=None, slice=None, codon=False,
     length = align.get_alignment_length()
     name_len = max(len(record.id) for record in align)
 
-    if codon:
+    if alphabet == 'codon':
         stepwidth = 3
-        colorize = codoncolorizerecord
-    else:
-        stepwidth = 1
         colorize = colorizerecord
+        residu2col = CODON2COL
+    elif alphabet == 'aa3':
+        stepwidth = 3
+        colorize = colorizerecord
+        residu2col = AA32COL
+    elif alphabet == 'nucl':
+        stepwidth = 1
+        colorize = fastcolorizerecord
+        residu2col = nucl2col
+    elif alphabet == 'aa':
+        stepwidth = 1
+        colorize = fastcolorizerecord
+        residu2col = AA2COL
+
 
     start1 = int(not start0)
     ruler = makeruler(length, base=start1, stepwidth=stepwidth)
@@ -245,10 +319,7 @@ def printal(infile, wrap=False, format=None, slice=None, codon=False,
         if not sliceparts[0]: sliceparts[0] = 0
         if not sliceparts[1]: sliceparts[1] = length
 
-        if codon:
-            slstart, slend = [(int(pos)-start1)*3 for pos in sliceparts]
-        else:
-            slstart, slend = [int(pos)-start1 for pos in sliceparts]
+        slstart, slend = [(int(pos)-start1)*stepwidth for pos in sliceparts]
 
         length = slend - slstart
     else:
@@ -259,7 +330,7 @@ def printal(infile, wrap=False, format=None, slice=None, codon=False,
             from subprocess import check_output
             ncols = int(check_output(['tput', 'cols']))
             block_width = ncols - name_len - padlen
-            if codon:
+            if stepwidth > 1:
                 block_width -= (block_width % 3)
 
             assert block_width>0, \
@@ -284,7 +355,7 @@ def printal(infile, wrap=False, format=None, slice=None, codon=False,
             # If the end of previous line number was split, add it here
             if (nextstartcoord % 10) == 0:
                 blockruler = str(nextstartcoord) + blockruler.lstrip('0123456789')
-            nextstartcoord = stop // (3 if codon else 1) - start1
+            nextstartcoord = stop // stepwidth - start1
             
             rulediff = len(blockruler) - (stop - start)
             rulerline = ' '*(name_len + padlen - rulediff) + blockruler
@@ -300,7 +371,7 @@ def printal(infile, wrap=False, format=None, slice=None, codon=False,
             
             for record in align:
                 print(namefmt % record.id + pad + \
-                        colorize(record[start:stop]) + RESET)
+                        colorize(record[start:stop], residu2col) + RESET)
             if block < nblocks-1:
                 print('')
 
@@ -331,8 +402,15 @@ if __name__ == '__main__':
                         ' Can be any format accepted by Bio.alignIO')
     parser.add_argument('-s', '--slice',
                         help='select positions (start:end). 1-based, end excluded')
-    parser.add_argument('-c', '--codon', action='store_true', 
+    parser.add_argument('-c', '--codon', action='store_const', dest='alphabet',
+                        const='codon', default='nucl',
                         help='Colorize and index alignment by codons.')
+    parser.add_argument('-a', '--aa', action='store_const', dest='alphabet',
+                        const='aa',
+                        help='Colorize and index alignment by amino-acids.')
+    parser.add_argument('--aa3', action='store_const', dest='alphabet',
+                        const='aa3',
+                        help='Colorize and index alignment by 3-letters amino-acids.')
     parser.add_argument('-0', '--start0', action='store_true',
                         help='Use 0-based coordinates.')
     
