@@ -4,9 +4,10 @@
 
 """Print an alignment to stdout, with colors."""
 
-import sys
+from sys import stdin
 import os.path
 import argparse
+import warnings
 
 from Bio import AlignIO
 
@@ -270,8 +271,7 @@ def colorizerecord(record, residu2col=CODON2COL, stepwidth=3):
         colorized += residucol + residu + RESET
 
     if unknown_residus:
-        print("WARNING: unknown codons: %s" % ' '.join(unknown_residus),
-                file=sys.stderr)
+        warnings.warn("Unknown codons: %s" % ' '.join(unknown_residus))
 
     return colorized
 
@@ -392,7 +392,7 @@ if __name__ == '__main__':
     #printwheels()
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('infile', nargs='?', default=sys.stdin,
+    parser.add_argument('infile', nargs='?', default=stdin,
                         type=argparse.FileType('r'))
     parser.add_argument('-L', '--nowrap', action='store_false', dest='wrap',
                         help='Do not wrap output to terminal width')

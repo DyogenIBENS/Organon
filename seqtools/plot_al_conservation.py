@@ -610,6 +610,7 @@ class AlignPlotter(object):
             - pearson coefficient between counts
             - sum of pair differences between any possible pair of distinct parts
         """
+        ### TODO: add a parsimony comparison: 1 if null intersection.
         if isinstance(compare_parts, str):
             self.parts = []
             for part in compare_parts.split(';'):
