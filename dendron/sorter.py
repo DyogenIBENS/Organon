@@ -5,7 +5,7 @@
 """Module containing some algorithms to reorder branches of rooted tree topologies"""
 
 
-from .climb import dfw_descendants_generalized
+from .climber import dfw_descendants_generalized
 
 
 def rev_dfw_descendants(*args, **kwargs):

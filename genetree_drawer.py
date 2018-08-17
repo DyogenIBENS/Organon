@@ -39,7 +39,7 @@ import ete3
 import LibsDyogen.myPhylTree as PhylTree
 #import LibsDyogen.myProteinTree as ProteinTree
 
-from dendron.climb import dfw_descendants_generalized, ladderize
+from dendron.climber import dfw_descendants_generalized, ladderize
 from codeml.select_leaves_from_specieslist import convert_gene2species
 from prot2gene import convert_prot2species
 from seqtools.specify import load_conversion

@@ -27,7 +27,7 @@ except ImportError:
 from functools import reduce
 
 from plottools import stackedbar
-from dendron.climb import dfw_descendants_generalized
+from dendron.climber import dfw_descendants_generalized
 
 #try:
 #    mpl.style.use('softer')
