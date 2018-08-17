@@ -55,7 +55,8 @@ import pandas as pd
 import LibsDyogen.myPhylTree as PhylTree
 
 
-from dendron.climber import dfw_descendants_generalized, ladderize
+from dendron.climber import dfw_descendants_generalized
+from dendron.sorter import ladderize
 
 # Change all black to dark grey
 grey10 = '#1a1a1a'

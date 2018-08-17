@@ -342,6 +342,10 @@ def dfw_lineage_generalized(tree, get_children, queue=None):
 #            straight_lines.append([node, child])
 
 
+def rev_dfw_descendants(*args, **kwargs):
+    return reversed(list(dfw_descendants_generalized(*args, **kwargs)))
+
+
 def iter_all_ancestor_descendant_pairs(tree, get_children, root=None):
     startqueue = None if root is None else [(None, root)]
 
@@ -368,50 +372,4 @@ def iter_all_paths(tree, get_children, root):
         # chunks.
         for i in range(len(rootpath)-1, 0, -1):
             yield rootpath[(i-1):]
-
-
-def ladderize_bylevels(tree, root, get_children=None, short_on_top=True):
-    """Pivot nodes to reorder the branches in a visually nice manner (branches
-    with the most numerous nodes (on *one* lineage) at the bottom)"""
-    if not get_children:
-        get_children = lambda tree, node: tree.get(node, [])
-
-    dfw = dfw_descendants_generalized(tree, get_children, include_leaves=False,
-                                      queue=[root])
-    cumul_dist = {}
-    key_ladder = lambda child: cumul_dist.setdefault(child, 0)
-    for parent, children in reversed(list(dfw)):
-        #print parent, children
-        children.sort(key=key_ladder, reverse=short_on_top)
-        cumul_dist[parent] = max(cumul_dist[ch] for ch in children) + 1
-        tree[parent] = children
-
-
-def ladderize(tree, root, get_children=None, light_on_top=True, 
-              assign=None):
-    """Pivot nodes to reorder the branches in a visually nice manner (nodes
-    with the most numerous leaves at the bottom).
-    
-    An example get_children function for the LibsDyogen.myPhylTree class:
-    get_children = lambda ph,node: ph.items.get(node, [])
-    
-    An example assign function:
-    assign = lambda ph, node, children: ph.items.update({node: children})
-    """
-
-    if not get_children:
-        get_children = lambda tree, node: tree.get(node, [])
-    if not assign:
-        assign = lambda tree, node, children: tree.update({node: children})
-
-    dfw = dfw_descendants_generalized(tree, get_children, include_leaves=False,
-                                      queue=[root])
-    cumul_mass = {}
-    key_ladder = lambda child: cumul_mass.setdefault(child, 1)
-
-    for parent, children in reversed(list(dfw)):
-        #print parent, children
-        #children.sort(key=key_ladder, reverse=light_on_top)
-        assign(tree, parent, sorted(children, key=key_ladder, reverse=light_on_top))
-        cumul_mass[parent] = sum(cumul_mass[ch] for ch in children)
 
