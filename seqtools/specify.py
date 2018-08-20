@@ -7,7 +7,6 @@ Can convert ensembl gene names to species, as well as assembly names
 
 import argparse
 from Bio import SeqIO
-#from codeml.select_leaves_from_specieslist import convert_gene2species 
 from genomicustools.identify import ultimate_seq2sp
 
 
