@@ -23,8 +23,7 @@ import LibsDyogen.myPhylTree as PhylTree
 
 # The 3 following imports are just so messy. TODO: write a unique conversion
 # function, and/or centralize these functions in a single script.
-from genomicustools.identify import convert_prot2species, convert_gene2species
-from seqtools.specify import load_conversion
+from genomicustools.identify import convert_gene2species, ultimate_seq2sp
 
 
 ENSEMBL_VERSION = 85
@@ -39,50 +38,6 @@ ANCGENE2SP = re.compile(ANCGENE2SP_PATTERN % ANCGENE_START)
 
 def print_if_verbose(*args, **kwargs):
     print(*args, **kwargs)
-
-
-#def split_species_gene(nodename):
-#    """Split a node name into its two parts (taxon + ancestral gene name)."""
-#    try:
-#        idx = nodename.index('ENS')
-#    except ValueError:
-#        try: # any subtring below here doesn't happen anymore with the last version.
-#            idx = nodename.index('FBgn') # Drosophila
-#        except ValueError:
-#            try:
-#                idx = nodename.index('WBGene') # Caenorhabditis
-#            except ValueError:
-#                try:
-#                    idx = nodename.index('Y')
-#                except ValueError:
-#                    try:
-#                        idx = nodename.index('Q0')
-#                    except ValueError as err:
-#                        err.args += ("ERROR: Invalid nodename %r" % nodename,)
-#                        raise
-#    return nodename[:idx].replace('.', ' '), nodename[idx:]
-ucsc_conv_filename = '~/ws2/UCSC_genome_releases_full.tsv'
-try:
-    UCSC_CONVERSION = load_conversion(ucsc_conv_filename)
-except FileNotFoundError:
-    print("WARNING: conversion file not found: %r" % ucsc_conv_filename,
-            file=sys.stderr)
-    UCSC_CONVERSION = {}
-
-
-def ultimate_seq2sp(seqname, ensembl_version=ENSEMBL_VERSION):
-    """From a sequence name, find the corresponding species.
-    Recognizes Ensembl gene IDs, Ensembl protein IDs, and also UCSC assembly
-    names such as 'loxAfr3'"""
-    try:
-        sp = convert_gene2species(seqname, ensembl_version)
-    except RuntimeError:
-        try:
-            sp = convert_prot2species(seqname, ensembl_version)
-        except KeyError:
-            assembly = re.match('[A-Za-z0-9]+', seqname).group()
-            sp = UCSC_CONVERSION[assembly]
-    return sp
 
 
 def split_species_gene(nodename, ancgene2sp):
@@ -548,7 +503,6 @@ def search_by_ancestorlist(tree, ancestorlist, latest_ancestor=False):
 
 
 def with_dup(leafnames):
-    #leafspecies = [convert_gene2species(leaf) for leaf in leafnames]
     leafspecies = [ultimate_seq2sp(leaf) for leaf in leafnames]
     return (len(leafspecies) > len(set(leafspecies)))
 

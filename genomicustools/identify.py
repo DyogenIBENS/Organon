@@ -7,9 +7,11 @@
 from __future__ import print_function
 
 from sys import stderr
+import os.path as op
 import re
 from copy import deepcopy
 from bz2 import BZ2File
+import warnings
 
 
 def myopen(filename, *args, **kwargs):
@@ -305,11 +307,44 @@ def convert_prot2gene(protID, gene_info, cprot=2, cgene=0, shorten_species=False
     return grep_prot(gene_info % sp2, protID, cprot=cprot, cgene=cgene)
 
 
+def load_assembly2species(filename="~/ws2/UCSC_genome_releases_full.tsv",
+                          fromcol=2, tocol=0):
+    conversion = {}
+    with open(op.expanduser(filename)) as stream:
+        header = next(stream)
+        for line in stream:
+            fields = line.rstrip().split('\t')
+            conversion[fields[fromcol]] = fields[tocol]
+    return conversion
+
+
+ucsc_conv_filename = '~/ws2/UCSC_genome_releases_full.tsv'
+try:
+    assembly2species = load_assembly2species(ucsc_conv_filename)
+except FileNotFoundError:
+    warnings.warn("Conversion file not found: %r" % ucsc_conv_filename)
+    assembly2species = {}
+
+
+def ultimate_seq2sp(seqname, ensembl_version=ENSEMBL_VERSION):
+    """From a sequence name, find the corresponding species.
+    Recognizes Ensembl gene IDs, Ensembl protein IDs, and also UCSC assembly
+    names such as 'loxAfr3'"""
+    try:
+        sp = convert_gene2species(seqname, ensembl_version)
+    except RuntimeError:
+        try:
+            sp = convert_prot2species(seqname, ensembl_version)
+        except KeyError:
+            assembly = re.match('[A-Za-z0-9]+', seqname).group()
+            sp = assembly2species[assembly]
+    return sp
+
+
 # My first ever unit-test!
 def test_convert_prot2species(ensembl_version, default, gene_info, cprot=2):
     """test the `convert_prot2species` function for every modernID"""
     # Check rejection of wrong strings
-    import os.path as op
     from glob import glob
     for wrong in ('xululul', '0000000', 'ENSXXXP', 'ENSG000'):
         predicted_sp = convert_prot2species(wrong, ensembl_version, False)
@@ -349,7 +384,6 @@ def test_convert_prot2species(ensembl_version, default, gene_info, cprot=2):
 def test_convert_gene2species(ensembl_version, gene_info, cgene=1):
     """test the above function for every modernID"""
     # Check rejection of wrong strings
-    import os.path as op
     from glob import glob
     for wrong in ('xululul', '0000000', 'ENSXXXG', 'ENSP000'):
         try:
@@ -388,4 +422,3 @@ def test_convert_gene2species(ensembl_version, gene_info, cgene=1):
                     raise
                 assert sp == predicted_sp, "%s: %r ≠ %r" % (gene, sp, predicted_sp)
     return True
-
