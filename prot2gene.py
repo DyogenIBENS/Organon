@@ -8,19 +8,21 @@ EXAMPLE:
 from __future__ import print_function
 
 import re
-import sys
-import os.path
+from sys import version_info, stderr, exit
+import os.path as op
 import argparse
 from copy import deepcopy
 from bz2 import BZ2File
 from multiprocessing import Pool
 from glob import glob
 
+
 def myopen(filename, *args, **kwargs):
     if filename.endswith('.bz2'):
         return BZ2File(filename, *args, **kwargs)
     else:
         return open(filename, *args, **kwargs)
+
 
 ENSEMBL_VERSION = 85
 
@@ -125,6 +127,7 @@ PROT2SP[90].update({'ENSMEUP': 'Notamacropus eugenii', # Update of Macropus e.
                     'ENSODEP': 'Octodon degus',
                     'ENSPEMP': 'Peromyscus maniculatus bairdii'})
 
+
 def convert_prot2species(modernID, ensembl_version=ENSEMBL_VERSION, default=None):
     if ensembl_version >= 90:
         try:
@@ -174,7 +177,7 @@ def test_convert_prot2species(ensembl_version, default, gene_info, cprot=2):
                                                   splist_file - splist_module))
     for sp in splist_file:
         filename = gene_info % sp.replace(' ', '.')
-        print("Checking %s in %r" % (sp, os.path.basename(filename)), file=sys.stderr)
+        print("Checking %s in %r" % (sp, op.basename(filename)), file=stderr)
         # Check that each species protein return the correct species.
         with myopen(filename) as IN:
             for line in IN:
@@ -223,23 +226,23 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
                       verbose=1, strict=False):
     if verbose:
         print(fastafile)
-    genetree, ext = os.path.splitext(fastafile)
-    if ext == '.bz2': genetree, ext = os.path.splitext(genetree)
-    genetreedir, genetreefile = os.path.split(genetree)
-    #print >>sys.stderr, genetree, genetreedir, genetreefile
+    genetree, ext = op.splitext(fastafile)
+    if ext == '.bz2': genetree, ext = op.splitext(genetree)
+    genetreedir, genetreefile = op.split(genetree)
+    #print(genetree, genetreedir, genetreefile, file=stderr)
     outfile = outputformat.format(genetreefile)
-    if os.path.exists(outfile):
+    if op.exists(outfile):
         if force_overwrite:
-            print("(Overwriting %s)" % outfile, file=sys.stderr)
+            print("(Overwriting %s)" % outfile, file=stderr)
         else:
-            print("%s exists. Skipping." % outfile, file=sys.stderr)
+            print("%s exists. Skipping." % outfile, file=stderr)
             return
 
     # avoid duplicate genes
     found = {}
     unknowns = 0
     
-    if sys.version_info.major == 3 and fastafile.endswith('.bz2'):
+    if version_info.major == 3 and fastafile.endswith('.bz2'):
         iter_lines = lambda F: (line.decode() for line in F)
     else:
         iterlines = lambda F: F
@@ -253,7 +256,7 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
                 #if not geneID and protID.startswith('ENSCSAP'):
                 #    protID = protID.replace('ENSCSAP', 'ENSCSAVP')
                 #    geneID = convert_prot2gene(protID)
-                #    print >>sys.stderr, "converting", geneID
+                #    print("converting", geneID, file=stderr)
                 #    if geneID:
                 #        # Fit names in tree
                 #        geneID = geneID.replace('ENSCSAVG', 'ENSCSAG')
@@ -273,6 +276,7 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
                 OUT.write('>' + geneID + '\n')
             else:
                 OUT.write(line)
+
 
 def rewrite_fasta_process(arglist):
     rewrite_fastafile(*arglist)
@@ -315,15 +319,15 @@ if __name__=='__main__':
                         help="Exit at first failed conversion")
 
     args = parser.parse_args()
-    #for protID in sys.argv[2:]:
+    #for protID in argv[2:]:
     #for fastafile in args.fastafiles:
-    #    print >>sys.stderr, fastafile
+    #    print(fastafile, file=stderr)
     #    rewrite_fastafile(fastafile, args.outputformat, args.cprot, args.cgene)
     pool = Pool(processes=args.cores)
     if args.fromfile:
         if len(args.fastafiles) > 1:
-            print("Error: only one 'fastafiles' allowed with --fromfile. See help", file=sys.stderr)
-            sys.exit(1)
+            print("Error: only one 'fastafiles' allowed with --fromfile. See help", file=stderr)
+            exit(1)
         else:
             with open(args.fastafiles[0]) as ff:
                 fastafiles = [line.rstrip() for line in ff]
