@@ -7,14 +7,16 @@ EXAMPLE:
 
 from __future__ import print_function
 
-import re
 from sys import version_info, stderr, exit
 import os.path as op
 import argparse
-from copy import deepcopy
 from bz2 import BZ2File
 from multiprocessing import Pool
-from glob import glob
+
+from genomicustools.identify import convert_prot2gene
+
+
+ENSEMBL_VERSION = 85
 
 
 def myopen(filename, *args, **kwargs):
@@ -22,202 +24,6 @@ def myopen(filename, *args, **kwargs):
         return BZ2File(filename, *args, **kwargs)
     else:
         return open(filename, *args, **kwargs)
-
-
-ENSEMBL_VERSION = 85
-
-CELEGANS_REG = re.compile(r'^([234]R|A[CH]|B[0E]|C[0-5C-E]|cT|[DFHKMRTWY][0-9CHYT]|E[0_EG]|JC|LL|SS|Z[CK]|V[BCFHMWYZ]|P[AD]).*')
-
-PROT2SP = {85:
-           { #'Y': 'Saccharomyces cerevisiae',  # there are C.elegans prot with 'Y' too
-            'Q0': 'Saccharomyces cerevisiae',
-            'FB': 'Drosophila melanogaster',
-            #'WBGene0': 'Caenorhabditis elegans',  # No consensus
-            '': 'Caenorhabditis elegans', # just so that the values reflect all species.
-            'ENSCINP': 'Ciona intestinalis',
-            'ENSCSAV': 'Ciona savignyi',
-            'ENSCSAP': 'Chlorocebus sabaeus',
-            'ENSPMAP': 'Petromyzon marinus',
-            'ENSXETP': 'Xenopus tropicalis',
-            'ENSPSIP': 'Pelodiscus sinensis',
-            'ENSGALP': 'Gallus gallus',
-            'ENSMGAP': 'Meleagris gallopavo',
-            'ENSTGUP': 'Taeniopygia guttata',
-            'ENSFALP': 'Ficedula albicollis',
-            'ENSAPLP': 'Anas platyrhynchos',
-            'ENSACAP': 'Anolis carolinensis',
-            'ENSOANP': 'Ornithorhynchus anatinus',
-            'ENSMEUP': 'Macropus eugenii',
-            'ENSSHAP': 'Sarcophilus harrisii',
-            'ENSMODP': 'Monodelphis domestica',
-            'ENSLAFP': 'Loxodonta africana',
-            'ENSETEP': 'Echinops telfairi',
-            'ENSPCAP': 'Procavia capensis',
-            'ENSDNOP': 'Dasypus novemcinctus',
-            'ENSCHOP': 'Choloepus hoffmanni',
-            'ENSSARP': 'Sorex araneus',
-            'ENSEEUP': 'Erinaceus europaeus',
-            'ENSMLUP': 'Myotis lucifugus',
-            'ENSPVAP': 'Pteropus vampyrus',
-            'ENSTTRP': 'Tursiops truncatus',
-            'ENSBTAP': 'Bos taurus',
-            'ENSOARP': 'Ovis aries',
-            'ENSVPAP': 'Vicugna pacos',
-            'ENSSSCP': 'Sus scrofa',
-            'ENSECAP': 'Equus caballus',
-            'ENSMPUP': 'Mustela putorius furo',
-            'ENSAMEP': 'Ailuropoda melanoleuca',
-            'ENSCAFP': 'Canis lupus familiaris',
-            'ENSFCAP': 'Felis catus',
-            'ENSTBEP': 'Tupaia belangeri',
-            'ENSPANP': 'Papio anubis',
-            'ENSMMUP': 'Macaca mulatta',
-            'ENSPPYP': 'Pongo abelii',
-            'ENSGGOP': 'Gorilla gorilla gorilla',
-            'ENSPTRP': 'Pan troglodytes',
-            'ENSP000':    'Homo sapiens',       # ENSG
-            'ENSNLEP': 'Nomascus leucogenys',
-            'ENSCJAP': 'Callithrix jacchus',
-            'ENSTSYP': 'Tarsius syrichta',
-            'ENSOGAP': 'Otolemur garnettii',
-            'ENSMICP': 'Microcebus murinus',
-            'ENSOPRP': 'Ochotona princeps',
-            'ENSOCUP': 'Oryctolagus cuniculus',
-            'ENSCPOP': 'Cavia porcellus',
-            'ENSRNOP': 'Rattus norvegicus',
-            'ENSMUSP': 'Mus musculus',
-            'ENSSTOP': 'Ictidomys tridecemlineatus',
-            'ENSDORP': 'Dipodomys ordii',
-            'ENSLACP': 'Latimeria chalumnae',
-            'ENSLOCP': 'Lepisosteus oculatus',
-            'ENSGACP': 'Gasterosteus aculeatus',
-            'ENSTNIP': 'Tetraodon nigroviridis',
-            'ENSTRUP': 'Takifugu rubripes',
-            'ENSONIP': 'Oreochromis niloticus',
-            'ENSORLP': 'Oryzias latipes',
-            'ENSPFOP': 'Poecilia formosa',
-            'ENSXMAP': 'Xiphophorus maculatus',
-            'ENSGMOP': 'Gadus morhua',
-            'ENSAMXP': 'Astyanax mexicanus',
-            'ENSDARP': 'Danio rerio'}
-           }
-
-PROT2SP[86] = deepcopy(PROT2SP[85])
-PROT2SP[86].update(**{'MGP_SPR': 'Mus spretus'})  # TODO: check the protein id
-
-PROT2SP[87] = deepcopy(PROT2SP[86])
-PROT2SP[87].update(**{'ENSTSYP': 'Carlito syrichta'})
-
-PROT2SP[90] = PROT2SP[88] = PROT2SP[87]
-
-PROT2SP[90].update({'ENSMEUP': 'Notamacropus eugenii', # Update of Macropus e.
-                    'ENSCAPP': 'Cavia aperea',
-                    'ENSCLAP': 'Chinchilla lanigera',
-                    'ENSCGRP00001': 'Cricetulus griseus CHOK1GS',
-                    'ENSCGRP00000': 'Cricetulus griseus Crigri', # !!!!
-                    'ENSFDAP':      'Fukomys damarensis',
-                    'ENSHGLP00000': 'Heterocephalus glaber female',
-                    'ENSHGLP00100': 'Heterocephalus glaber male',
-                    'ENSJJAP': 'Jaculus jaculus',
-                    'ENSMAUP': 'Mesocricetus auratus',
-                    'ENSMOCP': 'Microtus ochrogaster',
-                    'MGP_CAR': 'Mus caroli',
-                    'MGP_Pah': 'Mus pahari',
-                    'ENSNGAP': 'Nannospalax galili',
-                    'ENSODEP': 'Octodon degus',
-                    'ENSPEMP': 'Peromyscus maniculatus bairdii'})
-
-
-def convert_prot2species(modernID, ensembl_version=ENSEMBL_VERSION, default=None):
-    if ensembl_version >= 90:
-        try:
-            return PROT2SP[ensembl_version][modernID[:12]]
-        except KeyError:
-            pass
-    try:
-        return PROT2SP[ensembl_version][modernID[:7]]
-    except KeyError:
-        try:
-            # Saccharomyces cerevisiae (Q0) or Drosophila melanogaster
-            return PROT2SP[ensembl_version][modernID[:2]]
-        except KeyError as err:
-            if re.match('Y[A-Z]', modernID):
-                return 'Saccharomyces cerevisiae'
-            elif CELEGANS_REG.match(modernID):
-                return 'Caenorhabditis elegans'
-            elif default is not None:
-                return default
-            else:
-                err.args = (err.args[0] + \
-                            ' (protein: %s, Ens.%d)' % (modernID, ensembl_version),)
-                raise
-
-
-# My first ever unit-test!
-def test_convert_prot2species(ensembl_version, default, gene_info, cprot=2):
-    """test the above function for every modernID"""
-    # Check rejection of wrong strings
-    for wrong in ('xululul', '0000000', 'ENSXXXP', 'ENSG000'):
-        predicted_sp = convert_prot2species(wrong, ensembl_version, False)
-        assert predicted_sp is False, "%r predicted %r" % (wrong, predicted_sp)
-
-    # Check every valid prot ID in the given files
-    splist_module = set(PROT2SP[ensembl_version].values())
-    sp_from_filename = re.compile(gene_info.replace('%s', '([A-Za-z0-9.]+)'))
-    gene_info_files = glob(gene_info.replace('%s', '*'))
-    assert gene_info_files, "No files found, check your path."
-    splist_file = set(sp_from_filename.match(fn).group(1).replace('.', ' ') \
-                        for fn in gene_info_files)
-
-    if not splist_module == splist_file:
-        raise AssertionError('Differences in lists of species:\n' +
-                             'module (%d): %s\n' % (len(splist_module),
-                                                    splist_module - splist_file) +
-                             'files  (%d): %s' % (len(splist_file),
-                                                  splist_file - splist_module))
-    for sp in splist_file:
-        filename = gene_info % sp.replace(' ', '.')
-        print("Checking %s in %r" % (sp, op.basename(filename)), file=stderr)
-        # Check that each species protein return the correct species.
-        with myopen(filename) as IN:
-            for line in IN:
-                prot = line.rstrip('\r\n').split('\t')[cprot]
-                try:
-                    predicted_sp = convert_prot2species(prot, ensembl_version, default)
-                    assert sp == predicted_sp, "%s: %r ≠ %r" % (prot, sp, predicted_sp)
-                except KeyError as err:
-                    err.args = err.args[:-1] + \
-                               (err.args[-1] + ' '.join((sp, prot, "Not found")),)
-                    raise
-    return True
-
-
-def grep_prot(filename, protID, cprot=2, cgene=0):
-    #print(cprot, cgene)
-    with myopen(filename) as IN:
-        for line in IN:
-            fields = line.rstrip('\r\n').split('\t')
-            if fields[cprot] == protID:
-                return fields[cgene]
-
-
-def grep_gene(filename, geneID, cprot=2, cgene=0):
-    with myopen(filename) as IN:
-        for line in IN:
-            fields = line.rstrip('\r\n').split('\t')
-            if fields[cgene] == geneID:
-                return fields[cprot]
-
-
-def convert_prot2gene(protID, gene_info, cprot=2, cgene=0, shorten_species=False,
-                      ensembl_version=ENSEMBL_VERSION):
-    sp = convert_prot2species(protID, ensembl_version)
-    if shorten_species:
-        spsplit = sp.split()
-        sp2 = spsplit[0][0].lower() + spsplit[-1]
-    else:
-        sp2 = sp.replace(' ', '.')
-    return grep_prot(gene_info % sp2, protID, cprot=cprot, cgene=cgene)
 
 
 def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2,
@@ -241,11 +47,11 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
     # avoid duplicate genes
     found = {}
     unknowns = 0
-    
+
     if version_info.major == 3 and fastafile.endswith('.bz2'):
         iter_lines = lambda F: (line.decode() for line in F)
     else:
-        iterlines = lambda F: F
+        iter_lines = lambda F: F
 
     with myopen(fastafile) as IN, myopen(outfile, 'w') as OUT:
         for line in iter_lines(IN):
@@ -263,7 +69,7 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
                 if not geneID:
                     if strict:
                         raise RuntimeError("protein ID %s could not be converted"\
-                                            % protID)
+                                           % protID)
                     unknowns += 1
                     geneID = "unknown_gene_%s" % unknowns
                 else:
@@ -313,7 +119,7 @@ if __name__=='__main__':
                         help="column for gene [%(default)s]")
     parser.add_argument('-e', '--ensembl-version', type=int,
                         default=ENSEMBL_VERSION, help='[%(default)s]')
-    
+
     ##TODO: argument to trow error if conversion not found
     parser.add_argument("--strict", action='store_true',
                         help="Exit at first failed conversion")
@@ -338,14 +144,14 @@ if __name__=='__main__':
 #    rewrite_fastafile(fastafile, **self.args)#fastafile, args.gene_infoargs.outputformat, args.cprot, args.cgene, verbose=True)
 
     generate_args = ((f,
-                        args.gene_info,
-                        args.outputformat,
-                        args.cprot,
-                        args.cgene,
-                        args.shorten_species,
-                        args.ensembl_version,
-                        args.force_overwrite,
-                        args.verbose,
-                        args.strict) for f in fastafiles)
+                      args.gene_info,
+                      args.outputformat,
+                      args.cprot,
+                      args.cgene,
+                      args.shorten_species,
+                      args.ensembl_version,
+                      args.force_overwrite,
+                      args.verbose,
+                      args.strict) for f in fastafiles)
     pool.map(rewrite_fasta_process, generate_args)
 
