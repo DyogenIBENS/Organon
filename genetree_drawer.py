@@ -41,8 +41,7 @@ import LibsDyogen.myPhylTree as PhylTree
 
 from dendron.climber import dfw_descendants_generalized
 from dendron.sorter import ladderize
-from codeml.select_leaves_from_specieslist import convert_gene2species
-from prot2gene import convert_prot2species
+from genomicustools.identify import convert_gene2species, convert_prot2species
 from seqtools.specify import load_conversion
 
 

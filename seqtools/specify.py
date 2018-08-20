@@ -5,17 +5,17 @@
 Can convert ensembl gene names to species, as well as assembly names
 (ex: loxAfr3)."""
 
-import os.path
+import os.path as op
 import argparse
 from Bio import SeqIO
 #from codeml.select_leaves_from_specieslist import convert_gene2species 
-from prot2gene import convert_prot2species
+from genomicustools.identify import convert_prot2species
 
 
 def load_conversion(filename="~glouvel/ws2/UCSC_genome_releases_full.tsv",
                     fromcol=2, tocol=0):
     conversion = {}
-    with open(os.path.expanduser(filename)) as stream:
+    with open(op.expanduser(filename)) as stream:
         header = next(stream)
         for line in stream:
             fields = line.rstrip().split('\t')

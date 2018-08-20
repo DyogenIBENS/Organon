@@ -23,8 +23,7 @@ import LibsDyogen.myPhylTree as PhylTree
 
 # The 3 following imports are just so messy. TODO: write a unique conversion
 # function, and/or centralize these functions in a single script.
-from codeml.select_leaves_from_specieslist import convert_gene2species
-from prot2gene import convert_prot2species
+from genomicustools.identify import convert_prot2species, convert_gene2species
 from seqtools.specify import load_conversion
 
 
