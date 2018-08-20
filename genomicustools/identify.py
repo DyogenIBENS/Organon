@@ -253,9 +253,8 @@ def convert_prot2species(modernID, ensembl_version=ENSEMBL_VERSION, default=None
             elif default is not None:
                 return default
             else:
-                err.args = (err.args[0] +
-                            ' (protein: %s, Ens.%d)' % (modernID, ensembl_version),)
-                raise
+                raise KeyError(err.args[0] + ' (protein: %s, Ens.%d)' % \
+                                (modernID, ensembl_version))
 
 
 def convert_gene2species(modernID, ensembl_version=ENSEMBL_VERSION):
@@ -274,9 +273,7 @@ def convert_gene2species(modernID, ensembl_version=ENSEMBL_VERSION):
             try:
                 return gene2sp[modernID[0]]
             except KeyError:
-                ### TODO: change it to `KeyError`, but update all depending scripts
-                ###       because this RuntimeError is getting caught.
-                raise RuntimeError("%s can't be assigned to a species" % modernID)
+                raise KeyError("%s can't be assigned to a species" % modernID)
 
 
 def grep_prot(filename, protID, cprot=2, cgene=0):
@@ -332,7 +329,7 @@ def ultimate_seq2sp(seqname, ensembl_version=ENSEMBL_VERSION):
     names such as 'loxAfr3'"""
     try:
         sp = convert_gene2species(seqname, ensembl_version)
-    except RuntimeError:
+    except KeyError:
         try:
             sp = convert_prot2species(seqname, ensembl_version)
         except KeyError:
@@ -388,7 +385,7 @@ def test_convert_gene2species(ensembl_version, gene_info, cgene=1):
     for wrong in ('xululul', '0000000', 'ENSXXXG', 'ENSP000'):
         try:
             predicted_sp = convert_gene2species(wrong, ensembl_version)
-        except RuntimeError:
+        except KeyError:
             predicted_sp = False
 
         assert predicted_sp is False, "%r predicted %r" % (wrong, predicted_sp)
@@ -416,7 +413,7 @@ def test_convert_gene2species(ensembl_version, gene_info, cgene=1):
                 gene = line.rstrip('\r\n').split('\t')[cgene]
                 try:
                     predicted_sp = convert_gene2species(gene, ensembl_version)
-                except RuntimeError as err:
+                except KeyError as err:
                     err.args = err.args[:-1] + \
                                (err.args[-1] + ' '.join((sp, gene, "Not found")),)
                     raise

@@ -192,14 +192,14 @@ def suffixes_ok(parent, child, event):
         new_suffix = child[len(parent):]
         return child.startswith(parent) and NEW_DUP_SUFFIX.match(new_suffix)
     else:
-        raise RuntimeError("Invalid argument 'event' (must be 'dup' or 'spe')")
+        raise ValueError("Invalid argument 'event' (must be 'dup' or 'spe')")
 
 
 def suffix_count(parent, child):
     """count how many duplication suffixes were added between parent and child
     gene names. (suffixes like '.a', '.a.a', '.a.b'...)"""
     if not child.startswith(parent):
-        raise RuntimeError("parent %r and child %r are not in the same lineage")
+        raise ValueError("parent %r and child %r are not in the same lineage")
 
     difference = child[len(parent):]
     count = 0
@@ -213,7 +213,7 @@ def suffix_list(parent, child):
     """list duplication suffixes that were added between parent and child
     gene names. (suffixes like '.a', '.b', '.`b', '.ag'...)"""
     if not child.startswith(parent):
-        #raise RuntimeError("parent %r and child %r are not in the same lineage")
+        #raise ValueError("parent %r and child %r are not in the same lineage")
         return None
 
     difference = child[len(parent):]

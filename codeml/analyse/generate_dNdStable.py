@@ -401,7 +401,7 @@ def rm_erroneous_ancestors(fulltree, phyltree):
             try:
                 taxon = ANCGENE2SP.match(node.name).group(1).replace('.', ' ')
             except AttributeError:
-                raise RuntimeError("Can not match species name in %r" % \
+                raise ValueError("Can not match species name in %r" % \
                                    node.name)
             if len(node.children) <= 1:
                 if hasattr(node, 'reinserted'):
@@ -622,7 +622,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             try:
                 taxon = convert_gene2species(scname, ensembl_version)
                 leaf_age = 0 # TODO: take From the calibration dictionary
-            except RuntimeError as err:
+            except KeyError as err:
                 print('WARNING', err, file=sys.stderr)
                 taxon = None
                 leaf_age = np.NaN
@@ -649,7 +649,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             try:
                 taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
             except AttributeError:
-                raise RuntimeError("Can not match species name in %r" % scname)
+                raise ValueError("Can not match species name in %r" % scname)
 
             subtree[scname] = {'taxon': taxon, 'br_m': branch_measures}
 
