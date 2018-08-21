@@ -11,7 +11,7 @@ import os.path as op
 from glob import glob
 import numpy as np
 from Bio import AlignIO
-from codeml.select_leaves_from_specieslist import SP2GENEID
+from genomicustools.identify import SP2GENEID
 from seqtools import ungap, algrep, compo_freq
 from codeml.codemlparser2 import parse_mlc
 import LibsDyogen.myPhylTree as PhylTree

@@ -226,7 +226,7 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
             yield parent, coords[parent], child, coords[child]
 
 
-def infer_gene_event(node, taxon, children_taxa):
+def infer_gene_event(node, taxon, children_taxa):  # ~~> dendron.reconciled
     """Tell whether a gene tree node (ete3 format) is a leaf, a speciation or
     a duplication, using the taxon information.
     

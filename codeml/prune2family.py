@@ -53,6 +53,7 @@ def split_species_gene(nodename, ancgene2sp):
 
 def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
                      diclinks, ages=None, event='spe'):
+    # ~~> dendron.reconciled
     """given two taxa and the child gene name, return each missing speciation
     node inbetween."""
     try:
@@ -116,6 +117,7 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
 
 
 def insert_nodes(new_node_names, parent, child, new_dist_ratios=None):
+    # ~~> dendron.reconciled
     # conserve original distance
     if not new_dist_ratios:
         # split equally
@@ -141,6 +143,7 @@ def insert_nodes(new_node_names, parent, child, new_dist_ratios=None):
 ### TODO: write `insert_missing_dup`
 def insert_missing_spe(parent_sp, ancestor, genename, parent_genename,
                        parent_node, child, diclinks, ages=None, event='spe'):
+    # ~~> dendron.reconciled
     """Insert missing speciation nodes between parent_node and child.
     
     If event='spe': parent_node is a speciation, 
@@ -181,7 +184,7 @@ def add_species_nodes_back(tree, diclinks, ages=None):
                            parent_node, node, diclinks, ages)
 
 
-def suffixes_ok(parent, child, event):
+def suffixes_ok(parent, child, event): # ~~> genomicustools/dendron?
     """parent: genename
         child: genename
         event: 'dup' or 'spe'"""
@@ -226,7 +229,7 @@ def suffix_list(parent, child):
     return suffixes
 
 
-def get_mrca(parent_sp, children_sp, diclinks):
+def get_mrca(parent_sp, children_sp, diclinks): # ~~> a myPhylTree annex?
     """Get most recent common ancestor of all children species, given a root
     'parent_sp'."""
     children_anc = [diclinks[parent_sp][ch_sp] for ch_sp in children_sp]
@@ -246,6 +249,7 @@ def get_mrca(parent_sp, children_sp, diclinks):
 def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                               fix_suffix=True, force_mrca=False,
                               ensembl_version=ENSEMBL_VERSION, treebest=False):
+    # ~~> dendron.reconciled
     if treebest:
         print_if_verbose("  Reading from TreeBest format")
         get_species    = lambda node: (node.S.replace('.', ' '), node.name.split('_')[0])
@@ -565,7 +569,7 @@ def get_basal(nodes, maxsize):
     return nodes[:maxsize], nodes[maxsize:]
 
 
-def reroot_with_outgroup(node, maxsize=0):
+def reroot_with_outgroup(node, maxsize=0):  # ~~> dendron.reconciled
     """Goes up the tree (towards the root) until it finds outgroup taxa.
     
     - Only keep at most `maxsize` leaves in the outgroup.

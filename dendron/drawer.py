@@ -11,6 +11,8 @@ from dendron.climber import dfw_descendants_generalized, \
 from dendron.sorter import ladderize
 
 
+### TODO: rename as `printer`
+
 ## Ascii drawing ##
 
 ### branch symbols
