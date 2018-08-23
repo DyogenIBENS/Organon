@@ -586,7 +586,8 @@ class GenetreeDrawer(object):
         self.gene_coords = {} # {species: [gene list]}
         #self.dup_branchings = [] # (nodeid/genename, x, x_child1, x_child2, y_child1, y_child2)
         #self.spe_branchings = []
-        self.branchings = {} # {nodeid: [species, x, y, dup/spe, (children)], ...]
+        self.branchings = {} # {nodeid: [species, x, y, dup/spe,
+                             #           (children), {node features}], ...]
         
         # temporary tree structure holding nodes that are inbetween 2 speciations
         interspecies_trees = {}
@@ -607,6 +608,7 @@ class GenetreeDrawer(object):
             children_taxa = set(interspecies_trees[ch.id]['taxon'] for ch
                                 in node.children)
             event = infer_gene_event(node, taxon, children_taxa)
+            node_features = {ft: getattr(node, ft) for ft in node.features}
 
             if event == 'leaf':
                 taxon_gene_coords.append(nodeid)
@@ -616,7 +618,7 @@ class GenetreeDrawer(object):
                                                'ndup': 0,
                                                'x': 1,
                                                'y': node_y}
-                self.branchings[nodeid] = [taxon, 0, node_y, 'leaf', []]
+                self.branchings[nodeid] = [taxon, 0, node_y, 'leaf', [], node_features]
             elif event == 'dup':
 
                 # It is a **duplication**
@@ -654,8 +656,8 @@ class GenetreeDrawer(object):
                         'x': (1 if event=='dup' else 0),
                         'y': node_y}
                 self.branchings[nodeid] = [taxon, 0, node_y, event,
-                                            [ch.id for ch in
-                                                node.children]]
+                                           [ch.id for ch in node.children],
+                                           node_features]
                 #if event == 'dup':
                 #    continue
 
@@ -687,7 +689,8 @@ class GenetreeDrawer(object):
                                                             nextnode_x,
                                                             nextnode_y,
                                                             'dup',
-                                                            nextnode_ch]
+                                                            nextnode_ch,
+                                                            node_features]
                             nextnodes.extend(nextnode.children)
 
                         interspecies_trees.pop(nextnode.id)
@@ -717,10 +720,11 @@ class GenetreeDrawer(object):
                      for n in genetree.traverse('postorder')):
             nodeid = node.id
             
-            species, rel_x, rel_y, event, children = self.branchings[nodeid]
+            species, rel_x, rel_y, event, children, _ = self.branchings[nodeid]
             pos_list = self.gene_coords[species]
             nranks = len(pos_list) + 1
             children_real_coords = [self.real_gene_coords[ch] for ch in children]
+            children_features = [self.branchings[ch][5] for ch in children]
             
             #print(nodeid, event, species, children)
             if event == 'dup':
@@ -745,83 +749,50 @@ class GenetreeDrawer(object):
                 elif any((children_rel_ys[i+1] - children_rel_ys[i] == 0) for i in range(nch-1)):
                     warnings.warn("Some children's relative Y are identical! (%s: %s)" % (event, node.name))
 
-                # Compute coordinates of the base of the fork: delta_ys
-                # (Keep only two children if multifurcation)
-                # NEVER FORGET: the Y axis is FROM TOP TO BOTTOM
-                delta_rel_ys = (rel_y - children_rel_ys[0],
-                                rel_y - children_rel_ys[-1])
-                # If wasn't sorted, I should do abs(max(), min()).min()
-                # *0.8
-                delta_ys = [dry/nranks * branch_width for dry in delta_rel_ys]
+                for ch, ch_rel_y, (ch_real_x, ch_real_y), ch_ft in \
+                        zip(children, children_rel_ys, children_real_coords,
+                            children_features):
 
-                #shortest_delta_y = np.abs(delta_ys).min() 
-                #longest_delta_y = np.abs(delta_ys).max()
-                # No need since the gene tree is ladderized.
-                
-                #reduce the length curve heterogeneity:
-                delta_ys[0] = (delta_ys[0] - delta_ys[1])/2
-
-                # With square forks: take the shortest delta_y:
-                #delta_ys = shortest_delta_y * np.array([1, -1])
-
-                # Warning, delta_ys are *signed*, hence the - here:
-                fork_width = delta_ys[0] - delta_ys[1]
-
-                #delta_ys = []
-                #    delta_y = (rel_y - ch_rel_y)/nranks * branch_width
-                #    delta_ys.append(delta_y)
-                
-                fork_coords_x = [real_x, real_x]
-                fork_coords_x = [real_x, real_x]
-                fork_coords_y = [real_y + delta_ys[0], real_y + delta_ys[-1]]
-                for i, (ch, ch_rel_y, (ch_real_x, ch_real_y)) in \
-                        enumerate(zip(children,
-                                      children_rel_ys,
-                                      children_real_coords)):
-                    #tree ladderized so index 0 is max y, -1 is min y
-                    if i == 0:
-                        fork_coords_x.insert(0, ch_real_x)
-                        fork_coords_y.insert(0, ch_real_y)
-                    elif i == (nch-1):
-                        fork_coords_x.append(ch_real_x)
-                        fork_coords_y.append(ch_real_y)
-                    else:
-                        #raise AssertionError("More than two children: %d" % nch)
-                        # Extra children (more than 2)
-                        delta_y = i / nch * fork_width - fork_width/2
-                        self.ax1.plot((ch_real_x, real_x),
-                                      (ch_real_y, real_y + delta_y),
-                                      color=branches_color, alpha=0.5)
-                
-                if nch == 1:
-                    self.ax1.plot(fork_coords_x, fork_coords_y,
-                                  color=branches_color, alpha=0.5)
-                else:
-                    fork_coords = list(zip(fork_coords_x, fork_coords_y))
-                    fork_coords.insert(2, (real_x, real_y)) # Middle point
-                    fork = patches.PathPatch(
-                                    Path(fork_coords, [MOVETO] + [CURVE3]*4),
+                    # Draw thicker line when it represents a paralogy
+                    linewidth = 4 if ch_ft.get('P') == 'True' else 1
+                    
+                    delta_y = (rel_y - ch_rel_y)/nranks * branch_width
+                    fork_coords = [(ch_real_x, ch_real_y),
+                                   (real_x, real_y + delta_y),
+                                   (real_x, real_y)]
+                    u_fork_finger = patches.PathPatch(
+                                    Path(fork_coords, [MOVETO, CURVE3, CURVE3]),
                                     fill=False,
-                                    #facecolor="none",
                                     edgecolor=branches_color,
-                                    alpha=0.5)
-                    # Plot the fork
-                    self.ax1.add_patch(fork)
+                                    alpha=0.5,
+                                    linewidth=linewidth,
+                                    joinstyle='round')  # don't see a change
+                    self.ax1.add_patch(u_fork_finger)
 
-            else:
+            else:  # event == 'spe' or 'leaf'
                 real_x, real_y = self.species_coords[species]
                 pos = pos_list.index(nodeid) + 1
                 real_y -= branch_width * pos/nranks
                 #nodecolor = 'blue'
                 nodecolor = 'none'
 
-                for ch_real_x, ch_real_y in children_real_coords:
-                    self.ax1.plot((real_x, ch_real_x), (real_y, ch_real_y),
+                for ch, (ch_real_x, ch_real_y), ch_ft in \
+                        zip(children, children_real_coords, children_features):
+                    linewidth = 4 if ch_ft.get('P') == 'True' else 1
+                    v_fork_finger = patches.PathPatch(
+                                             Path([(real_x, real_y),
+                                                   (ch_real_x, ch_real_y)],
+                                                  [MOVETO, LINETO]),
+                                             edgecolor='black',
+                                             alpha=0.5,
+                                             linewidth=linewidth,
+                                             joinstyle='round')
+                    self.ax1.add_patch(v_fork_finger)
                                   #(':' if node.is_root() else '-'),
-                                  color='black', alpha=0.5)
             
             #if event != 'leaf':
-            if event == 'dup':
+            if event == 'dup':  # This line is still here because historically it was.
+                # Add a *dot*
                 self.ax1.plot((real_x,), (real_y,), '.', color=nodecolor, alpha=0.5)
                 #self.ax1.text(real_x, real_y, species, fontsize='xxx-small',
                 #              color=nodecolor)
