@@ -738,6 +738,7 @@ class GenetreeDrawer(object):
             pos_list = self.gene_coords[species]
             nranks = len(pos_list) + 1
             children_real_coords = [self.real_gene_coords[ch] for ch in children]
+            children_features = [self.branchings[ch][5] for ch in children]
             
             #print(nodeid, event, species, children)
             if event == 'dup':
@@ -762,22 +763,25 @@ class GenetreeDrawer(object):
                 elif any((children_rel_ys[i+1] - children_rel_ys[i] == 0) for i in range(nch-1)):
                     warnings.warn("Some children's relative Y are identical! (%s: %s)" % (event, node.name))
 
-                for i, (ch, ch_rel_y, (ch_real_x, ch_real_y)) in \
-                        enumerate(zip(children,
-                                      children_rel_ys,
-                                      children_real_coords)):
-                    linewidth = 4 if self.branchings[ch][-1].get('P') == 'True' else 1
+                for ch, ch_rel_y, (ch_real_x, ch_real_y), ch_ft in \
+                        zip(children, children_rel_ys, children_real_coords,
+                            children_features):
+
+                    # Draw thicker line when it represents a paralogy
+                    linewidth = 4 if ch_ft.get('P') == 'True' else 1
+                    
                     delta_y = (rel_y - ch_rel_y)/nranks * branch_width
                     fork_coords = [(ch_real_x, ch_real_y),
                                    (real_x, real_y + delta_y),
                                    (real_x, real_y)]
-                    fork = patches.PathPatch(
-                                    Path(fork_coords, [MOVETO] + [CURVE3]*2),
+                    u_fork_finger = patches.PathPatch(
+                                    Path(fork_coords, [MOVETO, CURVE3, CURVE3]),
                                     fill=False,
                                     edgecolor=branches_color,
                                     alpha=0.5,
-                                    linewidth=linewidth)
-                    self.ax1.add_patch(fork)
+                                    linewidth=linewidth,
+                                    joinstyle='round')  # don't see a change
+                    self.ax1.add_patch(u_fork_finger)
 
             else:  # event == 'spe' or 'leaf'
                 real_x, real_y = self.species_coords[species]
@@ -786,11 +790,19 @@ class GenetreeDrawer(object):
                 #nodecolor = 'blue'
                 nodecolor = 'none'
 
-                for ch, (ch_real_x, ch_real_y) in zip(children, children_real_coords):
-                    linewidth = 4 if self.branchings[ch][-1].get('P') == 'True' else 1
-                    self.ax1.plot((real_x, ch_real_x), (real_y, ch_real_y),
+                for ch, (ch_real_x, ch_real_y), ch_ft in \
+                        zip(children, children_real_coords, children_features):
+                    linewidth = 4 if ch_ft.get('P') == 'True' else 1
+                    v_fork_finger = patches.PathPatch(
+                                             Path([(real_x, real_y),
+                                                   (ch_real_x, ch_real_y)],
+                                                  [MOVETO, LINETO]),
+                                             edgecolor='black',
+                                             alpha=0.5,
+                                             linewidth=linewidth,
+                                             joinstyle='round')
+                    self.ax1.add_patch(v_fork_finger)
                                   #(':' if node.is_root() else '-'),
-                                  color='black', alpha=0.5, linewidth=linewidth)
             
             #if event != 'leaf':
             if event == 'dup':  # This line is still here because historically it was.
