@@ -692,6 +692,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     except ete3.parser.newick.NewickError as err:
         err.args = (err.args[0] + 'ERROR with treefile %r' % treefile,)
         raise
+    output_features = tree.features.union(('reinserted',)) - set(('name', 'support', 'dist'))
     insert_species_nodes_back(tree, ancgene2sp, diclinks, ages, fix_suffix,
                               force_mrca, ensembl_version, treebest)
     print_if_verbose("* Searching for ancestors:")
@@ -745,7 +746,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                         outtree = root.write(format=1,
                                              format_root_node=True,
                                              outfile=outfile,
-                                             features=["reinserted"])
+                                             features=output_features)
                         if outtree is not None:
                             print(outtree)
                     outfiles_set.add(outfile)
