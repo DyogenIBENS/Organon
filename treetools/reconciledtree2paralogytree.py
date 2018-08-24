@@ -176,12 +176,13 @@ def main(inputnwk, outputnwk, ensembl_version=ENSEMBL_VERSION,
 
     #get_taxon = get_taxon_treebest if treebest else get_taxon
 
-    for paralogy in buildparalogies(genetree, get_taxon, ancgene2sp,
-                                    ensembl_version,
-                                    include_singleton_branches):
-        out = paralogy.write(format=1, format_root_node=True, features=['S', 'D', 'P'], outfile=outputnwk)
-        if out:
-            print(out)
+    with open(outputnwk, 'w') as out:
+        for paralogy in buildparalogies(genetree, get_taxon, ancgene2sp,
+                                        ensembl_version,
+                                        include_singleton_branches):
+            outtext = paralogy.write(format=1, format_root_node=True,
+                                     features=['S', 'D', 'P'])
+            out.write(outtext + '\n')
 
 
 if __name__ == '__main__':
