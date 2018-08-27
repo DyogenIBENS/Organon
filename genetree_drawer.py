@@ -608,7 +608,7 @@ class GenetreeDrawer(object):
                                     (taxon, children_taxa, taxon),
                                     file=sys.stderr)
                             for tmp_taxon, _ in iter_missing_branches(child_taxon,
-                                                        expected_children_taxa):
+                                                        set((taxon,))):
                                 tmp_expected_children_taxa = phylsubtree[tmp_taxon]
                                 deletion_count[child] += orient_deletion(set((tmp_taxon,)), tmp_expected_children_taxa)
 
