@@ -177,6 +177,7 @@ def insert_nodes(new_node_names, parent, child, new_taxa, new_dist_ratios=None):
     for new_name, new_taxon, new_dist in zip(new_node_names, new_taxa, new_branch_dists[:-1]):
         new_node = new_node.add_child(name=new_name, dist=new_dist)
         new_node.add_features(reinserted=True, S=new_taxon) #D="N"
+        if getattr(child, 'P'): new_node.add_feature('P', child.P)
         new_nodes.append(new_node)
         print_if_verbose(" -", new_name)
     #print_if_verbose()
