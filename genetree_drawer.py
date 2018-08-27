@@ -248,13 +248,17 @@ def infer_gene_event(node, taxon, children_taxa):
     #if node.is_leaf():
     if not children_taxa:
         return 'leaf'
-    elif (getattr(node, 'D', None) is not None and node.D == 'Y') \
-           or (taxon in children_taxa):
+    elif (getattr(node, 'D', None) == 'Y') or taxon in children_taxa:
        #(len(children_taxa) == 1 and taxon in children_taxa): #\
                     #and len(node.children) > 1 \
        #or \
        #(len(node.children) == 1 and taxon in children_taxa):
         # Should rather check if taxon in children_taxa.
+        if getattr(node, 'D', None) == 'N':
+            warnings.warn("The node %r -> %s "\
+                  "is marked as a speciation but was infered as a duplication"\
+                  " after taxon information." % \
+                  (node.name, [ch.name for ch in node.children]))
         if len(children_taxa) > 1:
             warnings.warn("The node %r -> %s "\
                   "is a duplication + a speciation. Not " \
@@ -558,6 +562,8 @@ class GenetreeDrawer(object):
 
                 expected_children_taxa = set(phylsubtree[taxon])
                 
+                assert taxon not in children_taxa, \
+                    "This should be a duplication: %s -> %s" % (taxon, children_taxa)
                 if expected_children_taxa != children_taxa:
 
                     tmp_children_taxa = []
