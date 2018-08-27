@@ -267,7 +267,7 @@ def infer_gene_event(node, taxon, children_taxa):
                   (node.name, [ch.name for ch in node.children]))
         return 'dup'
     else:
-        ### FIXME 
+        ### FIXME
         if len(children_taxa)==1:
             msg = "The node %r -> %s" % \
                   (node.name, [ch.name for ch in node.children])
@@ -292,7 +292,7 @@ class GenetreeDrawer(object):
                    "PhylTree.Ensembl.{0}.conf"
     
     def __init__(self, phyltreefile=None, ensembl_version=None,
-                 colorize_clades=None, commonname=False, latinname=False, 
+                 colorize_clades=None, commonname=False, latinname=False,
                  treebest=False, show_cov=False):
         if ensembl_version: self.ensembl_version = ensembl_version
         if phyltreefile: self.phyltreefile = phyltreefile
@@ -562,7 +562,8 @@ class GenetreeDrawer(object):
 
                     tmp_children_taxa = []
                 
-                    # if intermediate speciation nodes are missing, count deletions.
+                    # if intermediate speciation nodes are missing, count the
+                    # implied deletions.
                     for child_taxon in children_taxa:
 
                         for tmp_taxon, child_taxon in iter_missing_branches(child_taxon,
