@@ -538,12 +538,24 @@ class GenetreeDrawer(object):
                 return 1
 
         def iter_missing_branches(child_taxon, expected_children_taxa):
+            """When intermediate speciation nodes are missing between a taxon and
+            descendant taxa, list the implicit branches (a pair of a taxon and its child
+            taxon)."""
+            print("  Missing between %s and %s: %s" % \
+                    (child_taxon, expected_children_taxa,
+                     child_taxon not in expected_children_taxa),
+                    file=sys.stderr)
             while child_taxon not in expected_children_taxa:
                 tmp_taxon = self.phyltree.parent[child_taxon].name
                 print("  - get intermediate parent of %s: %s" % \
                         (child_taxon, tmp_taxon), file=sys.stderr)
                 while tmp_taxon not in phylsubtree:
-                    tmp_taxon = self.phyltree.parent[tmp_taxon].name
+                    try:
+                        tmp_taxon = self.phyltree.parent[tmp_taxon].name
+                    except KeyError as err:
+                        print(phylsubtree, file=sys.stderr)
+                        err.args += (child_taxon,)
+                        raise
 
                 yield tmp_taxon, child_taxon
                 
@@ -565,6 +577,9 @@ class GenetreeDrawer(object):
                 assert taxon not in children_taxa, \
                     "This should be a duplication: %s -> %s" % (taxon, children_taxa)
                 if expected_children_taxa != children_taxa:
+                    print('Expected (spe): %s ; got: %s (from %s)' % \
+                            (expected_children_taxa, children_taxa, taxon),
+                            file=sys.stderr)
 
                     tmp_children_taxa = []
                 
@@ -572,12 +587,14 @@ class GenetreeDrawer(object):
                     # implied deletions.
                     for child_taxon in children_taxa:
 
+                        # It works when child_taxon is *descendant* of expected_taxa.
                         for tmp_taxon, child_taxon in iter_missing_branches(child_taxon,
                                                           expected_children_taxa):
 
                             tmp_expected_children_taxa = phylsubtree[tmp_taxon]
 
                             deletion_count[node] += orient_deletion(set((tmp_taxon,)), tmp_expected_children_taxa)
+                            print('+1 deletion', file=sys.stderr)
                         tmp_children_taxa.append(child_taxon)
 
                     deletion_count[node] += orient_deletion(children_taxa, expected_children_taxa)
@@ -587,6 +604,9 @@ class GenetreeDrawer(object):
                     for child in node.children:
                         child_taxon = cached_taxa[child]
                         if child_taxon != taxon:
+                            print('Expected (dup): %s ; got: %s (from %s)' % \
+                                    (taxon, children_taxa, taxon),
+                                    file=sys.stderr)
                             for tmp_taxon, _ in iter_missing_branches(child_taxon,
                                                         expected_children_taxa):
                                 tmp_expected_children_taxa = phylsubtree[tmp_taxon]
