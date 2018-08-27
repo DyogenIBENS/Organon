@@ -389,6 +389,7 @@ class GenetreeDrawer(object):
             self.taxa.add(lower_root)
 
             #rerooted_genetree = ete3.TreeNode(name=lower_root) # Might break
+            lower_root = root  # Put the root in the middle of the branch.
             rerooted_genetree = ete3.TreeNode(name=genetree.name.replace(root,
                                                                     lower_root))
 
@@ -412,6 +413,7 @@ class GenetreeDrawer(object):
         #    root, = roots
         #else:
         
+        #print("Roots: " + ", ".join(roots))
         root = "root" if "root" in roots else self.phyltree.lastCommonAncestor(list(roots))
         self.taxa.add(root)
         
@@ -630,7 +632,7 @@ class GenetreeDrawer(object):
         self.branchings = {} # {nodeid: [species, x, y, dup/spe,
                              #           (children), {node features}], ...]
         
-        # temporary tree structure holding nodes that are inbetween 2 speciations
+        # *temporary* tree structure holding nodes that are inbetween 2 speciations
         interspecies_trees = {}
 
         # x and y are relative to the branch considered. (between 0 and 1)
@@ -684,19 +686,26 @@ class GenetreeDrawer(object):
                         'ndup': node_ndup,
                         'x': 1, # modified later
                         'y': node_y}
-            else:
+            if event == 'spe' or node.is_root():
+            #else:
                 # It is a **speciation**
+                if event == 'spe':
+                    taxon_gene_coords.append(nodeid)
+                    node_y = len(taxon_gene_coords) - 1
+                    node_ndup = 0
+                    node_x = 0
 
-                #if event!='dup':
-                taxon_gene_coords.append(nodeid)
+                    interspecies_trees[nodeid] = {
+                            'taxon': taxon,
+                            'ndup': node_ndup,#0, 
+                            'x': node_x,
+                            'y': node_y}
+                else:
+                    # If it is the root, place it in the middle of the branch.
+                    node_x = 1 - node_ndup/(node_ndup+1)
+                    interspecies_trees[nodeid]['x'] = node_x
 
-                node_y = len(taxon_gene_coords) - 1
-                interspecies_trees[nodeid] = {
-                        'taxon': taxon,
-                        'ndup': (1 if event=='dup' else 0),#0, 
-                        'x': (1 if event=='dup' else 0),
-                        'y': node_y}
-                self.branchings[nodeid] = [taxon, 0, node_y, event,
+                self.branchings[nodeid] = [taxon, node_x, node_y, event,
                                            [ch.id for ch in node.children],
                                            node_features]
                 #if event == 'dup':
@@ -706,6 +715,7 @@ class GenetreeDrawer(object):
                 
                 for ch in node.children:
                     n_steps = interspecies_trees[ch.id]['ndup'] + 1
+                    if node.is_root(): n_steps += 1
 
                     delta_x = 1 / n_steps
 
@@ -735,9 +745,12 @@ class GenetreeDrawer(object):
                             nextnodes.extend(nextnode.children)
 
                         interspecies_trees.pop(nextnode.id)
-        print("root:", interspecies_trees)
 
-                                                                
+        #assert not interspecies_trees, \
+        #        "Temporarily stored nodes have not been processed: %s" % interspecies_trees
+        print("Root:", interspecies_trees)
+
+
     def draw_gene_tree(self, extratitle='', genenames=False, branch_width=0.8):
         print(' --- Drawing genetree ---')
         # Duplicate the species tree axis to separate the plotting
@@ -755,7 +768,7 @@ class GenetreeDrawer(object):
         color_index = 0
 
         # Gene node names to be displayed (dup, leaf, spe)
-        genenames=set(genenames.split(',', maxsplit=1)) if genenames else set()
+        genenames=set(genenames.split(',')) if genenames else set()
 
         for node in (n for genetree in self.genetrees \
                      for n in genetree.traverse('postorder')):
@@ -776,10 +789,14 @@ class GenetreeDrawer(object):
                 parent_x, parent_y = self.species_coords[parent_sp]
                 real_x = parent_x + Dx * rel_x
                 real_y = parent_y + Dy * rel_x - branch_width * (rel_y+1)/nranks
-                nodecolor = 'red'
-
-                branches_color = cmap(color_index)
-                color_index = (color_index + 1) % cmap.N
+                
+                if not node.is_root():
+                    nodecolor = 'red'
+                    branches_color = cmap(color_index)
+                    color_index = (color_index + 1) % cmap.N
+                else:
+                    nodecolor='black'
+                    branches_color = 'black'
 
                 nch = len(children)
                 children_rel_ys = [self.branchings[ch][2] for ch in children]
@@ -814,8 +831,8 @@ class GenetreeDrawer(object):
                 real_x, real_y = self.species_coords[species]
                 pos = pos_list.index(nodeid) + 1
                 real_y -= branch_width * pos/nranks
-                #nodecolor = 'blue'
-                nodecolor = 'none'
+                nodecolor = 'blue'
+                #nodecolor = 'none'
 
                 for ch, (ch_real_x, ch_real_y), ch_ft in \
                         zip(children, children_real_coords, children_features):
