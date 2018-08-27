@@ -126,7 +126,7 @@ def buildparalogies(genetree, get_taxon, ancgene2sp,
                     if not has_sub_paralogies:
                         extendparalogy([set((ch,)) for ch in paralog.children],
                                        children_taxa[0], current_paralogy)
-                        if not getattr(parent_paralogy, 'P', False):
+                        if include_singleton_branches and not getattr(parent_paralogy, 'P', False):
                             # It miraculously worked. I don't know why.
                             # This is needed with option `include_singleton_branches=True`:
                             # it avoids drawing a "duplicate" branch for singleton genes left from a new paralogy node.
