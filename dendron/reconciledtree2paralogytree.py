@@ -12,7 +12,7 @@
 """
 
 
-from sys import stdin, stderr
+from sys import stdin, stderr, stdout
 import re
 import argparse
 import ete3
@@ -64,30 +64,32 @@ def buildparalogies(genetree, get_taxon, ancgene2sp,
         indent += 1  #debug
 
         pdbug(indent, taxon, 'call:', callnb, prefix='# ')
-        pdbug(indent, 'paralog_packs:', paralog_packs)
 
         # Create a node object representing the paralogy, if any. Attach to parent if any.
         para_size = len(paralog_packs)
         if para_size > 1:
-            para_name = ';'.join('-'.join(ch.name for ch in pack) for pack in paralog_packs)
-            new_paralogy = ete3.TreeNode(name=para_name)
-            new_paralogy.add_feature("S", taxon)
-            new_paralogy.add_feature("P", True)
-            #new_paralogy.add_feature("D", ("Y" if getattr(parent_paralogy, 'S', None)==taxon else "N")) #optional
+            para_name = '|'.join('-'.join(ch.name for ch in pack) for pack in paralog_packs)
+            current_paralogy = ete3.TreeNode(name=para_name)
+            current_paralogy.add_feature("S", taxon)
+            current_paralogy.add_feature("P", True)
+            #current_paralogy.add_feature("D", ("Y" if getattr(parent_paralogy, 'S', None)==taxon else "N")) #optional
             #parent_paralogy.add_feature("D", )
         else:
-            assert len(paralog_packs[0]) == 1
-            new_paralogy = make_singleton_node(list(paralog_packs[0])[0].name, taxon)
+            #assert len(paralog_packs[0]) == 1  # Not sure if it should happen
+            current_paralogy = make_singleton_node(list(paralog_packs[0])[0].name, taxon)
             pdbug(indent, "No paralogy")
         
-        if new_paralogy is not None:
+        if current_paralogy is not None:
             if parent_paralogy is None:
-                paralogies.append(new_paralogy)
-                pdbug(indent, 'Create new paralogy', new_paralogy.name)
+                current_paralogy.add_feature('D', 'Y')
+                paralogies.append(current_paralogy)
+                pdbug(indent, 'Create new paralogy', current_paralogy.name)
             else:
-                parent_paralogy.add_child(new_paralogy)
+                current_paralogy.add_feature('sub', True)  # It is a "sub-paralogy"
+                parent_paralogy.add_child(current_paralogy)
                 pdbug(indent, ("dup" if parent_paralogy.D == "Y" else "spe") + '-extend paralogy from', parent_paralogy.name)
-        #pdbug(indent, new_paralogy.get_tree_root() if new_paralogy else None, prefix='> ')
+        #pdbug(indent, current_paralogy.get_tree_root() if current_paralogy else None, prefix='> ')
+        pdbug(indent, 'paralog_packs:', paralog_packs)
 
         # The descendant paralog_pack in each species after the speciation:
         paralog_packs_after_speciation = {}  # {ch: [set()] * para_size}
@@ -111,19 +113,43 @@ def buildparalogies(genetree, get_taxon, ancgene2sp,
                 #pdbug(indent, repr(paralog), event+':', paralog.children, prefix=' ** ')
 
                 if event == 'dup':
-                    #if para_size > 1 / new_paralogy is not None
-                    if has_sub_paralogies:
-                        paralog_pack.update(paralog.children)
-
+                    #if para_size > 1 / current_paralogy is not None
                     pdbug(indent, 'Dup!')
-                    if new_paralogy is not None:
-                        new_paralogy.add_feature('D', 'Y')
-                    extendparalogy([set((ch,)) for ch in paralog.children],
-                                   children_taxa[0], new_paralogy)
+                    if current_paralogy is not None:
+                        current_paralogy.add_feature('D', 'Y')
+                        #if current_paralogy.P:
+                        #    # Only update the pack when we are in a paralogy.
+                        #    # If not, the current branch can be dropped, because
+                        #    # each paralog is already going to be checked in 
+                        #    # subsequent calls.
+                    paralog_pack.update(paralog.children)
+                    #if callnb == 32: import ipdb; ipdb.set_trace(context=1)
+                    if not has_sub_paralogies:
+                        extendparalogy([set((ch,)) for ch in paralog.children],
+                                       children_taxa[0], current_paralogy)
+                        if include_singleton_branches and not getattr(parent_paralogy, 'P', False):
+                            # It miraculously worked. I don't know why.
+                            # This is needed with option `include_singleton_branches=True`:
+                            # it avoids drawing a "duplicate" branch for singleton genes left from a new paralogy node.
+                            break
+
+                        extendparalogy(paralog_packs, children_taxa[0], current_paralogy)
+                        # Seems to work okay, but I suspect some paralogs are
+                        # checked several times.
+                        #break
+                        has_sub_paralogies = True
+
+
                     indent -= 1  #debug
-                    #also extendparalogy of the current paralogy (new_paralogy)
+                    #also extendparalogy of the current paralogy (current_paralogy)
+                    #if has_sub_paralogies:
+                    #    paralog_pack.update(paralog.children)
+                        #extendparalogy
+                    #has_sub_paralogies = True
+
 
                 else:
+                    # What if it is a leaf? The paralog is just popped out.
                     for child_taxon, speciated_paralog in zip(children_taxa, paralog.children):
                         speciated_paralog_packs = paralog_packs_after_speciation.setdefault(child_taxon, [set() for p in range(para_size)])
                         #if child_taxon not in paralog_packs_after_speciation:
@@ -149,9 +175,9 @@ def buildparalogies(genetree, get_taxon, ancgene2sp,
             assert not redundant_nodes, paralog_packs_after_speciation
 
             pdbug(indent, 'Spe!')
-            if new_paralogy is not None:
-                new_paralogy.add_feature('D', 'N')
-            extendparalogy(speciated_paralog_packs, child_taxon, new_paralogy)
+            if current_paralogy is not None:
+                current_paralogy.add_feature('D', 'N')
+            extendparalogy(speciated_paralog_packs, child_taxon, current_paralogy)
             indent -= 1  #debug
 
     taxon = get_taxon(genetree, ancgene2sp, ensembl_version)
@@ -162,7 +188,7 @@ def buildparalogies(genetree, get_taxon, ancgene2sp,
 
 def main(inputnwk, outputnwk, ensembl_version=ENSEMBL_VERSION,
          phyltreefile=PHYLTREEFILE, treebest=False,
-         include_singleton_branches=False):
+         include_singleton_branches=False, include_singleton_root=False):
 
     phyltree = myPhylTree.PhylogeneticTree(phyltreefile.format(ensembl_version))
 
@@ -177,24 +203,29 @@ def main(inputnwk, outputnwk, ensembl_version=ENSEMBL_VERSION,
 
     #get_taxon = get_taxon_treebest if treebest else get_taxon
 
-    for paralogy in buildparalogies(genetree, get_taxon, ancgene2sp,
-                                    ensembl_version,
-                                    include_singleton_branches):
-        out = paralogy.write(format=1, format_root_node=True, features=['S', 'D', 'P'], outfile=outputnwk)
-        if out:
-            print(out)
+    with (open(outputnwk, 'w') if outputnwk else stdout) as out:
+        for paralogy in buildparalogies(genetree, get_taxon, ancgene2sp,
+                                        ensembl_version,
+                                        include_singleton_branches):
+            outtext = paralogy.write(format=1, format_root_node=True,
+                                     features=['S', 'D', 'P'])
+            out.write(outtext + '\n')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('inputnwk', nargs='?')
-    parser.add_argument('outputnwk', nargs='?')
+    parser.add_argument('inputnwk', nargs='?', help='Input file or `stdin` if None')
+    parser.add_argument('outputnwk', nargs='?', help='Output file or `stdout` if None')
     parser.add_argument('-e', '--ensembl-version', type=int, default=ENSEMBL_VERSION)
     parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE)
     parser.add_argument('-t', '--treebest', action='store_true')
     parser.add_argument('-s', '--include-singleton-branches',
                         action='store_true',
                         help='Include single gene nodes, but with a special mark.')
+    parser.add_argument('-r', '--include-singleton-root',
+                        action='store_true',
+                        help='Keep the original root of the gene tree, even ' \
+                             'if it\'s not a paralogy. Discard other singletons')
 
     args = parser.parse_args()
     main(**vars(args))

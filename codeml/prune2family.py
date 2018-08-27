@@ -52,7 +52,7 @@ def split_species_gene(nodename, ancgene2sp):
 
 
 def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
-                     diclinks, ages=None, event='spe'):
+                     diclinks, ages=None): #, event='spe'):
     # ~~> dendron.reconciled
     """given two taxa and the child gene name, return each missing speciation
     node inbetween."""
@@ -80,6 +80,7 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
     new_node_names = []
     if links:
         # Alright to use parent_genename if not a duplication.
+        # TODO: do not make the new name here, but in the `insert_...` function
         new_node_names = [link.replace(' ', '.') + parent_genename for link in links]
 
     ### TODO: refactor the part above to compute and check 'links' only once, 
@@ -111,12 +112,12 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
         total_len = len(ancestor_lineage) - 1
         new_branch_dists = [1./total_len] * total_len
 
-    return new_node_names, new_branch_dists
+    return new_node_names, new_branch_dists, links
     # TODO: compute intermediate distances proportionally to the age of each
     # intermediate taxon. Will however be incorrect if one node is a duplication.
 
 
-def insert_nodes(new_node_names, parent, child, new_dist_ratios=None):
+def insert_nodes(new_node_names, parent, child, new_taxa, new_dist_ratios=None):
     # ~~> dendron.reconciled
     # conserve original distance
     if not new_dist_ratios:
@@ -129,9 +130,10 @@ def insert_nodes(new_node_names, parent, child, new_dist_ratios=None):
     new_node = parent
     new_nodes = []
     print_if_verbose("Inserted nodes\n (   %s\n  -> %s):" % (new_node.name, child.name))
-    for new_name, new_dist in zip(new_node_names, new_branch_dists[:-1]):
+    for new_name, new_taxon, new_dist in zip(new_node_names, new_taxa, new_branch_dists[:-1]):
         new_node = new_node.add_child(name=new_name, dist=new_dist)
-        new_node.add_feature('reinserted', True)
+        new_node.add_features(reinserted=True, S=new_taxon) #D="N"
+        if getattr(child, 'P'): new_node.add_feature('P', child.P)
         new_nodes.append(new_node)
         print_if_verbose(" -", new_name)
     #print_if_verbose()
@@ -149,16 +151,15 @@ def insert_missing_spe(parent_sp, ancestor, genename, parent_genename,
     If event='spe': parent_node is a speciation, 
     else if event='dup', it is a duplication and an extra speciation node
     must be appended."""
-    new_node_names, new_branch_dists = name_missing_spe(parent_sp,
+    new_node_names, new_branch_dists, new_taxa = name_missing_spe(parent_sp,
                                                         ancestor,
                                                         genename,
                                                         parent_genename,
                                                         diclinks,
-                                                        ages,
-                                                        event=event)
+                                                        ages)
     if new_node_names:
         print_if_verbose("Nodes to insert: %s" % new_node_names)
-        return insert_nodes(new_node_names, parent_node, child, new_branch_dists)
+        return insert_nodes(new_node_names, parent_node, child, new_taxa, new_branch_dists)
         #return True
     # return false if no node was added
     #return False
@@ -444,21 +445,22 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                             print_if_verbose("Inserted node (spe after dup):",
                                              spe_node_name)
                             # Then check the succession of ancestors
-                            new_node_names, new_branch_dists = name_missing_spe(
-                                                                    parent_sp,
-                                                                    ancestor,
-                                                                    genename,
-                                                                    genename, #because speciation
-                                                                    diclinks,
-                                                                    ages)
+                            new_node_names, new_branch_dists, new_taxa = \
+                                    name_missing_spe(parent_sp,
+                                                     ancestor,
+                                                     genename,
+                                                     genename, #because speciation
+                                                     diclinks,
+                                                     ages)
                             new_node_names.insert(0, spe_node_name)
+                            new_taxa.insert(0, parent_sp)
                             # adjust the length of this dup-spe branch
                             n_new_nodes = len(new_node_names)
                             new_branch_dists = [1./(n_new_nodes+1)] + \
                                                [r * n_new_nodes/(n_new_nodes+1)
                                                    for r in new_branch_dists]
                             new_nodes = insert_nodes(new_node_names, node,
-                                                     child, new_branch_dists)
+                                                     child, new_taxa, new_branch_dists)
                             # MUST update node_children after the previous edit
                             node_children[i] = new_nodes[0]
                             child_sp[i] = parent_sp
@@ -649,6 +651,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     except ete3.parser.newick.NewickError as err:
         err.args = (err.args[0] + 'ERROR with treefile %r' % treefile,)
         raise
+    output_features = tree.features.union(('reinserted',)) - set(('name', 'support', 'dist'))
     insert_species_nodes_back(tree, ancgene2sp, diclinks, ages, fix_suffix,
                               force_mrca, ensembl_version, treebest)
     print_if_verbose("* Searching for ancestors:")
@@ -702,7 +705,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                         outtree = root.write(format=1,
                                              format_root_node=True,
                                              outfile=outfile,
-                                             features=["reinserted"])
+                                             features=output_features)
                         if outtree is not None:
                             print(outtree)
                     outfiles_set.add(outfile)
