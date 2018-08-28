@@ -12,7 +12,7 @@ import ete3
 import argparse
 import LibsDyogen.myPhylTree as PhylTree # my custom python3 version
 
-from select_leaves_from_specieslist import convert_gene2species
+from genomicustools.identify import convert_gene2species
 
 #from codeml.codemlparser import mlc_parser
 
@@ -21,6 +21,7 @@ np.set_printoptions(formatter={"float_kind": lambda x: "%g" %x})
 ENSEMBL_VERSION = 85
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0:d}/PhylTree.Ensembl.{0:d}.conf"
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9_.-]+)ENS')
+# ~~> genomicus.my_identify?
 
 
 def print_if_verbose(*args, **kwargs):
@@ -46,7 +47,9 @@ def showtree(fulltree, ages):
     pass
 
 
-def def_showtree(measures, show=None):
+
+def def_showtree(measures, show=None):  # ~~> genomicus.reconciled
+#def def_showreconciledgenetree
     """Depending on the boolean argument 'show', return the function
     `showtree`:
     if show=None, this function does nothing;
@@ -134,7 +137,7 @@ def load_fulltree(mlcfile, replace_nwk='.mlc', replace_by='.nwk'):
     return fulltree
 
 
-def branch2nb(mlc, fulltree):
+def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
     """Parse the codeml result file (.mlc) to return 2 trees:
     tree_nbs: the tree with node labelled as numbers.
     tree_ids: the tree with original node labels (including inner nodes).
@@ -249,7 +252,7 @@ def branch2nb(mlc, fulltree):
 
 # Needs a unit test for the above (are the missing nodes properly re-inserted?)
 
-def get_dNdS(mlc):
+def get_dNdS(mlc):  # ~~> codeml.codeml_parser?
     """Parse table of dN/dS from codeml output file.
     
     mlc: filehandle
@@ -288,7 +291,7 @@ def get_dNdS(mlc):
     return dNdS, dStree, dNtree
     
 
-def tree_nb_annotate(tree, id2nb, tree_nbs):
+def tree_nb_annotate(tree, id2nb, tree_nbs):  # ~~> codeml.codeml_parser?
     """Add internal node names (numbers used by codeml) in the tree structure."""
     parent_nbs = {tuple(sorted(ch.name for ch in n.children)): n.name \
                 for n in tree_nbs.traverse() if not n.is_leaf()}
@@ -300,7 +303,7 @@ def tree_nb_annotate(tree, id2nb, tree_nbs):
                     parent_nbs[tuple(sorted(ch.nb for ch in node.children))])
 
 
-def dNdS_precise(dNdS, br_tw, dStree, dNtree, id2nb, tree_nbs):
+def dNdS_precise(dNdS, br_tw, dStree, dNtree, id2nb, tree_nbs):  # ~~> codeml_parser?
     """Make the dNdS table from the codeml output file more precise:
     dS and dN values have more decimal in the tree string than in the table."""
     # First, update the dNdS table with the more accurate values br_lengths
@@ -383,7 +386,7 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
                     node.add_feature(valname, val)
 
 
-def rm_erroneous_ancestors(fulltree, phyltree):
+def rm_erroneous_ancestors(fulltree, phyltree):  # ~~> genomicustools
     """Some ancestors with only one child are present in the species phylogeny.
     They must be removed when they have an age of zero"""
     infinite_dist = 100
@@ -401,7 +404,7 @@ def rm_erroneous_ancestors(fulltree, phyltree):
             try:
                 taxon = ANCGENE2SP.match(node.name).group(1).replace('.', ' ')
             except AttributeError:
-                raise RuntimeError("Can not match species name in %r" % \
+                raise ValueError("Can not match species name in %r" % \
                                    node.name)
             if len(node.children) <= 1:
                 if hasattr(node, 'reinserted'):
@@ -418,8 +421,6 @@ def rm_erroneous_ancestors(fulltree, phyltree):
                           file=sys.stderr) 
                 node.delete(prevent_nondicotomic=False,
                             preserve_branch_length=True)
-        
-
 
 
 def sum_average_dNdS(dNdS, nb2id, tree_nbs):
@@ -622,7 +623,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             try:
                 taxon = convert_gene2species(scname, ensembl_version)
                 leaf_age = 0 # TODO: take From the calibration dictionary
-            except RuntimeError as err:
+            except KeyError as err:
                 print('WARNING', err, file=sys.stderr)
                 taxon = None
                 leaf_age = np.NaN
@@ -649,7 +650,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             try:
                 taxon = ANCGENE2SP.match(scname).group(1).replace('.', ' ')
             except AttributeError:
-                raise RuntimeError("Can not match species name in %r" % scname)
+                raise ValueError("Can not match species name in %r" % scname)
 
             subtree[scname] = {'taxon': taxon, 'br_m': branch_measures}
 
@@ -877,7 +878,7 @@ def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='
     return ages, fulltree, subtrees
 
 
-class Out(object):
+class Out(object):  # ~~> IOtools/filetools
     """Context Manager class (for use with `with` statement). Do the exact
     same as `open()`, but if filename is '-', open stdout for writing."""
     write_modes = ('w', 'x', 'a')
@@ -962,7 +963,7 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
     print()
     
 
-def readfromfiles(filenames):
+def readfromfiles(filenames):  # ~~> CLItools
     lines = []
     for filename in filenames:
         with open(filename) as f:

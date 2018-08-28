@@ -23,9 +23,7 @@ import LibsDyogen.myPhylTree as PhylTree
 
 # The 3 following imports are just so messy. TODO: write a unique conversion
 # function, and/or centralize these functions in a single script.
-from codeml.select_leaves_from_specieslist import convert_gene2species
-from prot2gene import convert_prot2species
-from seqtools.specify import load_conversion
+from genomicustools.identify import convert_gene2species, ultimate_seq2sp
 
 
 ENSEMBL_VERSION = 85
@@ -42,50 +40,6 @@ def print_if_verbose(*args, **kwargs):
     print(*args, **kwargs)
 
 
-#def split_species_gene(nodename):
-#    """Split a node name into its two parts (taxon + ancestral gene name)."""
-#    try:
-#        idx = nodename.index('ENS')
-#    except ValueError:
-#        try: # any subtring below here doesn't happen anymore with the last version.
-#            idx = nodename.index('FBgn') # Drosophila
-#        except ValueError:
-#            try:
-#                idx = nodename.index('WBGene') # Caenorhabditis
-#            except ValueError:
-#                try:
-#                    idx = nodename.index('Y')
-#                except ValueError:
-#                    try:
-#                        idx = nodename.index('Q0')
-#                    except ValueError as err:
-#                        err.args += ("ERROR: Invalid nodename %r" % nodename,)
-#                        raise
-#    return nodename[:idx].replace('.', ' '), nodename[idx:]
-ucsc_conv_filename = '~/ws2/UCSC_genome_releases_full.tsv'
-try:
-    UCSC_CONVERSION = load_conversion(ucsc_conv_filename)
-except FileNotFoundError:
-    print("WARNING: conversion file not found: %r" % ucsc_conv_filename,
-            file=sys.stderr)
-    UCSC_CONVERSION = {}
-
-
-def ultimate_seq2sp(seqname, ensembl_version=ENSEMBL_VERSION):
-    """From a sequence name, find the corresponding species.
-    Recognizes Ensembl gene IDs, Ensembl protein IDs, and also UCSC assembly
-    names such as 'loxAfr3'"""
-    try:
-        sp = convert_gene2species(seqname, ensembl_version)
-    except RuntimeError:
-        try:
-            sp = convert_prot2species(seqname, ensembl_version)
-        except KeyError:
-            assembly = re.match('[A-Za-z0-9]+', seqname).group()
-            sp = UCSC_CONVERSION[assembly]
-    return sp
-
-
 def split_species_gene(nodename, ancgene2sp):
     match = ancgene2sp.match(nodename)
     try:
@@ -99,6 +53,7 @@ def split_species_gene(nodename, ancgene2sp):
 
 def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
                      diclinks, ages=None): #, event='spe'):
+    # ~~> dendron.reconciled
     """given two taxa and the child gene name, return each missing speciation
     node inbetween."""
     try:
@@ -163,6 +118,7 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
 
 
 def insert_nodes(new_node_names, parent, child, new_taxa, new_dist_ratios=None):
+    # ~~> dendron.reconciled
     # conserve original distance
     if not new_dist_ratios:
         # split equally
@@ -189,6 +145,7 @@ def insert_nodes(new_node_names, parent, child, new_taxa, new_dist_ratios=None):
 ### TODO: write `insert_missing_dup`
 def insert_missing_spe(parent_sp, ancestor, genename, parent_genename,
                        parent_node, child, diclinks, ages=None, event='spe'):
+    # ~~> dendron.reconciled
     """Insert missing speciation nodes between parent_node and child.
     
     If event='spe': parent_node is a speciation, 
@@ -228,7 +185,7 @@ def add_species_nodes_back(tree, diclinks, ages=None):
                            parent_node, node, diclinks, ages)
 
 
-def suffixes_ok(parent, child, event):
+def suffixes_ok(parent, child, event): # ~~> genomicustools/dendron?
     """parent: genename
         child: genename
         event: 'dup' or 'spe'"""
@@ -239,14 +196,14 @@ def suffixes_ok(parent, child, event):
         new_suffix = child[len(parent):]
         return child.startswith(parent) and NEW_DUP_SUFFIX.match(new_suffix)
     else:
-        raise RuntimeError("Invalid argument 'event' (must be 'dup' or 'spe')")
+        raise ValueError("Invalid argument 'event' (must be 'dup' or 'spe')")
 
 
 def suffix_count(parent, child):
     """count how many duplication suffixes were added between parent and child
     gene names. (suffixes like '.a', '.a.a', '.a.b'...)"""
     if not child.startswith(parent):
-        raise RuntimeError("parent %r and child %r are not in the same lineage")
+        raise ValueError("parent %r and child %r are not in the same lineage")
 
     difference = child[len(parent):]
     count = 0
@@ -260,7 +217,7 @@ def suffix_list(parent, child):
     """list duplication suffixes that were added between parent and child
     gene names. (suffixes like '.a', '.b', '.`b', '.ag'...)"""
     if not child.startswith(parent):
-        #raise RuntimeError("parent %r and child %r are not in the same lineage")
+        #raise ValueError("parent %r and child %r are not in the same lineage")
         return None
 
     difference = child[len(parent):]
@@ -273,7 +230,7 @@ def suffix_list(parent, child):
     return suffixes
 
 
-def get_mrca(parent_sp, children_sp, diclinks):
+def get_mrca(parent_sp, children_sp, diclinks): # ~~> a myPhylTree annex?
     """Get most recent common ancestor of all children species, given a root
     'parent_sp'."""
     children_anc = [diclinks[parent_sp][ch_sp] for ch_sp in children_sp]
@@ -293,6 +250,7 @@ def get_mrca(parent_sp, children_sp, diclinks):
 def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                               fix_suffix=True, force_mrca=False,
                               ensembl_version=ENSEMBL_VERSION, treebest=False):
+    # ~~> dendron.reconciled
     if treebest:
         print_if_verbose("  Reading from TreeBest format")
         get_species    = lambda node: (node.S.replace('.', ' '), node.name.split('_')[0])
@@ -551,7 +509,6 @@ def search_by_ancestorlist(tree, ancestorlist, latest_ancestor=False):
 
 
 def with_dup(leafnames):
-    #leafspecies = [convert_gene2species(leaf) for leaf in leafnames]
     leafspecies = [ultimate_seq2sp(leaf) for leaf in leafnames]
     return (len(leafspecies) > len(set(leafspecies)))
 
@@ -614,7 +571,7 @@ def get_basal(nodes, maxsize):
     return nodes[:maxsize], nodes[maxsize:]
 
 
-def reroot_with_outgroup(node, maxsize=0):
+def reroot_with_outgroup(node, maxsize=0):  # ~~> dendron.reconciled
     """Goes up the tree (towards the root) until it finds outgroup taxa.
     
     - Only keep at most `maxsize` leaves in the outgroup.

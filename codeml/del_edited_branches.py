@@ -8,7 +8,7 @@ and output the new forest."""
 import argparse
 import LibsDyogen.myProteinTree as ProteinTree
 
-#from glou_duphist import dfw_descendants_generalized
+#from dendron.climber import dfw_descendants_generalized
 
 
 #def prottree_getchildren(tree, node):

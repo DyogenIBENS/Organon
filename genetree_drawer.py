@@ -39,22 +39,14 @@ import ete3
 import LibsDyogen.myPhylTree as PhylTree
 #import LibsDyogen.myProteinTree as ProteinTree
 
-from glou_duphist import dfw_descendants_generalized, ladderize
-from codeml.select_leaves_from_specieslist import convert_gene2species
-from prot2gene import convert_prot2species
-from seqtools.specify import load_conversion
+from dendron.climber import dfw_descendants_generalized
+from dendron.sorter import ladderize
+from genomicustools.identify import ultimate_seq2sp
 
 
 ENSEMBL_VERSION = 85
 PHYLTREEFILE = "/users/ldog/glouvel/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf"
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS') # NOT USED
-
-try:
-    ucsc_conv_filename = "~glouvel/ws2/UCSC_genome_releases_full.tsv"
-    UCSC_CONVERSION = load_conversion(ucsc_conv_filename)
-except FileNotFoundError:
-    warnings.warn("UCSC species name conversion file %r not found" % ucsc_conv_filename)
-    UCSC_CONVERSION = {}
 
 ### Matplotlib graphical parameters ###
 grey10 = '#1a1a1a'
@@ -98,13 +90,7 @@ def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
             - node is a leaf (e.g ENSMUSG00...)
             - node is internal (e.g Mus.musculusENSGT...)"""
     if node.is_leaf():
-        try:
-            taxon = convert_gene2species(node.name, ensembl_version)
-        except RuntimeError:
-            try:
-                taxon = convert_prot2species(node.name, ensembl_version)
-            except KeyError:
-                taxon = UCSC_CONVERSION[re.match('[A-Za-z0-9]+', node.name).group()]
+        taxon = ultimate_seq2sp(node.name, ensembl_version)
     else:
         try:
             taxon = ancgene2sp.match(node.name).group(1).replace('.', ' ')
@@ -240,7 +226,7 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
             yield parent, coords[parent], child, coords[child]
 
 
-def infer_gene_event(node, taxon, children_taxa):
+def infer_gene_event(node, taxon, children_taxa):  # ~~> dendron.reconciled
     """Tell whether a gene tree node (ete3 format) is a leaf, a speciation or
     a duplication, using the taxon information.
     
