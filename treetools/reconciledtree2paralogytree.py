@@ -45,7 +45,7 @@ def buildparalogies(genetree, get_taxon, ancgene2sp,
         def make_singleton_node(nodename, taxon):
             snode = ete3.TreeNode(name=nodename)
             snode.add_feature("S", taxon)
-            snode.add_feature("P", False)  # whether it is a paralogy branch?
+            snode.add_feature("P", 1)  # whether it is a paralogy branch?
             return snode
     else:
         def make_singleton_node(nodename, taxon):
@@ -70,7 +70,7 @@ def buildparalogies(genetree, get_taxon, ancgene2sp,
             para_name = '|'.join('-'.join(ch.name for ch in pack) for pack in paralog_packs)
             current_paralogy = ete3.TreeNode(name=para_name)
             current_paralogy.add_feature("S", taxon)
-            current_paralogy.add_feature("P", True)
+            current_paralogy.add_feature("P", 1)  # It is a paralogy
             #current_paralogy.add_feature("D", ("Y" if getattr(parent_paralogy, 'S', None)==taxon else "N")) #optional
             #parent_paralogy.add_feature("D", )
         else:
@@ -84,7 +84,8 @@ def buildparalogies(genetree, get_taxon, ancgene2sp,
                 paralogies.append(current_paralogy)
                 pdbug(indent, 'Create new paralogy', current_paralogy.name)
             else:
-                current_paralogy.add_feature('sub', True)  # It is a "sub-paralogy"
+                current_paralogy.add_feature('A', 1 if parent_paralogy.D=="Y" else 0)
+                # It is a "sub-paralogy" (steming from a main one by gene dupli)
                 parent_paralogy.add_child(current_paralogy)
                 pdbug(indent, ("dup" if parent_paralogy.D == "Y" else "spe") + '-extend paralogy from', parent_paralogy.name)
         #pdbug(indent, current_paralogy.get_tree_root() if current_paralogy else None, prefix='> ')
@@ -126,7 +127,7 @@ def buildparalogies(genetree, get_taxon, ancgene2sp,
                     if not has_sub_paralogies:
                         extendparalogy([set((ch,)) for ch in paralog.children],
                                        children_taxa[0], current_paralogy)
-                        if include_singleton_branches and not getattr(parent_paralogy, 'P', False):
+                        if include_singleton_branches and not getattr(parent_paralogy, 'P', 0):
                             # It miraculously worked. I don't know why.
                             # This is needed with option `include_singleton_branches=True`:
                             # it avoids drawing a "duplicate" branch for singleton genes left from a new paralogy node.
@@ -207,7 +208,7 @@ def main(inputnwk, outputnwk, ensembl_version=ENSEMBL_VERSION,
                                         ensembl_version,
                                         include_singleton_branches):
             outtext = paralogy.write(format=1, format_root_node=True,
-                                     features=['S', 'D', 'P'])
+                                     features=['S', 'D', 'P', 'A'])
             out.write(outtext + '\n')
 
 
