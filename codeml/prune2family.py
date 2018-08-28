@@ -486,22 +486,29 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                                    node, child, diclinks, ages, event=event)
 
 
-def search_by_ancestorlist(tree, ancestorlist, latest_ancestor=False):
+def search_by_ancestorlist(tree, ancestorlist, latest_ancestor=False, treebest=False):
     """Return an iterator over all basal nodes belonging to an ancestor in 
     ancestorlist. If `latest_ancestor` is True, return the most recent nodes
     belonging to one of these ancestors."""
+    if treebest:
+        def is_in_taxon(node, anc):
+            return node.S == anc  #.replace(' ', '.')
+    else:
+        def is_in_taxon(node, anc):
+            return node.name.startswith(anc)
+
     if not latest_ancestor:
         #print("")
         def stop_at_any_ancestor(node):
-            return any(node.name.startswith(anc) for anc in ancestorlist)
+            return any(is_in_taxon(node, anc) for anc in ancestorlist)
     else:
         def stop_at_any_ancestor(node):
-            match_anc = [anc for anc in ancestorlist if node.name.startswith(anc)]
+            match_anc = [anc for anc in ancestorlist if is_in_taxon(anc)]
             if match_anc:
                 anc = match_anc[0]
                 # test for any
                 return node.is_leaf() or \
-                       not all(ch.name.startswith(anc) for ch in node.children)
+                       not all(is_in_taxon(ch, anc) for ch in node.children)
             else:
                 return False
     
@@ -658,8 +665,10 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     for ancestor, ancestorlist in ancestorlists.items():
         print_if_verbose(ancestor)
         ancestor_regex = ancestor_regexes[ancestor]
-        for ancestornodeid, node in enumerate(search_by_ancestorlist(tree, ancestorlist, 
-                                                        latest_ancestor)):
+        for ancestornodeid, node in enumerate(search_by_ancestorlist(tree,
+                                                        ancestorlist,
+                                                        latest_ancestor,
+                                                        treebest)):
         #for ancestornodeid, node, root in enumerate(search_by_ancestorlist(tree, ancestorlist, 
         #                                                    latest_ancestor)):
             leafnames = node.get_leaf_names()
