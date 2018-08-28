@@ -84,7 +84,7 @@ def get_common_name(phyltree, latin_name):
     return None
 
 
-def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
+def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):  # ~~> dendron.reconciled
     """from a gene name in my newick gene trees, find the taxon:
         either:
             - node is a leaf (e.g ENSMUSG00...)
@@ -95,19 +95,18 @@ def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
         try:
             taxon = ancgene2sp.match(node.name).group(1).replace('.', ' ')
         except AttributeError:
-            raise RuntimeError("Can not match species name in %r" % node.name)
+            raise ValueError("Can not match species name in %r" % node.name)
     return taxon
 
 
-def get_taxon_treebest(node, *args):
+def get_taxon_treebest(node, *args):  # ~~> dendron.reconciled
     """get the taxon of a gene node, using a treebest output tree.
     
     *args are not used, they are here for compatibility with `get_taxon`"""
     try:
         return node.S.replace('.', ' ')
-    except AttributeError:
-        print(node.name)
-        print(node)
+    except AttributeError as err:
+        err.args += (node.name, node)
         raise
 
 
@@ -350,9 +349,15 @@ class GenetreeDrawer(object):
         #self.genetree = ete3.Tree(filename, format=format)
         with open(filename) as gt_input:
             # Allow reading multiple trees from a single input file.
-            genetrees = [ete3.Tree(gt+';', format=format) \
-                            for gt in gt_input.read().split(';') \
-                            if gt.rstrip()]
+            genetree_texts = [gt for gt in gt_input.read().split(';')
+                              if gt.rstrip()]
+            try:
+                genetrees = [ete3.Tree(gt_txt+';', format=format)
+                             for gt_txt in genetree_texts]
+            except ete3.parser.newick.NewickError as err:
+                err.args += tuple(genetree_texts)
+                raise
+
         assert genetrees, "Input file contains no genetree."
 
         self.genetrees = []
@@ -759,7 +764,7 @@ class GenetreeDrawer(object):
         print("Root:", interspecies_trees)
 
 
-    def draw_gene_tree(self, extratitle='', genenames=False, branch_width=0.8):
+    def draw_gene_tree(self, extratitle='', genenames=False, tags="", branch_width=0.8):
         print(' --- Drawing genetree ---')
         # Duplicate the species tree axis to separate the plotting
         self.ax1 = self.ax0.twinx()
@@ -777,7 +782,10 @@ class GenetreeDrawer(object):
         color_index = 0
 
         # Gene node names to be displayed (dup, leaf, spe)
+        genenames = "leaf,dup,spe" if genenames in (True,"all") else genenames
         genenames = set(genenames.split(',')) if genenames else set()
+        # node tags to be displayed
+        tags = set(tags.split(",")) if tags else set()
 
         for node in (n for genetree in self.genetrees \
                      for n in genetree.traverse('postorder')):
@@ -864,10 +872,18 @@ class GenetreeDrawer(object):
                 #self.ax1.text(real_x, real_y, species, fontsize='xxx-small',
                 #              color=nodecolor)
             if event in genenames:
-                self.ax1.text(real_x, real_y, node.name, alpha=0.5,
+                node_text = node.name
+                for ft in tags:
+                    try:
+                        node_text += " %s=%s" % (ft, getattr(node, ft))
+                    except AttributeError:
+                        pass
+
+                self.ax1.text(real_x, real_y, node_text, alpha=0.5,
                               fontsize='xx-small',
                               ha=('left' if event=='leaf' else 'right'),
                               va='top')
+
 
             self.real_gene_coords[nodeid] = (real_x, real_y)
             #self.fig.draw(self.fig.canvas.get_renderer())
@@ -876,12 +892,12 @@ class GenetreeDrawer(object):
             ### TODO: add onpick action: display node name
 
     def draw(self, genetree, extratitle='', angle_style=0, ages=False,
-             figsize=None, genenames=False, asymmetric=False):
+             figsize=None, genenames=False, tags="", asymmetric=False):
         """Once phyltree is loaded, perform all drawing steps."""
         self.load_reconciled_genetree(genetree)
         self.draw_species_tree(figsize=figsize, angle_style=angle_style, ages=ages)
         self.set_gene_coords(asymmetric=asymmetric)
-        self.draw_gene_tree(extratitle, genenames=genenames)
+        self.draw_gene_tree(extratitle, genenames=genenames, tags=tags)
 
 
 def check_extracted(genetrees, output):
@@ -972,7 +988,7 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
         phyltreefile=None, colorize_clades=None, commonname=False,
         latinname=False, treebest=False, show_cov=False, ages=False,
-        genenames=False, asymmetric=False):
+        genenames=False, tags="", asymmetric=False):
     #global plt
 
     figsize = None
@@ -1006,7 +1022,8 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
         extratitle = ', '.join(extratitles)
         print('INPUT FILE:', genetree, '(%s)' % extratitle)
         gd.draw(genetree, extratitle, angle_style=angle_style, ages=ages,
-                figsize=figsize, genenames=genenames, asymmetric=asymmetric)
+                figsize=figsize, genenames=genenames, tags=tags,
+                asymmetric=asymmetric)
 
         display()
 
@@ -1070,6 +1087,8 @@ if __name__ == '__main__':
                         help='Display gene names: \n' \
                              '- comma-sep list of "leaf", "dup", "spe";\n'
                              '- "all" (identical to "leaf,dup,spe").')
+    parser.add_argument('-T', '--tags', default="",
+                        help="Additional node tags to write")
     parser.add_argument('-k', '--asymmetric', action='store_true',
                         help='Draw *asymmetric* gene duplications: one branch'\
                              ' stays the main branch, and other are children.')

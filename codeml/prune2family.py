@@ -133,7 +133,8 @@ def insert_nodes(new_node_names, parent, child, new_taxa, new_dist_ratios=None):
     for new_name, new_taxon, new_dist in zip(new_node_names, new_taxa, new_branch_dists[:-1]):
         new_node = new_node.add_child(name=new_name, dist=new_dist)
         new_node.add_features(reinserted=True, S=new_taxon) #D="N"
-        if getattr(child, 'P'): new_node.add_feature('P', child.P)
+        if getattr(child, 'P', None) is not None:
+            new_node.add_feature('P', child.P)
         new_nodes.append(new_node)
         print_if_verbose(" -", new_name)
     #print_if_verbose()
@@ -361,7 +362,11 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                         print("Ignoring.", file=sys.stderr)
                         # Must change event to dup.
                         event = 'dup'
+                        node.add_feature('D', 1)
                     else:
+                        ### TODO: when several consecutive nodes have this
+                        ###       problem, the fix must be applied to all
+                        ###       (recursively?)
                         print("Setting common parent to MRCA %r." % mrca,
                               file=sys.stderr)
                         # Choose the length of the common branch to add according
@@ -658,9 +663,11 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     except ete3.parser.newick.NewickError as err:
         err.args = (err.args[0] + 'ERROR with treefile %r' % treefile,)
         raise
-    output_features = tree.features.union(('reinserted',)) - set(('name', 'support', 'dist'))
     insert_species_nodes_back(tree, ancgene2sp, diclinks, ages, fix_suffix,
                               force_mrca, ensembl_version, treebest)
+    # Output the features as detected in the root and one leaf.
+    output_features = (tree.features | tree.get_leaves()[0].features) - set(
+                        ('name', 'dist', 'support'))
     print_if_verbose("* Searching for ancestors:")
     for ancestor, ancestorlist in ancestorlists.items():
         print_if_verbose(ancestor)
