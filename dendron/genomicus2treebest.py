@@ -1,34 +1,30 @@
 #!/usr/bin/env python3
 
 
-"""Convert LibsDyogen treeforest to TreeBest format (newick with special tags).
-
-USAGE:
-    
-    ./genomicus2treebest.py forestfile
+"""Convert LibsDyogen treeforest to **TreeBest** format (newick with special tags).
 """
 
 from __future__ import print_function
 
 
-from sys import argv, exit, stderr, stdout, setrecursionlimit
+from sys import stdin, stderr, stdout, setrecursionlimit
+import argparse as ap
 import LibsDyogen.myProteinTree as ProteinTree
 
 
-if len(argv) != 2:
-    print(__doc__, file=stderr)
-    exit(1)
-elif argv[1] in ('-h', '--help'):
-    print(__doc__, file=stderr)
-    exit()
+if __name__ == '__main__':
+    parser = ap.ArgumentParser(description=__doc__)
+    parser.add_argument('forestfile', nargs='?', default=stdin,
+                        type=ap.FileType('r'))
+    parser.add_argument('outfile', nargs='?', default=stdout,
+                        type=ap.FileType('w'))
+    args = parser.parse_args()
 
-forestfile=argv[1]
+    setrecursionlimit(20000)
 
-setrecursionlimit(20000)
-
-for tree in ProteinTree.loadTree(forestfile):
-    #for node, children in tree.data.items():
-    #    print(node, children)
-    tree.printNewick(stdout, withDist=True, withTags=True,
-                     withAncSpeciesNames=True, withAncGenesNames=True,
-                     withID=True)
+    for tree in ProteinTree.loadTree(args.forestfile):
+        #for node, children in tree.data.items():
+        #    print(node, children)
+        tree.printNewick(args.outfile, withDist=True, withTags=True,
+                         withAncSpeciesNames=True, withAncGenesNames=True,
+                         withID=True)
