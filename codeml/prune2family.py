@@ -828,8 +828,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("treefile")
     parser.add_argument("ancestors", nargs='+')
-    parser.add_argument("--fromfile", action="store_true", help="read treefile"\
-                        " names from the first argument")
+    intype_parser = parser.add_mutually_exclusive_group()
+    intype_parser.add_argument("-f", "--fromfile", action="store_true",
+                               help="read treefile"\
+                                    " names from the first argument")
+    intype_parser.add_argument("-m", "--multi-newick", action="store_true",
+                               help="the first argument contains "\
+                                    "multiple trees in one file")
     parser.add_argument("-o", "--outdir", default='./{0}', help="[%(default)s]")
     parser.add_argument("-s", "--outsub", help="alternative splitting " \
                         "character to remove the extension from the basename "\
@@ -892,6 +897,10 @@ if __name__ == '__main__':
 
     if dargs.pop("fromfile"):
         treefiles = parse_treefiles(dargs.pop("treefile"))
+    elif dargs.pop("multi_newick"):
+        treefile = dargs.pop("treefile")
+        with (open(treefile) if treefile != '-' else sys.stdin) as tree_input:
+            treefiles = [txt + ';' for txt in tree_input.read().split(';')]
     else:
         treefiles = [dargs.pop("treefile")]
     parallel_save_subtrees(treefiles, **dargs)
