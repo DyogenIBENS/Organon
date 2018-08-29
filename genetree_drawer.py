@@ -396,6 +396,7 @@ class GenetreeDrawer(object):
 
             # Only needed for the TreeBest format
             rerooted_genetree.add_feature('S', lower_root)
+            rerooted_genetree.add_feature('P', getattr(genetree, 'P', 0))
             rerooted_genetree.add_child(child=genetree)
             self.genetrees.append(rerooted_genetree)
 
@@ -623,7 +624,7 @@ class GenetreeDrawer(object):
     def set_gene_coords(self, asymmetric=False):
         """- asymmetric: whether to draw *asymmetric* divisions in the gene
                         tree. If True, the tree nodes descending from a
-                        duplication must contain a "A=True" tag when they are
+                        duplication must contain a "A=1" tag when they are
                         children from the main branch.
         """
         ### TODO: enable repeted calls to set multiple gene trees
@@ -764,7 +765,8 @@ class GenetreeDrawer(object):
         print("Root:", interspecies_trees)
 
 
-    def draw_gene_tree(self, extratitle='', genenames=False, tags="", branch_width=0.8):
+    def draw_gene_tree(self, extratitle='', genenames=False, tags="",
+                       branch_width=0.8, fork_style='curved'):
         print(' --- Drawing genetree ---')
         # Duplicate the species tree axis to separate the plotting
         self.ax1 = self.ax0.twinx()
@@ -787,6 +789,14 @@ class GenetreeDrawer(object):
         # node tags to be displayed
         tags = set(tags.split(",")) if tags else set()
 
+        if fork_style == "curved":
+            fork_instructions = [MOVETO, CURVE3, CURVE3]
+        elif fork_style == "square":
+            fork_instructions = [MOVETO, LINETO, LINETO]
+        else:
+            raise ValueError("fork_style = %r (Should be in %s)" % \
+                             (fork_style, ("curved", "squared")))
+        
         for node in (n for genetree in self.genetrees \
                      for n in genetree.traverse('postorder')):
             nodeid = node.id
@@ -836,9 +846,9 @@ class GenetreeDrawer(object):
                                    (real_x, real_y + delta_y),
                                    (real_x, real_y)]
                     u_fork_finger = patches.PathPatch(
-                                    Path(fork_coords, [MOVETO, CURVE3, CURVE3]),
+                                    Path(fork_coords, fork_instructions),
                                     fill=False,
-                                    edgecolor=branches_color,
+                                    edgecolor=('black' if int(ch_ft.get('A', -1))==0 else branches_color),
                                     alpha=0.5,
                                     linewidth=linewidth,
                                     joinstyle='round')  # don't see a change
@@ -866,9 +876,12 @@ class GenetreeDrawer(object):
                                   #(':' if node.is_root() else '-'),
             
             #if event != 'leaf':
-            if event == 'dup':  # This line is still here because historically it was.
+            if event == 'dup' and not node.is_root():  # This line is still here because historically it was.
                 # Add a *dot*
-                self.ax1.plot((real_x,), (real_y,), '.', color=nodecolor, alpha=0.5)
+                self.ax1.plot((real_x,), (real_y,), '.',
+                              #('<' if node.is_root() else '.'),
+                              color=nodecolor, alpha=0.5)
+                              #, markeredgewidth=linewidth)
                 #self.ax1.text(real_x, real_y, species, fontsize='xxx-small',
                 #              color=nodecolor)
             if event in genenames:
@@ -893,11 +906,13 @@ class GenetreeDrawer(object):
 
     def draw(self, genetree, extratitle='', angle_style=0, ages=False,
              figsize=None, genenames=False, tags="", asymmetric=False):
+             #fork_style="curved"):
         """Once phyltree is loaded, perform all drawing steps."""
         self.load_reconciled_genetree(genetree)
         self.draw_species_tree(figsize=figsize, angle_style=angle_style, ages=ages)
         self.set_gene_coords(asymmetric=asymmetric)
-        self.draw_gene_tree(extratitle, genenames=genenames, tags=tags)
+        self.draw_gene_tree(extratitle, genenames=genenames, tags=tags,
+                            fork_style=("square" if asymmetric else "curved"))
 
 
 def check_extracted(genetrees, output):
@@ -988,7 +1003,7 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
         phyltreefile=None, colorize_clades=None, commonname=False,
         latinname=False, treebest=False, show_cov=False, ages=False,
-        genenames=False, tags="", asymmetric=False):
+        genenames=False, tags="", asymmetric=False):  #, fork_style="curved"
     #global plt
 
     figsize = None
@@ -1023,7 +1038,7 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
         print('INPUT FILE:', genetree, '(%s)' % extratitle)
         gd.draw(genetree, extratitle, angle_style=angle_style, ages=ages,
                 figsize=figsize, genenames=genenames, tags=tags,
-                asymmetric=asymmetric)
+                asymmetric=asymmetric)  #, fork_style=fork_style
 
         display()
 
