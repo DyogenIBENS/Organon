@@ -85,7 +85,10 @@ def buildparalogies(genetree, get_taxon, ancgene2sp,
                 paralogies.append(current_paralogy)
                 pdbug(indent, 'Create new paralogy', current_paralogy.name)
             else:
-                current_paralogy.add_feature('A', 1 if parent_paralogy.D=="Y" else 0)
+                if parent_paralogy.D=="Y" and all(len(p)==1 for p in paralog_packs):
+                    current_paralogy.add_feature('A', 1)
+                else:
+                    current_paralogy.add_feature('A', 0)
                 # It is a "sub-paralogy" (steming from a main one by gene dupli)
                 parent_paralogy.add_child(current_paralogy)
                 pdbug(indent, ("dup" if parent_paralogy.D == "Y" else "spe") + '-extend paralogy from', parent_paralogy.name)
@@ -126,6 +129,8 @@ def buildparalogies(genetree, get_taxon, ancgene2sp,
                     paralog_pack.update(paralog.children)
                     #if callnb == 32: import ipdb; ipdb.set_trace(context=1)
                     if not has_sub_paralogies:
+                        assert len(set(children_taxa)) == 1, "Missing speciation nodes"
+                        child_taxon = children_taxa[0]
                         extendparalogy([set((ch,)) for ch in paralog.children],
                                        children_taxa[0], current_paralogy)
                         if include_singleton_branches and not getattr(parent_paralogy, 'P', 0):
@@ -202,7 +207,7 @@ def main(inputnwk, outputnwk, ensembl_version=ENSEMBL_VERSION,
 
     genetree = ete3.Tree(inputnwk or stdin.read(), format=1)
 
-    #get_taxon = get_taxon_treebest if treebest else get_taxon
+    get_taxon = get_taxon_treebest if treebest else get_taxon
 
     with (open(outputnwk, 'w') if outputnwk else stdout) as out:
         for paralogy in buildparalogies(genetree, get_taxon, ancgene2sp,
