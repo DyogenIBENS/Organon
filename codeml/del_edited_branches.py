@@ -37,7 +37,7 @@ def lock_targets(node, tree, edited_node_id=EDITED_NODE_ID, infinite_dist=INFINI
 
     # Gene edition
     if nodeinfo['Duplication'] == 3 or \
-            (node >= edited_node_id):
+            (nodeinfo['Duplication'] == 2 and node >= edited_node_id):
         children, dists = zip(*nodedata)
         maxdist = max(dists)
         edited = dists.index(maxdist)
