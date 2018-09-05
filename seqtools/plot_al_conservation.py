@@ -289,6 +289,7 @@ def parsimony_score(alint, tree, seqlabels, minlength=66):
     # column-wise parsimony score
     score = np.zeros(alint.shape[1], dtype=int)
 
+    branch_nb = 0
     for parent, children in reversed(list(iter_tree)):
         #print('*', parent, children)
         if len(children) > 2:
@@ -301,6 +302,7 @@ def parsimony_score(alint, tree, seqlabels, minlength=66):
             process_sequences[parent] = presence_matrix(alint[np.newaxis,leaf_nb,:], minlength)
             leaf_nb -= 1
         else:
+            branch_nb += len(children)
             # .pop(ch) ?
             try:
                 children_seqs = [process_sequences[ch] for ch in children]
@@ -319,7 +321,10 @@ def parsimony_score(alint, tree, seqlabels, minlength=66):
             process_sequences[parent][:, empty_inter] = children_union[:, empty_inter]
         #print(process_sequences[parent])
 
-    return score
+    # Number of branches of the **unrooted** tree:
+    branch_nb -= 1
+
+    return score.astype(float) / branch_nb
 
 
 def al_stats(align, nucl=False, allow_N=False):
@@ -419,7 +424,7 @@ class AlignPlotter(object):
                               'ylabel': 'Alignment'},
                        'gap': {'ylabel': 'Proportion of gaps\n(G)'},
                                #'ylim': (-0.05,1.05)},
-                       'pars': {'ylabel': 'Parsimony score\n(min number of changes)'},
+                       'pars': {'ylabel': 'Parsimony score\n(min number of changes per branch)'},
                        'entropy': {'ylabel': 'Entropy\n(H)'},
                        'gap_entropy': {'ylabel': 'Gap-entropy score:\n(1-H)*(1-G)'},
                        'sp': {'ylabel': 'SP score\n(Sum-of-pair differences)'},
