@@ -84,10 +84,11 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     a tsv file."""
 
     stats_header = ['subtree', 'genetree']
-    stats_name   = ['ls', 'ns', 'Nbranches', 'treelen',
+    stats_name   = ['ls', 'ns', 'Nbranches',
                     'NnonsynSites', 'NsynSites', 'kappa',
-                    'brlen_mean', 'brlen_std',
-                    'dN_treelen', 'dS_treelen', 'brdS_mean', 'brdS_std',
+                    'treelen', 'dN_treelen', 'dS_treelen',
+                    'brlen_mean', 'brlen_std', 'brOmega_mean', 'brOmega_std',
+                    'brdS_mean', 'brdS_std', 'brdN_mean', 'brdN_std',
                     'lnL', 'Niter', 'time used']
     
     # TODO: number of dN or dS values of zero
@@ -105,26 +106,32 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
             
             Nbr = len(mlc['output']['branches'])
             br_lengths = mlc['output']['branch lengths + parameters'][:Nbr]
+            br_omegas = mlc['output']['omega']
             dNdS_rows = list(mlc['output']['dNdS']['rows'].values())
             dS_len = [float(x) for x in br_len_reg.findall(mlc['output']['dS tree'])]
+            dN_len = [float(x) for x in br_len_reg.findall(mlc['output']['dN tree'])]
             assert len(dS_len) == Nbr
             
             stats_row = [mlc['nsls']['ls'],
                          mlc['nsls']['ns'],
                          Nbr,
-                         mlc['output']['tree length'],
                          \
-                         dNdS_rows[0][1],
-                         dNdS_rows[0][2],
+                         dNdS_rows[0][1],  # NnonsynSites
+                         dNdS_rows[0][2],  # NsynSites
                          mlc['output']['kappa'],
                          \
-                         np.mean(br_lengths),
-                         np.std(br_lengths),
-                         \
+                         mlc['output']['tree length'],
                          mlc['output']['tree length for dN'],
                          mlc['output']['tree length for dS'],
+                         \
+                         np.mean(br_lengths),  # brlen_mean
+                         np.std(br_lengths),   # brlen_std
+                         np.mean(br_omegas),
+                         np.std(br_omegas),
                          np.mean(dS_len),
                          np.std(dS_len),
+                         np.mean(dN_len),
+                         np.std(dN_len),
                          \
                          mlc['output']['lnL']['loglik'],
                          mlc['output']['lnL']['ntime']
