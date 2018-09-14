@@ -373,3 +373,10 @@ def iter_all_paths(tree, get_children, root):
         for i in range(len(rootpath)-1, 0, -1):
             yield rootpath[(i-1):]
 
+
+def iter_leaves(tree, get_children, queue=None):
+    for node, children in dfw_descendants_generalized(tree, get_children,
+                                                      queue=queue,
+                                                      include_leaves=True):
+        if not children:
+            yield node
