@@ -10,9 +10,10 @@ import argparse
 import os.path as op
 from glob import glob
 import numpy as np
+from scipy.stats import skew
 from Bio import AlignIO
 from genomicustools.identify import SP2GENEID
-from seqtools import ungap, algrep, compo_freq
+from seqtools import ungap, algrep, make_al_stats
 from codeml.codemlparser2 import parse_mlc
 import LibsDyogen.myPhylTree as PhylTree
 
@@ -66,10 +67,10 @@ def make_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                               subtreesdir):
         al = AlignIO.read(alfile, format='fasta')
         al = ungap(al)
-        al_stats = compo_freq(al)
+        al_stats = make_al_stats(al)
         
         ingroup_al = ungap(algrep(al, pattern))
-        ingroup_al_stats = compo_freq(ingroup_al)
+        ingroup_al_stats = make_al_stats(ingroup_al)
         
         stats_row = ['%g' % s for stat in (al_stats + ingroup_al_stats) for s in stat]
 
@@ -78,8 +79,8 @@ def make_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
         #treefiles_pattern = alfiles_pattern.replace('_genes.fa', '.nwk')
 
 
-def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
-         subtreesdir='subtreesCleanO2', ensembl_version=ENSEMBL_VERSION):
+def make_codeml_stats(genetreelistfile, ancestor, rootdir='.',
+                      subtreesdir='subtreesCleanO2'):
     """Gather characteristics of the **codeml results**, and output them as
     a tsv file."""
 
@@ -87,8 +88,10 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     stats_name   = ['ls', 'ns', 'Nbranches',
                     'NnonsynSites', 'NsynSites', 'kappa',
                     'treelen', 'dN_treelen', 'dS_treelen',
-                    'brlen_mean', 'brlen_std', 'brOmega_mean', 'brOmega_std',
-                    'brdS_mean', 'brdS_std', 'brdN_mean', 'brdN_std',
+                    'brlen_mean', 'brlen_std', 'brlen_med', 'brlen_skew',
+                    'brOmega_mean', 'brOmega_std', 'brOmega_med', 'brOmega_skew',
+                    'brdS_mean', 'brdS_std', 'brdS_med', 'brdS_skew',
+                    'brdN_mean', 'brdN_std', 'brdN_med', 'brdN_skew',
                     'lnL', 'Niter', 'time used']
     
     # TODO: number of dN or dS values of zero
@@ -124,14 +127,22 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                          mlc['output']['tree length for dN'],
                          mlc['output']['tree length for dS'],
                          \
-                         np.mean(br_lengths),  # brlen_mean
-                         np.std(br_lengths),   # brlen_std
+                         np.mean(br_lengths),    # brlen_mean
+                         np.std(br_lengths),     # brlen_std
+                         np.median(br_lengths),  # brlen_med
+                         skew(br_lengths),       # brlen_skew
                          np.mean(br_omegas),
                          np.std(br_omegas),
+                         np.median(br_omegas),
+                         skew(br_omegas),
                          np.mean(dS_len),
                          np.std(dS_len),
+                         np.median(dS_len),
+                         skew(dS_len),
                          np.mean(dN_len),
                          np.std(dN_len),
+                         np.median(dN_len),
+                         skew(dN_len),
                          \
                          mlc['output']['lnL']['loglik'],
                          mlc['output']['lnL']['ntime']
@@ -145,17 +156,37 @@ def make_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('genetreelistfile', nargs='?',
-                        type=argparse.FileType('r'), default=stdin)
-    parser.add_argument('ancestor')
-    parser.add_argument('phyltreefile')
-    parser.add_argument('-e', '--ensembl-version', type=int, default=ENSEMBL_VERSION,
+    
+    def make_subparser_func(func):
+        """Transform a normal function so that it takes arguments from the Argparse args."""
+        def subp_func(args):
+            dictargs = vars(args)
+            dictargs.pop('commands')
+            dictargs.pop('func')
+            return func(**dictargs)
+        return subp_func
+
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument('genetreelistfile', nargs='?',
+                               type=argparse.FileType('r'), default=stdin)
+    parent_parser.add_argument('ancestor')
+    parent_parser.add_argument('-r', '--rootdir', default='.', help='[%(default)s]')
+    parent_parser.add_argument('-s', '--subtreesdir', default='subtreesCleanO2',
+                               help="[%(default)s]")
+    
+    subp = parser.add_subparsers(dest='commands', help='type of statistics to compile')
+    
+    codemlstats_parser = subp.add_parser('codeml', parents=[parent_parser])
+    codemlstats_parser.set_defaults(func=make_subparser_func(make_codeml_stats))
+    
+    alstats_parser = subp.add_parser('alignment', parents=[parent_parser], aliases=['al'])
+    alstats_parser.add_argument('phyltreefile')
+    alstats_parser.add_argument('-e', '--ensembl-version', type=int, default=ENSEMBL_VERSION,
                         help="[%(default)s]")
-    parser.add_argument('-r', '--rootdir', default='.')
-    parser.add_argument('-s', '--subtreesdir', default='subtreesCleanO2',
-                        help="[%(default)s]")
+    alstats_parser.set_defaults(func=make_subparser_func(make_al_stats))
     
     args = parser.parse_args()
     #make_al_stats(**vars(args))
-    make_codeml_stats(**vars(args))
+    #make_codeml_stats(**vars(args))
+    args.func(args)
 
