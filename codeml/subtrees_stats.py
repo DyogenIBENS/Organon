@@ -43,7 +43,7 @@ def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
     print('%d lines, %d subtrees' % (countlines, countalfiles), file=stderr)
 
 
-def make_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
+def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
          subtreesdir='subtreesCleanO2', ensembl_version=ENSEMBL_VERSION):
     """Gather characteristics of the **input alignments**, and output them as
     a tsv file."""
@@ -53,9 +53,9 @@ def make_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     pattern = '^(' + '|'.join(ensembl_ids_anc) + ')'
     
     stats_header = ['subtree', 'genetree']
-    stats_names  = [typ + '_' + measure \
-                        for typ in ('glob', 'mean', 'med', 'std') \
-                            for measure in ('len', 'GC', 'N', 'gaps', 'CpG')]
+    stats_names  = [typ + '_' + measure
+                    for typ in ('glob', 'mean', 'med', 'std', 'w_mean', 'w_std')
+                    for measure in ('len', 'A','C','G','T','N', 'gaps', 'CpG')]
     stats_header += stats_names + ['ingroup_' + name for name in stats_names]
 
     print('\t'.join(stats_header))
@@ -67,10 +67,10 @@ def make_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                               subtreesdir):
         al = AlignIO.read(alfile, format='fasta')
         al = ungap(al)
-        al_stats = make_al_stats(al)
+        _, al_stats = make_al_stats(al)
         
         ingroup_al = ungap(algrep(al, pattern))
-        ingroup_al_stats = make_al_stats(ingroup_al)
+        _, ingroup_al_stats = make_al_stats(ingroup_al)
         
         stats_row = ['%g' % s for stat in (al_stats + ingroup_al_stats) for s in stat]
 
@@ -79,7 +79,7 @@ def make_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
         #treefiles_pattern = alfiles_pattern.replace('_genes.fa', '.nwk')
 
 
-def make_codeml_stats(genetreelistfile, ancestor, rootdir='.',
+def get_codeml_stats(genetreelistfile, ancestor, rootdir='.',
                       subtreesdir='subtreesCleanO2'):
     """Gather characteristics of the **codeml results**, and output them as
     a tsv file."""
@@ -177,16 +177,14 @@ if __name__ == '__main__':
     subp = parser.add_subparsers(dest='commands', help='type of statistics to compile')
     
     codemlstats_parser = subp.add_parser('codeml', parents=[parent_parser])
-    codemlstats_parser.set_defaults(func=make_subparser_func(make_codeml_stats))
+    codemlstats_parser.set_defaults(func=make_subparser_func(get_codeml_stats))
     
     alstats_parser = subp.add_parser('alignment', parents=[parent_parser], aliases=['al'])
     alstats_parser.add_argument('phyltreefile')
     alstats_parser.add_argument('-e', '--ensembl-version', type=int, default=ENSEMBL_VERSION,
                         help="[%(default)s]")
-    alstats_parser.set_defaults(func=make_subparser_func(make_al_stats))
+    alstats_parser.set_defaults(func=make_subparser_func(get_al_stats))
     
     args = parser.parse_args()
-    #make_al_stats(**vars(args))
-    #make_codeml_stats(**vars(args))
     args.func(args)
 

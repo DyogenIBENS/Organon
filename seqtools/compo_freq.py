@@ -93,6 +93,7 @@ def get_al_stats(length, seq_counts, seq_freqs):
 
     return global_stats, seq_means, seq_medians, seq_stds, seq_w_means, seq_w_stds
 
+
 def make_al_stats(alignment, byseq=False):
     length, *seq_counts = get_seq_counts(alignment)
 
