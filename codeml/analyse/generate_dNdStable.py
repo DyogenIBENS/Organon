@@ -351,7 +351,10 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
             #                          [ch.name for ch in parent.children]), file=sys.stderr)
             
             if parent.is_root():
-                # then this is a root with a single children: cannot have dS
+                # Disable dating of nodes immediately below the root, as the
+                # tree should be considered unrooted and those values aren't
+                # reliable.
+                print_if_verbose("Node below root: %s. Discard measures." % node.name)
                 totals = {valname: np.NaN for valname in colindex}
             else:
                 try:
@@ -503,7 +506,7 @@ def isdup(node, taxon, subtree):
     return len( children_taxa & set((taxon,)) ) == 1
 
 def isinternal(node, taxon=None, subtree=None):
-    """True if node is neither a leaf or the root"""
+    """True if node is neither a leaf nor the root"""
     return not node.is_leaf() and not node.is_root()
 
 #def is_descendant_of(node, taxon=None, subtree=None):
