@@ -55,7 +55,8 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     stats_header = ['subtree', 'genetree']
     stats_names  = [typ + '_' + measure
                     for typ in ('glob', 'mean', 'med', 'std', 'w_mean', 'w_std')
-                    for measure in ('len', 'A','C','G','T','N', 'gaps', 'CpG')]
+                    for measure in ('len', 'A','C','G','T', 'GC', 'N',
+                                    'gaps', 'CpG')]
     stats_header += stats_names + ['ingroup_' + name for name in stats_names]
 
     print('\t'.join(stats_header))

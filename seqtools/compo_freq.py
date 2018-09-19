@@ -55,11 +55,13 @@ def get_seq_freqs(length, seq_nucl, seq_gap, seq_N, seq_CpG):
     seq_lengths = seq_nucltot + seq_N
     
     seq_nucl_freq = seq_nucl.astype(float) / seq_nucltot
+    seq_GC_freq   = seq_nucl_freq[1:3].sum(axis=0)       # Only way to get the std(G+C)
     seq_N_freq    = seq_N.astype(float)    / seq_lengths
     seq_gap_freq  = seq_gap.astype(float)  / length
     seq_CpG_freq  = seq_CpG * 2. / seq_nucltot  # Is the *2 necessary?
     
-    return (seq_lengths,) + tuple(seq_nucl_freq) + (seq_N_freq, seq_gap_freq, seq_CpG_freq)
+    return (seq_lengths,) + tuple(seq_nucl_freq) + \
+           (seq_GC_freq, seq_N_freq, seq_gap_freq, seq_CpG_freq)
     #return (seq_lengths, seq_nucl_freq, seq_N_freq, seq_gap_freq, seq_CpG_freq)
     
 
@@ -70,6 +72,7 @@ def get_al_stats(length, seq_counts, seq_freqs):
     seq_lengths = seq_freqs[0]
 
     nucl_count = seq_nucl.sum(axis=1)  # total number of each nucleotide (summed over sequences)
+    GC_count   = nucl_count[1] + nucl_count[2]
     nucl_tot   = nucl_count.sum()
     gap_count  = seq_gap.sum()
     N_count    = seq_N.sum()
@@ -77,7 +80,8 @@ def get_al_stats(length, seq_counts, seq_freqs):
 
     global_stats = (length,) \
                    + tuple(nucl_count.astype(float) / nucl_tot) \
-                   + (float(N_count)       / (nucl_tot+N_count),
+                   + (float(GC_count)      / (nucl_tot),
+                   +  float(N_count)       / (nucl_tot+N_count),
                       float(gap_count)     / length,
                       float(CpG_count) * 2 / nucl_tot)
 
@@ -116,7 +120,7 @@ def main(alignment_file, format='fasta', byseq=False):
     n_stats = len(stats[0])
     
     # column names
-    print('\t'.join(['%8s']*(n_stats+1)) % ('', 'len', 'A', 'C', 'G', 'T', 'N', 'gaps', 'CpG'))
+    print('\t'.join(['%8s']*(n_stats+1)) % ('', 'len', 'A', 'C', 'G', 'T', 'GC', 'N', 'gaps', 'CpG'))
     
     row_template = '\t'.join(['%8s'] + ['%8g']*n_stats)
 
