@@ -27,7 +27,7 @@ def fileinputtrees():
 
 
 def main(newickfiles, subnewick_format=1, rootnode=None, show_internal=False,
-         text=False, compact=False, output=None):
+         nodesize=1, text=False, compact=False, output=None):
     #newicks = fileinput.input(files=newickfiles)
     if not newickfiles:
         newickfiles = fileinputtrees()
@@ -36,11 +36,12 @@ def main(newickfiles, subnewick_format=1, rootnode=None, show_internal=False,
     for i, newick in enumerate(newickfiles, start=1):
         print('Tree %d' % i)
         display_onetree(newick, subnewick_format, rootnode, show_internal,
-                        text, compact, output)
+                        nodesize, text, compact, output)
 
 
 def display_onetree(newick, subnewick_format=1, rootnode=None,
-                    show_internal=False, text=False, compact=False, output=None):
+                    show_internal=False, nodesize=1, text=False, compact=False,
+                    output=None):
     #print('subnewick format = %d' % subnewick_format)
     try:
         tree = ete3.Tree(newick, format=subnewick_format)
@@ -55,7 +56,7 @@ def display_onetree(newick, subnewick_format=1, rootnode=None,
     if text:
         print(tree.get_ascii(show_internal=show_internal, compact=compact))
     else:
-        mynodestyle = ete3.NodeStyle(size=0)
+        mynodestyle = ete3.NodeStyle(size=nodesize)
 
         def mybasiclayout(node):
             node.set_style(mynodestyle)
@@ -87,6 +88,7 @@ if __name__=='__main__':
                         'internal node to take as root.')
     parser.add_argument('-i', dest='show_internal', action='store_true', 
                         help='Display internal nodes names')
+    parser.add_argument('-s', '--nodesize', type=int, default=1)
     parser.add_argument('-t', '--text', action='store_true', 
                         help='Print as text')
     parser.add_argument('-c', '--compact', action='store_true',

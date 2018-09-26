@@ -9,7 +9,7 @@ from sys import stdin, stdout
 import argparse
 import LibsDyogen.myProteinTree as ProteinTree
 
-#from dendron.climber import dfw_descendants_generalized
+from dendron.climber import iter_leaves
 
 
 #def prottree_getchildren(tree, node):
@@ -39,11 +39,21 @@ def lock_targets(node, tree, edited_node_id=EDITED_NODE_ID, infinite_dist=INFINI
     if nodeinfo['Duplication'] == 3 or \
             (nodeinfo['Duplication'] == 2 and node >= edited_node_id):
         children, dists = zip(*nodedata)
-        maxdist = max(dists)
-        edited = dists.index(maxdist)
-        children = list(children)
-        edited_child = children.pop(edited)
-        targets[edited_child] = edited
+        if len(children) > 1:
+            maxdist = max(dists)
+            edited = dists.index(maxdist)
+            children = list(children)
+            edited_child = children.pop(edited)
+            targets[edited_child] = edited
+
+            # Select based on the number of species in the leaves
+            children_leaves = [list(iter_leaves(tree,
+                                                lambda tr,n: [c for c,_ in tr.data.get(n, [])],
+                                                queue=[ch]))
+                               for ch in children]
+            children_species = [set(tree.info[leaf]['taxon_name'] for leaf in leaves)
+                                for leaves in children_leaves]
+            least_species = min(children_species, key=len)
 
     return targets
 

@@ -6,6 +6,8 @@
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
+import pandas as pd
 
 
 ### Plotting style in matplotlib ###
@@ -52,6 +54,7 @@ def softstyle():
 ### Helping functions ###
 
 def plotby(df, by, kind='line', ncols=3, sharex=True, sharey=True, **kwds):
+    """Groupby and plot."""
     df_grouped = df.groupby(by)
     ngroups = len(df_grouped)
     nrows = ngroups // ncols + 1*(ngroups % ncols > 0)
@@ -92,4 +95,33 @@ def stackedbar(x, arr, ax=None, **kwds):
         else:
             bottom = row
     return bars
-        
+
+
+def scatter_density(x, y, data=None, cmap='viridis', scale=None, ax=None, **kwargs):
+    points = data[[x, y]].T if data is not None else np.array([x, y]) 
+    density = gaussian_kde(points)(points)
+    scatter = ax.scatter if ax is not None else plt.scatter
+    collections = scatter(x, y, data=data, c=density, cmap=cmap, **kwargs)
+    ax = ax if ax is not None else plt.gca()
+    if scale is not None:
+        ax.set_xscale(scale)
+        ax.set_yscale(scale)
+    if isinstance(x, str):
+        xlabel = x
+    elif isinstance(x, int):
+        xlabel = 'column %d' % x
+    elif isinstance(x, pd.Series):
+        xlabel = x.name
+    else:
+        xlabel = 'X'
+    if isinstance(y, str):
+        ylabel = y
+    elif isinstance(y, int):
+        ylabel = 'column %d' % y
+    elif isinstance(y, pd.Series):
+        ylabel = y.name
+    else:
+        ylabel = 'Y'
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    return collections

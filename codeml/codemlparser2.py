@@ -82,6 +82,10 @@ r'''^Nei & Gojobori 1986\. dN/dS \(dN, dS\)$'''),
                         ParseUnit('Time used', r'^Time used:\s+(.*)$')])
 
 
+def moreprecise_dNdS(parsed_mlc):
+    pass
+
+
 def parse_mlc(mlcfile):
     with open(mlcfile) as mlc:
         return mlc_parser.parse(mlc.read())[0]

@@ -258,6 +258,7 @@ def convert_prot2species(modernID, ensembl_version=ENSEMBL_VERSION, default=None
 
 
 def convert_gene2species(modernID, ensembl_version=ENSEMBL_VERSION):
+    """Give the species of an **extant** sequence id (from ENSEMBL)."""
     gene2sp = GENE2SP[ensembl_version]
     if ensembl_version >= 90:
         try:
@@ -324,7 +325,7 @@ except FileNotFoundError:
 
 
 def ultimate_seq2sp(seqname, ensembl_version=ENSEMBL_VERSION):
-    """From a sequence name, find the corresponding species.
+    """From an extant sequence name, find the corresponding species.
     Recognizes Ensembl gene IDs, Ensembl protein IDs, and also UCSC assembly
     names such as 'loxAfr3'"""
     try:

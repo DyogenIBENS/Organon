@@ -263,6 +263,7 @@ def infer_gene_event(node, taxon, children_taxa):  # ~~> dendron.reconciled
             if len(node.children) > 1:
                 msg += " is a duplication + a speciation. Not " \
                        "truly reconciled tree."
+                #return 'dup'
             #else:
             #    msg += " is a duplication/speciation with one " \
             #           "descendant."

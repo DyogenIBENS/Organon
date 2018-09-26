@@ -525,7 +525,7 @@ def with_dup(leafnames):
     return (len(leafspecies) > len(set(leafspecies)))
 
 
-def get_basal(nodes, maxsize):
+def get_basal(nodes, maxsize):  # ~~> dendron.
     """Identify `maxsize` most basal nodes from a list of sister nodes.
 
     Return 2 lists:
@@ -593,8 +593,11 @@ def reroot_with_outgroup(node, maxsize=0):  # ~~> dendron.reconciled
     If the common ancestor with the outgroup is a multifurcation,
     process all of the sister taxa as a single outgroup.
 
-    Select outgroup leaves to keep that are the most distant to each other
+    Select outgroup leaves to keep those that are the most distant to each other
     (having the most basal latest common ancestor).
+
+    Remark: it doesn't go further than the next immediate outgroup. If you
+    wanted to add the two 2 closest outgroups, you would need to call it twice.
     """
     if maxsize == 0:
         return node
@@ -835,7 +838,8 @@ if __name__ == '__main__':
     intype_parser.add_argument("-m", "--multi-newick", action="store_true",
                                help="the first argument contains "\
                                     "multiple trees in one file")
-    parser.add_argument("-o", "--outdir", default='./{0}', help="[%(default)s]")
+    parser.add_argument("-o", "--outdir", default='./{0}',
+                        help="'-' to output trees to stdout. [%(default)s]")
     parser.add_argument("-s", "--outsub", help="alternative splitting " \
                         "character to remove the extension from the basename "\
                         "of the treefile (used by '{0}' in --outdir).")

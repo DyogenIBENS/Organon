@@ -504,6 +504,7 @@ class AlignPlotter(object):
         if al_len % 3 and not nucl:
             print("Not a codon alignment!", file=stderr)
 
+        tree = None
         if records or recordsfile or treefile:
             if records:
                 records = [int(r) for r in records.split(',')]

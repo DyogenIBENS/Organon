@@ -15,9 +15,9 @@ import argparse
 from Bio import AlignIO
 
 
-def weighted_std(values, weights):
-    average = np.average(values, weights=weights)
-    variance = np.average((values-average)**2, weights=weights)
+def weighted_std(values, weights, axis=None):
+    average = np.average(values, axis, weights=weights)
+    variance = np.average((values-average)**2, axis, weights=weights)
     return np.sqrt(variance)
 
 

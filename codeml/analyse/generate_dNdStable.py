@@ -500,7 +500,10 @@ def rec_average_w(node, scname, subtree, measures=['dS']): #, weightkey
 
 # Functions used to determine whether a node should be calibrated in `bound_average`
 def isdup(node, taxon, subtree):
-    """Checks whether node is a duplication"""
+    """Checks whether node is a duplication.
+
+    Also see `genetree_drawer.infer_gene_event`.
+    """
     children_taxa = set((subtree[ch.name]['taxon'] for ch in 
                          node.children))
     return len( children_taxa & set((taxon,)) ) == 1
