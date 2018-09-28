@@ -10,20 +10,27 @@ import argparse
 #import fileinput
 
 def fileinputtrees():
-    #newicks = ['']
+    newicks = ['']
     #lines = [sys.stdin.readline()]
 
     #while lines:
+    for line in sys.stdin:
 
-    #    line = lines.pop().rstrip()
-    #    
-    #    newicks[-1] += line
-    #    if ';' in line:
-    #        newicks.append('')
+        line_chunks = line.rstrip().split(';')
+        #[chunk for chunk in line.rstrip().split(';') if chunk]
+        
+        newicks[-1] += line_chunks.pop(0)
+        for chunk in line_chunks:
+            newicks[-1] += ';'
+            newicks.append(chunk)  # Works even when chunk == ''
 
-    # Méthode yolo
-    return [newick.rstrip() + ';' for newick in sys.stdin.read().split(';') \
-            if newick.rstrip()]
+    if not newicks[-1]:
+        newicks.pop()
+    return newicks
+
+    ## Méthode yolo
+    #return [newick.rstrip() + ';' for newick in sys.stdin.read().split(';')
+    #        if newick.rstrip()]
 
 
 def main(newickfiles, subnewick_format=1, rootnode=None, show_internal=False,

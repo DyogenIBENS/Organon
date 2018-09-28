@@ -364,7 +364,7 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
                 except KeyError as err:
                     raise
     
-            if intermediates: # this if is not necessary, maybe more efficient
+            if intermediates: # this `if` is not necessary, maybe more efficient
                 if raise_at_intermediates:
                     raise AssertionError('Node %r has a single child.' % parent.name)
 
@@ -805,7 +805,7 @@ def del_singletons(tree):
         if len(node.children) == 1:
             child = node.children[0]
             #parent = node.up
-            for feature in ['branch_dS', 'branch_dN']:
+            for feature in ['branch_dS', 'branch_dN', 'branch_t']:
                 if hasattr(child, feature):
                     setattr(child, feature,
                             getattr(child, feature) + getattr(node, feature, np.nan))
@@ -822,11 +822,18 @@ def save_fulltree(fulltree, opened_outfile):
     # first delete nodes with single child, because R Ape cannot read it.
     #print("Save_fulltree")
     #print(fulltree.get_ascii())
-    fulltree = del_singletons(fulltree)
+    fulltree = del_singletons(fulltree)  # Move that outside the script (unix philosophy)
 
     if fulltree.children:
-        opened_outfile.write(fulltree.write(features=['cal', 'type', 'age_dS',
-                                                      'age_dist', 'age_dN'],
+        opened_outfile.write(fulltree.write(features=['cal', 'type',
+                                                      'branch_dist',
+                                                      't',
+                                                      'dS',
+                                                      'dN',
+                                                      'age_dist',
+                                                      'age_t',
+                                                      'age_dS',
+                                                      'age_dN'],
                                             format=1,
                                             format_root_node=True) + '\n')
 
@@ -869,7 +876,15 @@ def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
 #
 #    return fulltree
 
-    
+def set_subtrees_distances(subtrees, measure):
+    """Set the new branch lengths to the given measure (dS, dN or t)"""
+    for subtree in subtrees:
+        for node in subtree.traverse():
+            node.add_feature("branch_dist", node.dist)
+            newvalue = getattr(node, measure)
+            node.dist = 0 if np.isnan(newvalue) else newvalue
+
+
 #def process_toages(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
 def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='.nwk',
             measures=['dS'], method2=False, unweighted=False, tocalibrate="isdup", 
@@ -881,6 +896,7 @@ def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='
                                    method2=method2, tocalibrate=tocalibrate, 
                                    keeproot=keeproot)
     showtree(fulltree)
+    set_subtrees_distances(subtrees, measures[0])
     return ages, fulltree, subtrees
 
 
@@ -982,7 +998,7 @@ if __name__=='__main__':
                                 formatter_class=argparse.RawTextHelpFormatter)
     
     ### Input options
-    gi = parser.add_argument_group('Input parameters')
+    gi = parser.add_argument_group('INPUT PARAMETERS')
 
     gi.add_argument('outfile')
     gi.add_argument('mlcfiles', nargs='+')
@@ -1000,7 +1016,7 @@ if __name__=='__main__':
                     help='replacement string file [%(default)s]')
     
     ### Run options
-    gr = parser.add_argument_group('Run parameters')
+    gr = parser.add_argument_group('RUN PARAMETERS')
     
     gr.add_argument('-2', '--method2', action='store_true')
     gr.add_argument('-u', '--unweighted', action='store_true', 
@@ -1014,7 +1030,7 @@ if __name__=='__main__':
                     help="On error, print the error and continue the loop.")
     
     ### Output options
-    go = parser.add_argument_group('Output parameters')
+    go = parser.add_argument_group('OUTPUT PARAMETERS')
     
     go.add_argument('--measures', nargs='*',
                     default=['t', 'dN', 'dS', 'dist'],

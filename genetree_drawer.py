@@ -541,6 +541,10 @@ class GenetreeDrawer(object):
                 return -1
             elif high_taxon not in children_taxa:
                 return 1
+            else:
+                #raise ValueError(children_taxa, expected_children_taxa,
+                #                 expected_children_taxa_ys)
+                return 0
 
         def iter_missing_branches(child_taxon, expected_children_taxa):
             """When intermediate speciation nodes are missing between a taxon and
