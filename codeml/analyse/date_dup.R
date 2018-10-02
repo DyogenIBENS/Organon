@@ -39,6 +39,60 @@ subset_calibration <- function(ages, tree, age_col="age_dist", leaf_age=0) {
                          row.names=subcalib_names)[calibrated,]
 }
 
+# the MPL algo works only with purely dichotomic trees. So I need to randomly
+# convert multifurcations to bifurcations, but then convert them back with the
+# correct length
+restore_multi <- function(tree, max_number) {
+  # Remove all nodes that are above the given number, and transfer its
+  # edge length to its descendants.
+  ntips <- Ntip(tree)
+
+  e  <- tree$edge
+  el <- tree$edge.length
+  
+  # Update the edge matrix
+  #removed_base <- which(tree$edge[,1] > max_number)
+  removed_ends <- which(e[,2] > max_number)
+  
+  # Put the dist into descendants branches and set dist to zero
+  for (i in removed_ends) {
+    removed_i_base <- which(e[,1] == e[i, 2])
+    tree$edge.length[removed_i_base] <- el[removed_i_base] + el[i]
+    
+    # update the node indexing of the edges (short-circuit the node to delete)
+    e[removed_i_base,1] <- e[i,2]
+  }
+  tree$edge.length[removed_ends] <- 0
+
+  # Update the edge matrix
+  tree$edge <- e[-removed_ends,]
+
+  # Delete nodes
+  tree$node.label <- tree$node.label[1:(max_number - ntips)]
+  return(tree)
+}
+
+mark_extra_edges <- function(tree, max_number) {
+  e <- tree$edge
+  el <- tree$edge.length
+
+  removed_edges <- which(e[,2] > max_number)
+  
+  #print(length(removed_edges))
+  for(r in removed_edges) {
+    # extend the lengths of edges **starting** with that node.
+    descendants_of_removed <- which(e[,1] == e[r,2])
+    tree$edge.length[descendants_of_removed] <- el[descendants_of_removed] + el[r]
+    tree$edge.length[r] <- -1
+  }
+  return(tree)
+}
+
+restore_multi <- function(multi_tree, dicho_tree) {
+  dicho_tree_marked <- mark_extra_edges(dicho_tree,
+                                        Ntip(multi_tree) + Nnode(multi_tree))
+  return(di2multi(dicho_tree_marked))
+}
 
 # Available dating methods:
 #  - chronos: penalized likelihood
@@ -55,29 +109,61 @@ date_tree <- function(tree, dating_func=chronos, ...) {
 
 }
 
-date_PL1 <- function(tree, calibration, lambda=1, ...) {
+chronos_PL1 <- function(tree, calibration, lambda=1, ...) {
   return(chronos(tree, lambda=lambda, calibration=calibration, ...))
 }
-date_PL100 <- function(tree, calibration, lambda=100, ...) {
+chronos_PL100 <- function(tree, calibration, lambda=100, ...) {
   return(chronos(tree, lambda=lambda, calibration=calibration, ...))
 }
-date_PL10000 <- function(tree, calibration, lambda=10000, ...) {
+chronos_PL10000 <- function(tree, calibration, lambda=10000, ...) {
   return(chronos(tree, lambda=lambda, calibration=calibration, ...))
 }
 
-date_NPRS <- function(tree, calibration, ...) {
-  return(chronos(tree, lambda=1000, calibration=calibration, ...))
+chronos_NPRS <- function(tree, calibration, ...) {
+  return(chronos(tree, lambda=10^16, calibration=calibration, ...))
 }
 
-date_MPL <- function(subtree, calibration, ...) {
+chronos_MPL <- function(subtree, calibration, ...) {
   # TODO: split the input tree into subtrees with calibrated leaves
   if ( !is.binary(subtree) ) subtree <- multi2di(subtree)
   return(chronoMPL(subtree, ...))
 }
 
-#date_ML <- function(tree, calibration) {
-#  return(chronos(tree, model='relaxed', calibration=calibration))
-#}
+date_PL1 <- function(subtree, subcalib) {
+  return(chronos(subtree, lambda=1, calibration=subcalib))
+}
+date_PL100 <- function(subtree, subcalib) {
+  return(chronos(subtree, lambda=100, calibration=subcalib))
+}
+date_PL100000 <- function(subtree, subcalib) {
+  return(chronos(subtree, lambda=100000, calibration=subcalib))
+}
+date_R <- function(subtree, subcalib) {
+  return(chronos(subtree, model='relaxed', calibration=subcalib))
+}
+date_C <- function(subtree, subcalib) {
+  return(chronos(subtree, model='discrete', calibration=subcalib,
+                 control=chronos.control(nb.rate.cat=1)))
+}
+
+date_MPL <- function(subtree, subcalib) {
+  is_multi <- !is.binary(subtree)
+  disubtree <- if(is_multi) {multi2di(subtree)} else {subtree}
+  chronogram <- chronoMPL(disubtree, se=TRUE, test=TRUE)
+  if( is_multi ) {
+    chronogram <- restore_multi(subtree, chronogram)
+    attr(chronogram, "stderr") <- attr(chronogram, "stderr")[1:Nnode(subtree)]
+    attr(chronogram, "Pval")   <- attr(chronogram, "Pval")[1:Nnode(subtree)]
+  }
+  # And rescale edge lengths
+  MPL_depth <- max(node.depth.edgelength(chronogram))
+  real_depth <- subcalib[chronogram$node.label[1], "age.min"]
+  # If multiple calibration, do that separately for each which.edge(rowname of subcalib)
+  chronogram$edge.length <- chronogram$edge.length * real_depth/MPL_depth
+  attr(chronogram, "stderr") <- attr(chronogram, "stderr") * real_depth/MPL_depth
+  return(chronogram)
+}
+
 
 
 ### NOTE: the best lambda value (penalty roughness) must be chosen by
@@ -146,7 +232,8 @@ process_line <- function(line, calibration, outfile,
   test4 <- all(tree$edge.length > 0)
   cat("\r", count_iter, tree$node.label[1], "     ")
   if (test1 && test2 && test3 && test4) {
-    chronogram <- tryCatch(date_func(tree, calibration=subcalib, ...),
+
+    dtree <- tryCatch(date_func(tree, calibration=subcalib, ...),
                             error=function(e) {
                                     cat(" Got Error:")
                                     if (e$message == "NA/NaN gradient evaluation") {
@@ -157,13 +244,13 @@ process_line <- function(line, calibration, outfile,
                                       cat("unknown")
                                       stop(e)
                                     }})
-    if (data.class(chronogram) != "chronos") {
+    if (data.class(dtree) != "chronos") {
       # return the error
-      return(c(as.character(as.vector(chronogram)), tree$node.label[1], test1, test2, test3))
+      return(c(as.character(as.vector(dtree)), tree$node.label[1], test1, test2, test3))
     }
     root.age <- subcalib[tree$node.label[1], "age.min"]
     
-    dated <- chronogram2table(chronogram, root.age, leaf_ages[1],
+    dated <- chronogram2table(dtree, root.age, leaf_ages[1],
                               datation.env=datation.env,
                               rescale=rescale)
     dated <- cbind(dated,
@@ -186,6 +273,97 @@ process_line <- function(line, calibration, outfile,
 #  #alltrees <- read.tree(treefile)
 #  allnewick <- scan(treefile, what=character(), n=n, sep="\n")
 #}
+
+extract_MPL_nodeinfo <- function(dtree) {
+  # For outputs of the `chronoMPL` function
+  nodeinfo <- do.call(cbind, attributes(dtree)[c("stderr", "Pval")])
+  rownames(nodeinfo) <- dtree$node.label
+  return(nodeinfo)
+}
+
+extract_rate_edgeinfo <- function(dtree) {
+  # For outputs of the `chronos` function
+  edgeinfo <- attr(dtree, "rates")
+  # Add terminal node name as edge label
+  #if( length(edgeinfo)>1 )
+  names(edgeinfo) <- c(dtree$tip.label, dtree$node.label)[dtree$edge[,2]]
+  return(edgeinfo)
+}
+
+extract_runinfo <- function(dtree) {
+  # For outputs of the `chronos` function
+  dattr <- attributes(dtree)
+  return(list(message=dattr$message,
+              ploglik=dattr$ploglik,
+              loglik=dattr$PHIIC$logLik,
+              PHIIC=dattr$PHIIC$PHIIC))
+}
+
+date_methods <- list(PL1=date_PL1, PL100=date_PL100, PL10000=date_PL10000, C=date_C, R=date_R, MPL=date_MPL)
+
+date_all_methods <- function(line, calibration,
+                         date_methods=list(PL1=date_PL1,
+                                           PL100=date_PL100,
+                                           PL10000=date_PL10000,
+                                           C=date_C,
+                                           R=date_R,
+                                           MPL=date_MPL),
+                         age_col="age_dist") {
+  count_iter <<- count_iter + 1
+  tree <- read.tree(text=line)
+  leaf_ages <- calibration[tree$tip.label, age_col]
+  # In case tips are not in the table, ignore (assume leaf age is zero)
+  leaf_ages[is.na(leaf_ages)] <- 0
+  test1 <- all(leaf_ages == leaf_ages[1])
+  subcalib <- subset_calibration(calibration, tree, age_col=age_col, leaf_age=leaf_ages[1])
+  test2 <- nrow(subcalib) < tree$Nnode  # There are remaining nodes to date.
+  test3 <- nrow(subcalib) > 0
+  test4 <- all(tree$edge.length > 0)
+  if (test1 && test2 && test3 && test4) {
+
+    dtrees <- lapply(date_methods, do.call, list(tree, subcalib))
+
+    dated <- sapply(dtrees, branching.times)
+    # Standard error of node ages and pvalue
+    dating_nodeinfo <- extract_MPL_nodeinfo(dtrees[["MPL"]])
+    # Extend dated with the tip data.
+    dating_nodeinfo <- rbind(dating_nodeinfo, matrix(NA, Ntip(tree), ncol(dating_nodeinfo)))
+
+    dated <- rbind(dated, matrix(0, Ntip(tree), ncol(dated)))
+    # Extend dated with the tip data.
+    rownames(dated)[(Nnode(tree)+1):(Ntip(tree)+Nnode(tree))] <- tree$tip.label
+    
+    # Molecular rates
+    dating_edgeinfo <- sapply(dtrees[c("PL1", "PL100", "PL10000", "R")],
+                              extract_rate_edgeinfo)
+    dating_edgeinfo <- cbind(dating_edgeinfo, C=attr(dtrees[["C"]], "rates"))
+    dating_edgeinfo <- rbind(NA, dating_edgeinfo)
+    rownames(dating_edgeinfo)[1] <- tree$node.label[1]
+    # Reorder based on the nodes then the tips, as in the other data.frames
+    dating_edgeinfo <- dating_edgeinfo[c(tree$node.label, tree$tip.label), ]
+
+    info <- calibration[c(tree$node.label, tree$tip.label), c("calibrated", "type", "parent", "taxon", "subgenetree")]
+
+    #if ( !all(sapply(list(dating_nodeinfo, dating_edgeinfo, info),
+    #                 function(d1, d2) identical(rownames(d1), rownames(d2)),
+    #                 dated)
+    #         ) )
+    #  stop("NOT equal rownames\n")
+
+    dated_info <- data.frame(age=dated, age.MPL=dating_nodeinfo, rate=dating_edgeinfo, info)
+
+    runinfo <- unlist(lapply(dtrees[c("PL1", "PL100", "PL10000", "R", "C")],
+                             extract_runinfo),
+                      recursive=FALSE)
+
+    loginfo <- c("calibrate", tree$node.label[1], test1, test2, test3)
+    return(list(log=loginfo, run=runinfo, ages=dated_info))
+  } else {
+    loginfo <- c("skip", tree$node.label[1], test1, test2, test3)
+    return(list(log=loginfo, run=NULL, ages=NULL))
+  }
+
+}
 
 date_all <- function(allnewicks, calib, outfilename, date_func=date_PL,
                      age_col="age_dist", n=-1, ...) {
@@ -247,6 +425,6 @@ if(!interactive()) {
     cat(usage)
     stop()
   }
-  dataset <- "Simiiformes_m1w04_ages.subtreesCleanO2-um2-withSG"
-  run(dataset)
+  datasetname <- "Simiiformes_m1w04_ages.subtreesCleanO2-um2-withSG"
+  run(datasetname)
 }
