@@ -735,8 +735,7 @@ if __name__=='__main__':
     #    """Combine two argparse formatters: raw description + argument defaults"""
     #    pass
 
-    parser = argparse.ArgumentParser(description=__doc__)#,
-                         #formatter_class=RawDescArgDefFormatter)
+    parser = argparse.ArgumentParser(description=__doc__)
 
     ### Generic arguments
     parent_parser = argparse.ArgumentParser(add_help=False)
@@ -763,7 +762,8 @@ if __name__=='__main__':
         cmd_func = CMD_FUNC[cmd_name] # only used for the __doc__ ...
         cmd_parser = subparsers.add_parser(cmd_name,
                                            description=cmd_func.__doc__,
-                                           parents=[parent_parser])#,
+                                           parents=[parent_parser],
+                        formatter_class=argparse.RawDescriptionHelpFormatter)#,
                                         #formatter_class=RawDescArgDefFormatter)
         for cmd_arg in CMD_ARGS[cmd_name]:
             kwargs = cmd_arg[1] if len(cmd_arg) > 1 else {}

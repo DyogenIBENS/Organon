@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 
 usage="
-date_forest.R <datasetname> <calibfile> <treefile>
+date_forest.R <datasetname> <calibfile> <treefile> <ncores>
 "
 
 
@@ -135,6 +135,9 @@ chronos_MPL <- function(subtree, calibration, ...) {
   return(chronoMPL(subtree, ...))
 }
 
+date_PL0 <- function(subtree, subcalib) {
+  return(chronos(subtree, lambda=0, calibration=subcalib, quiet=TRUE))
+}
 date_PL1 <- function(subtree, subcalib) {
   return(chronos(subtree, lambda=1, calibration=subcalib, quiet=TRUE))
 }
@@ -318,7 +321,8 @@ extract_runinfo <- function(dtree) {
 date_methods <- list(PL1=date_PL1, PL100=date_PL100, PL10000=date_PL10000, NPRS=date_NPRS, C=date_C, R1=date_R1, R100=date_R100, R10000=date_R10000, MPL=date_MPL)
 
 date_all_methods <- function(line, calibration,
-                         date_methods=list(PL1=date_PL1,
+                         date_methods=list(
+                                           PL1=date_PL1,
                                            PL100=date_PL100,
                                            PL10000=date_PL10000,
                                            NPRS=date_NPRS,
@@ -330,7 +334,7 @@ date_all_methods <- function(line, calibration,
                          age_col="age_dist") {
   count_iter <<- count_iter + 1
   tree <- read.tree(text=line)
-  cat("\r", count_iter, tree$node.label[1], "     ")
+  cat("\n", count_iter, tree$node.label[1], "     ")
   leaf_ages <- calibration[tree$tip.label, age_col]
   # In case tips are not in the table, ignore (assume leaf age is zero)
   leaf_ages[is.na(leaf_ages)] <- 0
@@ -381,7 +385,7 @@ date_all_methods <- function(line, calibration,
                              extract_runinfo),
                       recursive=FALSE)
 
-    loginfo <- c("calibrate", tree$node.label[1], test1, test2, test3)
+    loginfo <- c("calibrate", tree$node.label[1], test1, test2, test3, test4)
     return(list(log=loginfo, run=runinfo, ages=dated_info))
   } else {
     loginfo <- c("skip", tree$node.label[1], test1, test2, test3)
@@ -482,10 +486,15 @@ date_all_trees_all_methods <- function(datasetname, agefile, treefile, n=-1, nco
 
 if(!interactive()) {
   args <- commandArgs(trailingOnly=TRUE)
-  if( length(args) != 3 ) {
-    cat(usage)
-    stop()
+  if( length(args) != 4 ) {
+    stop("Wrong number of arguments", usage)
   }
-  datasetname <- "Simiiformes_m1w04_ages.subtreesCleanO2-um2-withSG"
-  run(datasetname)
+  #datasetname <- "Simiiformes_m1w04_ages.subtreesCleanO2-um2-withSG"
+  #run(datasetname)
+  datasetname <- args[1]
+  agefile <- args[2]
+  treefile <- args[3]
+  ncores <- as.integer(args[4])
+
+  date_all_trees_all_methods(datasetname, agefile, treefile, ncores=ncores)
 }
