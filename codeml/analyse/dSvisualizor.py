@@ -18,20 +18,24 @@ DEFAULT_AGE_KEY = 'age_dS'
 COMMANDS = ['lineage', 'tree', 'scatter', 'violin']
 
 CMD_ARGS = {
-        'lineage': [(('-l', '--lineage'),),
+        'lineage': [
+                    (('-a', '--age-key'), {'default': DEFAULT_AGE_KEY}),
+                    (('-l', '--lineage'),),
                     (('-p', '--phyltreefile'),   {'default': PHYLTREEFILE}),
                     (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION}),
                     (('-x', '--xlim'),)],
-        'tree':    [(('-v', '--vertical'),       {'action':'store_true'}),
+        'tree':    [(('-a', '--age-key'), {'default': DEFAULT_AGE_KEY}),
+                    (('-v', '--vertical'),       {'action':'store_true'}),
                     (('-p', '--phyltreefile'),   {'default': PHYLTREEFILE}),
                     (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION}),
                     (('-x', '--xlim'),),
                     (('-y', '--ylim'),),
                     (('-t', '--title'),),
                     (('--sharescale',), {'action':'store_true'})],
-        'scatter': [(('-x', '--xlim'),), (('-y', '--ylim'),)],
-        'violin':  [(('-x', '--xlim'),), (('-y', '--ylim'),)]}
-
+        'scatter': [(('-x',),), (('-y',),), (('--xlim',),), (('--ylim',),)],
+        'violin':  [(('-x',),),
+                    (('-y',), {'default': DEFAULT_AGE_KEY}),
+                    (('--xlim',),), (('--ylim',),)],}
 
 import sys
 import os.path
@@ -88,6 +92,17 @@ RE_TAXON = re.compile(r'[A-Z][A-Za-z_.-]+(?=ENSGT)')
 #PAT_TAXON = r'^(ENS[A-Z]+G|[A-Z][A-Za-z_.-]+)(ENSGT[0-9]+|)(.*)$'
 #PAT_TAXON = r'^([A-Z][A-Za-z_.-]+)(ENSGT[0-9]+)(.*)$'
 PAT_TAXON = r'^(ENS[A-Z]+G|[A-Z][A-Za-z_.-]+(?=ENSGT))(|ENSGT[0-9]+)([0-9]+|[.A-Za-z`]*)$'
+RE_FILTER = re.compile(r'(\S+)\s*(>|>=|==|<=|<|!=)\s*(\S+)')
+CMP_METHODS = {'>':  '__gt__',
+               '>=': '__ge__',
+               '==': '__eq__',
+               '<=': '__le__',
+               '<':  '__lt__',
+               '!=': '__ne__',
+               'in': 'isin'}
+RE_QUOTED = re.compile(r'^[\'"](.*)[\'"]$')
+RE_TUPLED = re.compile(r'^\((.*)\)$')  ### TODO
+
 
 def bin_data(data, bins, binvar=DEFAULT_AGE_KEY, outvar=None):
     """given some data and some bins, return groups by bins."""
@@ -161,7 +176,8 @@ class DataVisualizor(object):
             with open(pickled_file, 'wb') as pickle_out:
                 pickle.dump(self.edited_set, pickle_out)
 
-    def __init__(self, ages_file, no_edited=None, age_key=DEFAULT_AGE_KEY):
+    def __init__(self, ages_file, no_edited=None, age_key=DEFAULT_AGE_KEY,
+                 filter=None):
         """Load and format data"""
 
         self.edited_set = None
@@ -169,6 +185,14 @@ class DataVisualizor(object):
         self.no_edited  = no_edited
         self.age_key = age_key
         self.phyltree = None
+
+        # Parse the filter command:
+        try:
+            col, comp, val = RE_FILTER.match(filter).groups()
+        except AttributeError:
+            raise
+        quoted_match = RE_QUOTED.match(val)
+        val = quoted_match.group(1) if quoted_match else float(val)
 
         # graphical parameters:
         self.vertical = False
@@ -186,7 +210,8 @@ class DataVisualizor(object):
         if not set(('taxon', 'genetree')) & set(self.all_ages.columns):
             self.all_ages = splitname2taxongenetree(self.all_ages, "name")
 
-        self.ages = self.all_ages[self.all_ages['calibrated'] == 0].copy()
+        filtered = getattr(self.all_ages[col], CMP_METHODS[comp])(val)
+        self.ages = self.all_ages[filtered & (self.all_ages['calibrated'] == 0)].copy()
         print('shape:', self.ages.shape)
 
         if no_edited:
@@ -667,7 +692,7 @@ class DataVisualizor(object):
 #COMMANDS = ['lineage', 'tree', 'scatter']
 def run(command, ages_file, phyltreefile=None, ensembl_version=None,
         outfile=None, lineage=None,
-        show_edited=None, no_edited=False, age_key=DEFAULT_AGE_KEY,
+        show_edited=None, no_edited=False, age_key=DEFAULT_AGE_KEY, filter=None,
         nbins=DEFAULT_NBINS, vertical=False, x=None, y=None, xlim=None, ylim=None,
         sharescale=False, title=None):
 
@@ -682,7 +707,8 @@ def run(command, ages_file, phyltreefile=None, ensembl_version=None,
             except ImportError:
                 plt.switch_backend("TkAgg")
 
-    dv = DataVisualizor(ages_file, no_edited=no_edited, age_key=age_key)
+    dv = DataVisualizor(ages_file, no_edited=no_edited, age_key=age_key,
+                        filter=filter)
     if xlim is not None:
         xlim = tuple(float(x) for x in xlim.split(','))
     if ylim is not None:
@@ -700,9 +726,11 @@ def run(command, ages_file, phyltreefile=None, ensembl_version=None,
         if show_edited:
             dv.add_edited_prop(show_edited)
     elif command == 'scatter':
+        assert x is not None and y is not None
         dv.colorize_taxa(alpha=0.5)
         dv.scatter(x, y, xlim, ylim)
     elif command == 'violin':
+        assert x is not None and y is not None
         dv.violin(x, y, xlim, ylim)
 
     dv.save_or_show(outfile)
@@ -741,10 +769,9 @@ if __name__=='__main__':
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument('ages_file')
     parent_parser.add_argument('outfile', nargs='?')
-    parent_parser.add_argument('-a', '--age-key', default=DEFAULT_AGE_KEY,
-                               help='[%(default)s]')
-    parent_parser.add_argument('-b', '--nbins', type=int, default=DEFAULT_NBINS,
-                               help='[%(default)s]')
+    parent_parser.add_argument('-f', '--filter',
+                               help="Filter rows on the value of a given "\
+                                    "column.  e.g: 'type==\"spe\"' ")
     
     process_edited_parser = parent_parser.add_mutually_exclusive_group()
     # these two options must be given the treeforest file.
