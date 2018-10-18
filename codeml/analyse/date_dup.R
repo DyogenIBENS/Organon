@@ -385,10 +385,10 @@ date_all_methods <- function(line, calibration,
                              extract_runinfo),
                       recursive=FALSE)
 
-    loginfo <- c("calibrate", tree$node.label[1], test1, test2, test3, test4)
+    loginfo <- c(tree$node.label[1], "calibrate", test1, test2, test3, test4)
     return(list(log=loginfo, run=runinfo, ages=dated_info))
   } else {
-    loginfo <- c("skip", tree$node.label[1], test1, test2, test3)
+    loginfo <- c(tree$node.label[1], "skip", test1, test2, test3, test4)
     return(list(log=loginfo, run=NULL, ages=NULL))
   }
 
@@ -481,7 +481,7 @@ date_all_trees_all_methods <- function(datasetname, agefile, treefile, n=-1, nco
   #return(list(out_ages, out_runs, out_logs))
   write.table(out_ages, outfile_ages, quote=FALSE, sep="\t", na="")
   write.table(out_runs, outfile_runs, quote=FALSE, sep="\t", na="")
-  write.table(out_logs, outfile_logs, quote=FALSE, sep="\t", na="")
+  write.table(out_logs, outfile_logs, quote=FALSE, sep="\t", na="", row.names=FALSE)
 }
 
 if(!interactive()) {
