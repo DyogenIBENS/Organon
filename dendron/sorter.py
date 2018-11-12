@@ -5,7 +5,7 @@
 """Module containing some algorithms to reorder branches of rooted tree topologies"""
 
 
-from .climber import dfw_descendants_generalized, rev_dfw_descendants
+from climber import dfw_descendants_generalized, rev_dfw_descendants
 
 
 def children_sort(tree, get_children=None, attribute='name'):

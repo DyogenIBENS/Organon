@@ -11,7 +11,7 @@ Input/output trees are in Dyogen ProteinTree format.
 from sys import stdin, stdout, stderr, setrecursionlimit
 import argparse
 
-from sorting import leaf_sort
+from sorter import leaf_sort
 from LibsDyogen import myProteinTree, myFile #, myTools
 
 
@@ -65,7 +65,8 @@ if __name__ == '__main__':
     parser.add_argument("outFile", nargs='?', default=stdout,
                         help="Default to stdout")
     parser.add_argument("-a", "--sortAttr", help="Leaf attribute to select:\n"\
-                        "can be 'gene_name', 'protein_name', 'taxon_name', ...")
+                        "can be 'gene_name', 'protein_name', 'taxon_name', ..."\
+                        " [default on the node id]")
 
     args = vars(parser.parse_args())
 

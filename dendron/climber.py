@@ -346,6 +346,10 @@ def rev_dfw_descendants(*args, **kwargs):
     return reversed(list(dfw_descendants_generalized(*args, **kwargs)))
 
 
+def rev_bfw_descendants(*args, **kwargs):
+    return reversed(list(bfw_descendants_generalized(*args, **kwargs)))
+
+
 def iter_all_ancestor_descendant_pairs(tree, get_children, root=None):
     startqueue = None if root is None else [(None, root)]
 
