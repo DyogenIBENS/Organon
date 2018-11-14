@@ -13,6 +13,7 @@ import argparse
 import LibsDyogen.myPhylTree as PhylTree # my custom python3 version
 
 from genomicustools.identify import convert_gene2species
+from IOtools import Stream
 
 #from codeml.codemlparser import mlc_parser
 
@@ -900,30 +901,6 @@ def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='
     return ages, fulltree, subtrees
 
 
-class Out(object):  # ~~> IOtools/filetools
-    """Context Manager class (for use with `with` statement). Do the exact
-    same as `open()`, but if filename is '-', open stdout for writing."""
-    write_modes = ('w', 'x', 'a')
-
-    def __init__(self, filename, *args, **kwargs):
-        self.filename = filename
-        if filename == '-':
-            mode = args[0] if args else kwargs.get('mode', 'r')
-            if any(letter in mode for letter in self.write_modes):
-                self.file_obj = sys.stdout
-            else:
-                self.file_obj = sys.stdin
-        else:
-            self.file_obj = open(filename, *args, **kwargs)
-
-    def __enter__(self):
-        return self.file_obj
-
-    def __exit__(self, type, value, traceback):
-        if self.filename != '-':
-            self.file_obj.close()
-
-
 def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
          phyltreefile=PHYLTREEFILE, method2=False,
          measures=['t', 'dN', 'dS', 'dist'], unweighted=False, verbose=False,
@@ -959,7 +936,7 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
 
     phyltree = PhylTree.PhylogeneticTree(phyltreefile.format(ensembl_version))
     
-    with Out(outfile, 'w') as out:
+    with Stream(outfile, 'w') as out:
         if saveas == 'ages':
             header = ['name'] + ['branch_'+m for m in measures] + \
                      ['age_'+m for m in measures] + \
