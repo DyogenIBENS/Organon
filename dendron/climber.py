@@ -252,6 +252,11 @@ def dfw_descendants_generalized(tree, get_children, include_leaves=False,
       * LibsDyogen.ProteinTree instance:
         lambda tree, node: [x[0] for x in tree.data.get(node, [])]
 
+      * ProteinTree, but yielding (node, [(descendant, dist), ...]):
+        lambda tree, datum: tree.data.get(datum[0], [])
+        
+        but also give `queue = [(tree.root, 0)]`.
+      
       * nested dictionary:
         lambda tree, node: tree.get(node, {}).keys()
 
@@ -260,7 +265,6 @@ def dfw_descendants_generalized(tree, get_children, include_leaves=False,
 
       * Bio.Phylo.Tree:
         lambda tree, node: node.clades
-
     """
     if queue is None:  # initialize
         # try to find the `root` attribute of the tree
@@ -368,6 +372,18 @@ def iter_all_paths_fromroot(tree, get_children, path):
         yield nextpath
         for nnextpath in iter_all_paths_fromroot(tree, get_children, nextpath):
             yield nnextpath
+
+
+def iter_leaf_paths(tree, get_children, path):
+    assert isinstance(path, list)
+    children = get_children(tree, path[-1])
+    if not children:
+        yield path
+    else:
+        for child in children:
+            nextpath = path + [child]
+            for leafpath in iter_leaf_paths(tree, get_children, path=nextpath):
+                yield leafpath
 
 
 def iter_all_paths(tree, get_children, root):

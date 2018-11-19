@@ -113,18 +113,31 @@ def edit_split(subtree, split_ancgene, edit_func=max_delete):
     if len(splitgene_nodes) == 0:
         raise LookupError('%r not found.' % split_ancgene)
     splitgene_node, = splitgene_nodes
-    edit_func(splitgene_node)
+    return edit_func(splitgene_node)
 
 
-def keep_1_leaf(node):
-    """Keep only one descendant leaf. (The first, alphabetically)"""
-    kept_leaf = sorted(node.get_leaf_names())[0]
+def keep_1_leaf(node, which='dist', delete=False):
+    """Keep only one descendant leaf.
+    
+    param: `which`: - "topo": keep the closest, by number of nodes;
+                    - "dist": keep the closest, by distance;
+                    - "alpha" : keep the first, alphabetically"""
+    if which == 'alpha':
+        kept_leaf = sorted(node.get_leaf_names())[0]
+    elif which == 'topo':
+        kept_leaf, _ = node.get_closest_leaf(topology_only=True)
+    elif which == 'dist':
+        kept_leaf, _ = node.get_closest_leaf(topology_only=False)
     node.prune([kept_leaf], preserve_branch_length=True)
-    node.delete(prevent_nondicotomic=False, preserve_branch_length=True)
+    if delete:
+        node.delete(prevent_nondicotomic=False, preserve_branch_length=True)
+    #return kept_leaf.name
 
 
 def main(SGlistfile, alignments_dir='.', src_subtreedir='subtreesCleanO2', 
-         out_subtreedir='subtreesCleanO2noSG', action='del'):
+         out_subtreedir='subtreesCleanO2noSG', action='del',
+         source_field="ancgene"):
+    """First search the corresponding source file and edit the tree."""
 
     edit_functions = {'del': max_delete,
                       'keep1': keep_1_leaf}
@@ -134,8 +147,16 @@ def main(SGlistfile, alignments_dir='.', src_subtreedir='subtreesCleanO2',
     outputted = []
     count_genesplits = 0
 
-    for split_ancgene, split_descendants in iter_splitgenes_ancgenes(SGlistfile):
-        src_file = find_src_files(split_ancgene, cladeof, alignments_dir, src_subtreedir)
+    if source_field == "ancgene":
+        #search after the ancgene name.
+        def iter_src_files():
+            for split_ancgene, split_descendants in iter_splitgenes_ancgenes(SGlistfile):
+                src_file = find_src_files(split_ancgene, cladeof, alignments_dir, src_subtreedir)
+                yield src_file
+    elif source_field == "id":
+        raise NotImplementedError
+
+    for src_file in iter_src_files():
         out_file = src_file.replace(src_subtreedir, out_subtreedir)
         out_dir = op.dirname(out_file)
         
@@ -144,7 +165,7 @@ def main(SGlistfile, alignments_dir='.', src_subtreedir='subtreesCleanO2',
         
         subtree = ete3.Tree(src_file, format=1)
         try:
-            edit_split(subtree, split_ancgene, edit_func=edit_functions[action])
+            kept = edit_split(subtree, split_ancgene, edit_func=edit_functions[action])
         except LookupError:
             if out_file in outputted:
                 print('%r not found in already edited tree %s' \

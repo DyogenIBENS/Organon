@@ -124,6 +124,8 @@ def al_merge_splits(align, split_seqs):
 
     new_rec.seq = Seq(''.join(new_seq), alphabet=new_rec.seq.alphabet)
     new_rec.description = 'Split gene merged from: ' + ','.join(split_seqs)
+    #TODO:
+    #new_rec.name / id = ... (first alphabetically?)
     
     new_al = Align.MultipleSeqAlignment([rec for rec in align \
                                          if rec.id not in split_seqs[1:]])

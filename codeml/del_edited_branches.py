@@ -19,7 +19,8 @@ INFINITE_DIST = 10000
 EDITED_NODE_ID = 100000000
 
 
-def lock_targets(node, tree, edited_node_id=EDITED_NODE_ID, infinite_dist=INFINITE_DIST):
+def lock_targets(node, tree, edited_node_id=EDITED_NODE_ID, infinite_dist=INFINITE_DIST,
+                 fromset=None):
     """Return which children to delete"""
     nodeinfo = tree.info[node]
     nodedata = tree.data[node]
@@ -37,16 +38,17 @@ def lock_targets(node, tree, edited_node_id=EDITED_NODE_ID, infinite_dist=INFINI
 
     # Gene edition
     if nodeinfo['Duplication'] == 3 or \
-            (nodeinfo['Duplication'] == 2 and node >= edited_node_id):
+            (nodeinfo['Duplication'] > 0 and node >= edited_node_id):
         children, dists = zip(*nodedata)
         if len(children) > 1:
             maxdist = max(dists)
+            # Select the most distant, to remove.
             edited = dists.index(maxdist)
             children = list(children)
             edited_child = children.pop(edited)
             targets[edited_child] = edited
 
-            # Select based on the number of species in the leaves
+            # Or select based on the number of species in the leaves
             children_leaves = [list(iter_leaves(tree,
                                                 lambda tr,n: [c for c,_ in tr.data.get(n, [])],
                                                 queue=[ch]))
@@ -54,6 +56,13 @@ def lock_targets(node, tree, edited_node_id=EDITED_NODE_ID, infinite_dist=INFINI
             children_species = [set(tree.info[leaf]['taxon_name'] for leaf in leaves)
                                 for leaves in children_leaves]
             least_species = min(children_species, key=len)
+            ###TODO
+
+    if fromset is not None:
+        for i, (child, _) in enumerate(nodedata):
+            if child in fromset:
+                fromset.delete(child)
+                targets[child] = i
 
     return targets
 
@@ -74,7 +83,7 @@ def knock_targets(targets, tree, nodedata, nodeinfo):
 
 
 def filterbranches(tree, node, edited_node_id=EDITED_NODE_ID,
-                   infinite_dist=INFINITE_DIST):
+                   infinite_dist=INFINITE_DIST, fromset=None):
     """Descend the tree from root to branches. Discard any anomalous node (and its descendants)"""
     del_count = 0
     del_leaf_count = 0
