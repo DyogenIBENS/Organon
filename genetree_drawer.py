@@ -41,7 +41,7 @@ import LibsDyogen.myPhylTree as PhylTree
 
 from dendron.climber import dfw_descendants_generalized
 from dendron.sorter import ladderize
-from genomicustools.identify import ultimate_seq2sp
+from dendron.reconciled import get_taxon, get_taxon_treebest, infer_gene_event
 
 
 ENSEMBL_VERSION = 85
@@ -83,31 +83,6 @@ def get_common_name(phyltree, latin_name):
             return name
     return None
 
-
-def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):  # ~~> dendron.reconciled
-    """from a gene name in my newick gene trees, find the taxon:
-        either:
-            - node is a leaf (e.g ENSMUSG00...)
-            - node is internal (e.g Mus.musculusENSGT...)"""
-    if node.is_leaf():
-        taxon = ultimate_seq2sp(node.name, ensembl_version)
-    else:
-        try:
-            taxon = ancgene2sp.match(node.name).group(1).replace('.', ' ')
-        except AttributeError:
-            raise ValueError("Can not match species name in %r" % node.name)
-    return taxon
-
-
-def get_taxon_treebest(node, *args):  # ~~> dendron.reconciled
-    """get the taxon of a gene node, using a treebest output tree.
-    
-    *args are not used, they are here for compatibility with `get_taxon`"""
-    try:
-        return node.S.replace('.', ' ')
-    except AttributeError as err:
-        err.args += (node.name, node)
-        raise
 
 
 def walk_phylsubtree(phyltree, taxa):
@@ -224,54 +199,6 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
         for child in children:
             yield parent, coords[parent], child, coords[child]
 
-
-def infer_gene_event(node, taxon, children_taxa):  # ~~> dendron.reconciled
-    """Tell whether a gene tree node (ete3 format) is a leaf, a speciation or
-    a duplication, using the taxon information.
-    
-    Children taxa must be a set (because len() is used)"""
-    #if node.is_leaf():
-    if not children_taxa:
-        return 'leaf'
-    elif (getattr(node, 'D', None) == 'Y') or taxon in children_taxa:
-       #(len(children_taxa) == 1 and taxon in children_taxa): #\
-                    #and len(node.children) > 1 \
-       #or \
-       #(len(node.children) == 1 and taxon in children_taxa):
-        # Should rather check if taxon in children_taxa.
-        if getattr(node, 'D', None) == 'N':
-            warnings.warn("The node %r -> %s "\
-                  "is marked as a speciation but was infered as a duplication"\
-                  " after taxon information." % \
-                  (node.name, [ch.name for ch in node.children]))
-        if len(children_taxa) > 1:
-            warnings.warn("The node %r -> %s "\
-                  "is a duplication + a speciation. Not " \
-                  "truly reconciled tree." % \
-                  (node.name, [ch.name for ch in node.children]))
-        elif len(node.children) == 1:
-            warnings.warn("The node %r -> %s "\
-                  " is a duplication/speciation with one " \
-                  "descendant." % \
-                  (node.name, [ch.name for ch in node.children]))
-        return 'dup'
-    else:
-        ### FIXME
-        if len(children_taxa)==1:
-            msg = "The node %r -> %s" % \
-                  (node.name, [ch.name for ch in node.children])
-            if len(node.children) > 1:
-                msg += " is a duplication + a speciation. Not " \
-                       "truly reconciled tree."
-                #return 'dup'
-            #else:
-            #    msg += " is a duplication/speciation with one " \
-            #           "descendant."
-                #if not node.is_root(): event = 'dup'
-                # TODO: check this in the duplication block above.
-                warnings.warn(msg)
-
-        return 'spe'
 
 
 class GenetreeDrawer(object):
