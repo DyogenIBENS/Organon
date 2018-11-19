@@ -901,6 +901,7 @@ if __name__ == '__main__':
 
     if dargs.pop("fromfile"):
         treefiles = parse_treefiles(dargs.pop("treefile"))
+        dargs.pop("multi_newick")
     elif dargs.pop("multi_newick"):
         treefile = dargs.pop("treefile")
         with (open(treefile) if treefile != '-' else sys.stdin) as tree_input:
