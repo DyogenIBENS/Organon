@@ -15,11 +15,19 @@ from scipy.stats import skew
 from Bio import AlignIO
 import ete3
 
-from genomicustools.identify import SP2GENEID, convert_gene2species
-from seqtools import ungap, algrep, make_al_stats
+import LibsDyogen.myPhylTree as PhylTree
+
+from genomicustools.identify import SP2GENEID, \
+                                    convert_gene2species
+from dendron.reconciled import get_taxon, \
+                               get_taxon_treebest, \
+                               infer_gene_event_taxa
+from seqtools import ungap, \
+                     algrep, \
+                     make_al_stats
 from codeml.codemlparser2 import parse_mlc
 from codeml.prune2family import split_species_gene
-import LibsDyogen.myPhylTree as PhylTree
+
 
 ENSEMBL_VERSION = 85
 
@@ -87,10 +95,83 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
             
         #treefiles_pattern = alfiles_pattern.replace('_genes.fa', '.nwk')
 
+        
+def simple_robustness_test(tree, expected_species, ensembl_version=ENSEMBL_VERSION):
+    """Determine robustness after the expected set of species at the tips."""
+    
+    species_counts = {sp: 0 for sp in expected_species}
+    for leaf in tree.iter_leaf_names():
+        species_counts[convert_gene2species(leaf, ensembl_version)] += 1
+
+    leaves_robust = all(c == 1 for c in species_counts.values())
+
+    single_child_nodes = any(len(n.children) == 1 for n in tree.traverse())
+    
+    return (leaves_robust, single_child_nodes)
+
+
+def any_get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
+    try:
+        return get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION)
+    except ValueError:
+        return get_taxon_treebest(node)
+
+
+def per_node_events(tree, get_taxon=any_get_taxon, *args):
+    """Check each node and its type (duplication, deletion, speciation)"""
+    leaves = 0
+
+    events = ('dup', 'spe', 'speloss', 'duploss')
+    # TreeBest and taxa agree.
+    sure_events = {evt: 0 for evt in events}
+
+    only_treebest_events = {evt: 0 for evt in events}
+
+    for node in tree.traverse('preorder'):
+        if node.is_leaf():
+            leaves += 1
+            continue
+
+        treebest_isdup = getattr(node, 'D', None)
+
+        taxon = get_taxon(node, *args)
+        children_taxa = set(get_taxon(ch, *args) for ch in node.children)
+
+        event = infer_gene_event_taxa(node, taxon, children_taxa)
+
+        assert event != 'leaf'
+
+        counter = sure_events
+        if event == 'dup' and treebest_isdup == 'N':
+            counter = only_treebest_events
+            event = 'spe'
+        elif event == 'spe' and treebest_isdup == 'Y':
+            counter = only_treebest_events
+            event = 'spe'
+
+        if len(node.children) == 1:
+            event += 'loss'
+
+        counter[event] += 1
+
+    #return tuple(sure_events[e] for e in events) + \
+    #       tuple(only_treebest_events[e] for e in events)
+    return sure_events, only_treebest_events
+
+
+def make_ancgene2sp(ancestor, phyltree):
+    return re.compile(r'('
+                      + r'|'.join(list(phyltree.species[ancestor]) +
+                                  sorted(phyltree.getTargetsAnc(ancestor),
+                                         key=lambda a:len(a),
+                                         reverse=True)).replace(' ','\.')
+                      + r')(.*)$')
+
 
 def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                    subtreesdir='subtreesCleanO2',
-                   ensembl_version=ENSEMBL_VERSION):
+                   ensembl_version=ENSEMBL_VERSION,
+                   ignore_outgroups=False, extended=False):
     """Currently only determining the robustness of the tree.
 
     To find the robust trees from the given ancestor only, (excluding the
@@ -98,14 +179,11 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
     phyltree = PhylTree.PhylogeneticTree(phyltreefile)
     #ensembl_ids_anc = get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version)
-    print('subtree\tgenetree\troot_location\trobust_leaves\tsingle_gene_nodes')
+    print('subtree\tgenetree\troot_location\trobust_leaves\tsingle_gene_nodes'
+            + ('\trobust_nodes\tonly_treebest_spe' if extended else ''))
 
-    ancgene2sp = re.compile(r'('
-                            + r'|'.join(list(phyltree.species[ancestor]) + 
-                                        sorted(phyltree.getTargetsAnc(ancestor),
-                                               key=lambda a:len(a),
-                                               reverse=True)).replace(' ','\.')
-                            + r')(.*)$')
+    ancgene2sp = make_ancgene2sp(ancestor, phyltree)
+    all_ancgene2sp = make_ancgene2sp(phyltree.root, phyltree)
     
     for subtreefile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                               ancestor,
@@ -116,33 +194,45 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
         tree = ete3.Tree(subtreefile, format=1)
         root_taxon, _ = split_species_gene(tree.name, ancgene2sp)
         
+        # Determine if root_taxon is inside (I) or outside (O) of the clade.
         root_location = 'O' if root_taxon is None \
                         else 'I' if root_taxon != ancestor \
                         else '='
-        expected_species = phyltree.species[root_taxon or ancestor]
 
         if root_location == 'O':
-            for node in tree.traverse('levelorder'):
-                if split_species_gene(node.name, ancgene2sp)[0] is not None:
-                    tree = node
-                    break
-        
-        species_counts = {sp: 0 for sp in expected_species}
-        for leaf in tree.iter_leaf_names():
-            try:
-                species_counts[convert_gene2species(leaf, ensembl_version)] += 1
-            except KeyError as err:
-                err.args += (subtreefile,)
-                raise
+            if ignore_outgroups:
+                for node in tree.traverse('levelorder'):
+                    if split_species_gene(node.name, ancgene2sp)[0] is not None:
+                        tree = node
+                        break
+            else:
+                root_taxon, _ = split_species_gene(tree.name, all_ancgene2sp)
 
-        robust_leaves = all(c == 1 for c in species_counts.values())
+        expected_species = phyltree.species[root_taxon or ancestor]
+        try:
+            leaves_robust, single_child_nodes = simple_robustness_test(tree,
+                                                            expected_species)
+        except KeyError as err:  # Error while converting genename to species
+            err.args += (subtreefile,)
+            raise
+        output = (int(leaves_robust), int(single_child_nodes))
 
-        single_child_nodes = any(len(n.children) == 1 for n in tree.traverse())
-        
-        print('\t'.join((subtree, genetree, root_location,
-                         str(int(robust_leaves)),
-                         str(int(single_child_nodes))
-                         )))
+        if extended:
+            sure_events, only_treebest_events = per_node_events(tree,
+                                                            any_get_taxon,
+                                                            all_ancgene2sp,
+                                                            ensembl_version)
+            nodes_robust = not any((sure_events['dup'],
+                                    sure_events['speloss'],
+                                    sure_events['duploss'],
+                                    only_treebest_events['dup'],
+                                    only_treebest_events['speloss'],
+                                    only_treebest_events['duploss']))
+            output += (int(nodes_robust), only_treebest_events['spe'])
+
+
+        print('\t'.join((subtree, genetree, root_location) +
+                         tuple(str(x) for x in output)))
 
 
 def get_codeml_stats(genetreelistfile, ancestor, rootdir='.',
@@ -159,7 +249,7 @@ def get_codeml_stats(genetreelistfile, ancestor, rootdir='.',
                     'brdS_mean', 'brdS_std', 'brdS_med', 'brdS_skew',
                     'brdN_mean', 'brdN_std', 'brdN_med', 'brdN_skew',
                     'lnL', 'Niter', 'time used']
-    
+
     # TODO: number of dN or dS values of zero
     br_len_reg = re.compile(r': ([0-9]+\.[0-9]+)[,)]')
 
@@ -172,7 +262,7 @@ def get_codeml_stats(genetreelistfile, ancestor, rootdir='.',
                                                               subtreesdir):
         try:
             mlc = parse_mlc(mlcfile)
-            
+
             Nbr = len(mlc['output']['branches'])
             br_lengths = mlc['output']['branch lengths + parameters'][:Nbr]
             br_omegas = mlc['output']['omega']
@@ -180,7 +270,7 @@ def get_codeml_stats(genetreelistfile, ancestor, rootdir='.',
             dS_len = [float(x) for x in br_len_reg.findall(mlc['output']['dS tree'])]
             dN_len = [float(x) for x in br_len_reg.findall(mlc['output']['dN tree'])]
             assert len(dS_len) == Nbr
-            
+
             #TODO: exclude the branches below the root from some values
             #      (e.g. brlen_mean)
             stats_row = [mlc['nsls']['ls'],
@@ -257,6 +347,8 @@ if __name__ == '__main__':
     treestats_parser.add_argument('phyltreefile')
     treestats_parser.add_argument('-e', '--ensembl-version', type=int,
                                   default=ENSEMBL_VERSION, help="[%(default)s]")
+    treestats_parser.add_argument('-E', '--extended', action='store_true',
+                                  help='Perform robustness test on nodes (instead of leaves VS root)')
     treestats_parser.set_defaults(func=make_subparser_func(get_tree_stats))
 
     args = parser.parse_args()
