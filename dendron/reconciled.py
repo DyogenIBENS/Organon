@@ -18,10 +18,15 @@ This tools recognize different ways of annotating the species at each node:
 import warnings
 from genomicustools.identify import ultimate_seq2sp
 
+# For types
+#import re, ete3
+
 
 ENSEMBL_VERSION = 85
 
 
+#def get_taxon(node: ete3.TreeNode, ancgene2sp : re._pattern_type,
+#              ensembl_version : int = ENSEMBL_VERSION):
 def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
     """from a gene name in my newick gene trees, find the taxon:
         either:
@@ -62,6 +67,10 @@ def infer_gene_event(node, taxon, children_taxa):
     This is the original version from `genetree_drawer.py` (2018/11/19).
     """
     #if node.is_leaf():
+    #import ete3
+    #assert isinstance(node, ete3.TreeNode)
+    #assert isinstance(taxon, str)
+    #assert isinstance(children_taxa, set)
 
     if not children_taxa:
         return 'leaf'
@@ -82,7 +91,7 @@ def infer_gene_event(node, taxon, children_taxa):
         elif treebest_isdup == 'Y':
             warnings.warn("The node %r -> %s "
                     "is marked as a *duplication* but is ambiguous: "
-                    "intermediate speciation nodes are missing."
+                    "intermediate speciation nodes are missing." %
                   (node.name, [ch.name for ch in node.children]))
 
         if len(children_taxa) > 1:  # or treebest_isdup == 'Y'
