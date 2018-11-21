@@ -33,7 +33,7 @@ OPTIONS
     -b  Disable the use of `unbuffer` in front of the command line
         (will delay stdout messages).
     -q  Quiet mode.
-    -s  Keep the output in its separate subdirectory.
+    -s  Keep the output in its separate subdirectory (Do not move it back).
 '
 ### PARSE COMMAND LINE ###
 
@@ -92,7 +92,7 @@ ctlfile=$1
 genetree=${1%.*}
 ctlext=${1##*.}
 
-# parse seqfile, treefile and outfile from the control file:
+# Get the paths to seqfile, treefile and outfile from the control file:
 seqfile=`sed -rn 's/^\s*seqfile\s*=\s*(\S+)[\s*]?.*$/\1/p'   $ctlfile`
 treefile=`sed -rn 's/^\s*treefile\s*=\s*(\S+)[\s*]?.*$/\1/p' $ctlfile`
 outfile=`sed -rn 's/^\s*outfile\s*=\s*(\S+)[\s*]?.*$/\1/p'   $ctlfile`
@@ -139,6 +139,7 @@ outfile="$outdir/$outbase"
 #echo "Linking seqfile and treefile in temporary directory." >&2
 ln -fs -T "$seqfile" "$genetree/seqfile.phy"
 ln -fs -T "$treefile" "$genetree/treefile.nwk"
+# Max filename length for the ctl file is limited to 95 chararacters
 
 files="seqfile  = seqfile.phy
 treefile = treefile.nwk
@@ -147,7 +148,7 @@ outfile  = outfile.mlc"
 
 # Create a temporary control file in the temporary directory, containing the 
 # absolute paths to the input and output files
-tmpctl="$genetree/$genetree.$ctlext"
+tmpctl="$genetree/codeml.$ctlext" # if [[ ${ctlfile[#]} -gt 95 ]]
 echo "$files" > "$tmpctl"
 sed -rn '/^\s*(seqfile|treefile|outfile)\s*=/!p' "$genetree.$ctlext" >> "$tmpctl"
 
@@ -156,13 +157,13 @@ cd "$genetree"
 ### Execute CODEML ###
 if [ "$valgrind" -eq 1 ]; then
 	valgrind --tool=massif --massif-out-file=../"$genetree.massif.out" \
-		codeml "$genetree.$ctlext"
+		codeml "codeml.$ctlext"
 elif [ "$buffer" -eq 1 ]; then
-	codeml "$genetree.$ctlext" | tee ../"$genetree.log"
+	codeml "codeml.$ctlext" | tee ../"$genetree.log"
 elif [ "$quiet" -eq 1 ]; then
-	codeml "$genetree.$ctlext" > ../"$genetree.log"
+	codeml "codeml.$ctlext" > ../"$genetree.log"
 else
-	unbuffer codeml "$genetree.$ctlext" | tee ../"$genetree.log"
+	unbuffer codeml "codeml.$ctlext" | tee ../"$genetree.log"
 fi
 # TODO: build command as string, then eval.
 
@@ -175,7 +176,7 @@ if [ ${PIPESTATUS[0]} -eq 0 ]; then
 		done
 	
 		# remove the temporary control file
-		rm "$genetree.$ctlext"
+		rm "codeml.$ctlext"
 		# remove symbolic links (to seqfile and treefile)
 		#find -type l -delete
 		rm seqfile.phy treefile.nwk
