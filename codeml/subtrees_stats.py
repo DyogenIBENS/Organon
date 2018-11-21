@@ -179,8 +179,8 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
     phyltree = PhylTree.PhylogeneticTree(phyltreefile)
     #ensembl_ids_anc = get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version)
-    print('subtree\tgenetree\troot_location\trobust_leaves\tsingle_gene_nodes'
-            + ('\trobust_nodes\tonly_treebest_spe' if extended else ''))
+    print('subtree\tgenetree\troot_location\tleaves_robust\tsingle_gene_nodes'
+            + ('\tnodes_robust\tonly_treebest_spe' if extended else ''))
 
     ancgene2sp = make_ancgene2sp(ancestor, phyltree)
     all_ancgene2sp = make_ancgene2sp(phyltree.root, phyltree)
