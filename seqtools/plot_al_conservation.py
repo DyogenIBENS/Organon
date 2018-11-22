@@ -6,7 +6,7 @@
 conservation scores along it."""
 
 
-from sys import stderr, stdin
+from sys import stdin
 #from time import clock # to display execution time
 
 import os.path
@@ -28,6 +28,12 @@ from functools import reduce
 
 from plottools import stackedbar
 from dendron.climber import dfw_descendants_generalized
+
+import logging
+logger = logging.getLogger(__name__)
+ch = logging.StreamHandler()
+ch.setFormatter(logging.Formatter("%(levelname)s:%(funcName)s:%(message)s"))
+logger.addHandler(ch)
 
 #try:
 #    mpl.style.use('softer')
@@ -293,7 +299,7 @@ def parsimony_score(alint, tree, seqlabels, minlength=66):
     for parent, children in reversed(list(iter_tree)):
         #print('*', parent, children)
         if len(children) > 2:
-            print("WARNING: more than 2 children at", parent.name, file=stderr)
+            logger.warning("More than 2 children at %s", parent.name)
         if not children:
             # Parent is a leaf. Obtain the sequence.
             assert parent.name == seqlabels[leaf_nb], \
@@ -306,8 +312,8 @@ def parsimony_score(alint, tree, seqlabels, minlength=66):
             # .pop(ch) ?
             try:
                 children_seqs = [process_sequences[ch] for ch in children]
-            except KeyError:
-                print(process_sequences, leaf_nb, file=stderr)
+            except KeyError as err:
+                err.args += (process_sequences, leaf_nb)
                 raise
             children_inter = reduce(np.logical_and, children_seqs)
             children_union = reduce(np.logical_or, children_seqs)
@@ -331,7 +337,7 @@ def al_stats(align, nucl=False, allow_N=False):
     """Compute gap proportion and entropy value for each position of the alignment"""
     al_len = align.get_alignment_length()
     if al_len % 3 and not nucl:
-        print("Not a codon alignment!", file=stderr)
+        logger.error("Not a codon alignment!")
 
     gap = '-'     if nucl else '---'
     npos = al_len if nucl else al_len // 3
@@ -502,7 +508,7 @@ class AlignPlotter(object):
 
         al_len = align.get_alignment_length()
         if al_len % 3 and not nucl:
-            print("Not a codon alignment!", file=stderr)
+            logger.error("Not a codon alignment!")
 
         tree = None
         if records or recordsfile or treefile:

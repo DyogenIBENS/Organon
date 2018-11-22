@@ -3,18 +3,18 @@
 
 """Interactively display a tree (in newick format) using ete3."""
 
-import sys
-import os.path
+from sys import stdin, stderr
+import os.path as op
 import ete3
 import argparse
 #import fileinput
 
 def fileinputtrees():
     newicks = ['']
-    #lines = [sys.stdin.readline()]
+    #lines = [stdin.readline()]
 
     #while lines:
-    for line in sys.stdin:
+    for line in stdin:
 
         line_chunks = line.rstrip().split(';')
         #[chunk for chunk in line.rstrip().split(';') if chunk]
@@ -29,7 +29,7 @@ def fileinputtrees():
     return newicks
 
     ## Méthode yolo
-    #return [newick.rstrip() + ';' for newick in sys.stdin.read().split(';')
+    #return [newick.rstrip() + ';' for newick in stdin.read().split(';')
     #        if newick.rstrip()]
 
 
@@ -53,7 +53,7 @@ def display_onetree(newick, subnewick_format=1, rootnode=None,
     try:
         tree = ete3.Tree(newick, format=subnewick_format)
     except:
-        print("newick=%r" % newick, file=sys.stderr)
+        print("newick=%r" % newick, file=stderr)
         raise
 
     if rootnode:
@@ -77,8 +77,8 @@ def display_onetree(newick, subnewick_format=1, rootnode=None,
         else:
             mylayout = mybasiclayout
 
-        treename = os.path.splitext(os.path.basename(newick))[0] if \
-                        os.path.isfile(newick) else None
+        treename = op.splitext(op.basename(newick))[0] if \
+                        op.isfile(newick) else None
         if output:
             tree.render(output, layout=mylayout)
         else:

@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 
 
-import sys
+from sys import stdout
 import argparse
 import requests
+import logging
+logger = logging.getLogger(__name__)
+ch = logging.StreamHandler()
+ch.setFormatter(logging.Formatter("%(levelname)s:%(filename)s:%(message)s"))
+logger.addHandler(ch)
 
 
 URL = "http://www.ensembl.org/biomart/"
@@ -62,12 +67,11 @@ def do_query(query, outfile='-', ensembl_version=None):
     response.raise_for_status()
     
     if response.text:
-        out = sys.stdout if outfile == '-' else open(outfile, 'w')
+        out = stdout if outfile == '-' else open(outfile, 'w')
         out.write(response.text)
         if outfile == '-': out.close()
     else:
-        print("No content. Status code: %d" % response.status_code,
-              file=sys.stderr)
+        logger.error("No content. Status code: %d", response.status_code)
 
 
 def main(**kwargs):

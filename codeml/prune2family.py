@@ -6,9 +6,9 @@ from __future__ import print_function
 Also add missing speciation nodes."""
 
 
+from sys import stdin, stderr, exit
+import os.path as op
 import re
-import sys
-import os.path
 try:
     import argparse_custom as argparse
     #print('ARGPARSE CUSTOM')
@@ -99,14 +99,14 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
                       "total_len: %s - %s = %s\n" % (age_parent, age_child, total_len),
                       "new link: %s - %s\n" % (link_parent, link),
                       "new link ages: %s - %s" % (ages[link_parent], ages[link]),
-                      file=sys.stderr)
+                      file=stderr)
                 raise AssertionError('Tree %r: Invalid Age: %s (%s)' % \
                             (parent_genename, link_parent, ages[link_parent]))
             try:
                 new_branch_dists.append(new_dist / total_len)
             except ZeroDivisionError as err:
                 err.args += (parent_sp, ancestor, "please check ages.")
-                print("WARNING:", err, file=sys.stderr)
+                print("WARNING:", err, file=stderr)
                 new_branch_dists.append(0)
     else:
         total_len = len(ancestor_lineage) - 1
@@ -275,7 +275,7 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
             ### Delete this node if species is not recognized
             if parent_sp is None:
                 print("WARNING: taxon not found in (%r, %r). Deleting node." %
-                        (parent_sp, parent_gn), file=sys.stderr)
+                        (parent_sp, parent_gn), file=stderr)
                 node.delete(prevent_nondicotomic=False,
                             preserve_branch_length=True)
                 continue
@@ -291,14 +291,14 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                     except KeyError as err:
                         print("WARNING: Leaf %r not in an extant species" % \
                               child.name,
-                              file=sys.stderr)
+                              file=stderr)
                         ancestor, genename = split_ancestor(child)
                 else:
                     ancestor, genename = split_ancestor(child)
                 if ancestor not in diclinks:
                     print("WARNING: taxon %r absent from phylogeny. "
                           "Deleting node %r." % (ancestor, genename),
-                          file=sys.stderr)
+                          file=stderr)
                     nodes_without_taxon.append(child)
                     child.delete(prevent_nondicotomic=False,
                                  preserve_branch_length=True)
@@ -357,9 +357,9 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                     # I didn't expect this to happen. Let's fix it (not raise)
                     print("WARNING: Unexpected case: parent %r is not the "
                           "MRCA of %s." % (parent_sp, child_sp),
-                          end=' ', file=sys.stderr)
+                          end=' ', file=stderr)
                     if not force_mrca:
-                        print("Ignoring.", file=sys.stderr)
+                        print("Ignoring.", file=stderr)
                         # Must change event to dup.
                         event = 'dup'
                         node.add_feature('D', 1)
@@ -368,7 +368,7 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                         ###       problem, the fix must be applied to all
                         ###       (recursively?)
                         print("Setting common parent to MRCA %r." % mrca,
-                              file=sys.stderr)
+                              file=stderr)
                         # Choose the length of the common branch to add according
                         # to the closest child (shortest branch)
                         closest_child = min(node_children, key=lambda node: node.dist)
@@ -483,7 +483,7 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                               "  - species         %r\n" % ancestor,
                               "  - parent genename %r\n" % parent_gn,
                               "  - genename        %r\n" % genename,
-                              "  - event           %r" % event, file=sys.stderr)
+                              "  - event           %r" % event, file=stderr)
                         #raise
 
                 # Nothing gets inserted if it is a duplication.
@@ -606,7 +606,7 @@ def reroot_with_outgroup(node, maxsize=0):  # ~~> dendron.reconciled
     while len(root) == len(node):
         if root.is_root():
             print("WARNING: no outgroup available for node %r" % node.name,
-                  file=sys.stderr)
+                  file=stderr)
             
             return
         # Else go to parent node
@@ -658,7 +658,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
         latest_ancestor=False, ensembl_version=ENSEMBL_VERSION, outdir='.',
         only_dup=False, one_leaf=False, outgroups=0, dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
-    #print("treebest = %s" % treebest, file=sys.stderr)
+    #print("treebest = %s" % treebest, file=stderr)
     outfiles_set = set() # check whether I write twice to the same outfile
     if treefile == '-': treefile = '/dev/stdin'
     try:
@@ -702,15 +702,15 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                     #                                  ancestor,
                     #                                  outname))
 
-                    outfile = os.path.join(outdir, outname + '.nwk')
+                    outfile = op.join(outdir, outname + '.nwk')
                     if outdir == '-':
                         outfile = None
                     elif outfile in outfiles_set:
                         # Not sure this case can happen, but better prevent it.
                         # Months later: this case happened.
                         print("ERROR: Cannot output twice to %r" % outfile,
-                              file=sys.stderr)
-                        sys.exit(1)
+                              file=stderr)
+                        exit(1)
                     
                     # Add requested outgroups:
                     root = reroot_with_outgroup(node, outgroups)
@@ -733,13 +733,13 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
 
 
 def save_subtrees_process(params):
-    print("* Input tree: %r" % params[0], file=sys.stderr)
+    print("* Input tree: %r" % params[0], file=stderr)
     ignore_errors = params.pop()
     try:
         outfiles = save_subtrees(*params)
     except BaseException as err:
         if ignore_errors:
-            print("Ignore %r: %r" % (params[0], err), file=sys.stderr)
+            print("Ignore %r: %r" % (params[0], err), file=stderr)
             return 0, []
         else:
             raise
@@ -778,11 +778,11 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
 
     if outsub:
         def format_outdir(treefile):
-            return outdir.format(''.join(os.path.basename(treefile).split(outsub)[:-1]))
+            return outdir.format(''.join(op.basename(treefile).split(outsub)[:-1]))
 
     else:
         def format_outdir(treefile):
-            return outdir.format(os.path.splitext(os.path.basename(treefile))[0])
+            return outdir.format(op.splitext(op.basename(treefile))[0])
 
     generate_args = [[treefile,
                       ancestorlists,
@@ -803,7 +803,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       ignore_errors] for treefile in treefiles]
 
     n_input = len(treefiles)
-    print("To process: %d input trees" % n_input, file=sys.stderr)
+    print("To process: %d input trees" % n_input, file=stderr)
     if ncores > 1:
         pool = mp.Pool(ncores)
         outputs = pool.map(save_subtrees_process, generate_args)
@@ -818,7 +818,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
             progress += return_value
             outfiles.extend(some_outfiles)
     print("Finished processing %d/%d input trees. Output %d trees." % \
-            (progress, n_input, len(outfiles)), file=sys.stderr)
+            (progress, n_input, len(outfiles)), file=stderr)
     return outfiles
 
 
@@ -904,7 +904,7 @@ if __name__ == '__main__':
         dargs.pop("multi_newick")
     elif dargs.pop("multi_newick"):
         treefile = dargs.pop("treefile")
-        with (open(treefile) if treefile != '-' else sys.stdin) as tree_input:
+        with (open(treefile) if treefile != '-' else stdin) as tree_input:
             treefiles = [txt + ';' for txt in tree_input.read().split(';')]
     else:
         treefiles = [dargs.pop("treefile")]

@@ -17,9 +17,9 @@ from collections import defaultdict
 try:
     from pandas import Series
 except ImportError:
-    import sys
-    print("Could not import Pandas. `inverse_fromserie` will not be usable",
-          file=sys.stderr)
+    import warnings
+    warnings.warn("Could not import Pandas. `inverse_fromserie` will not be usable")
+
 
 START = datetime.now()
 

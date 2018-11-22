@@ -11,7 +11,11 @@ import os.path as op
 import re
 from copy import deepcopy
 from bz2 import BZ2File
-import warnings
+import logging
+logger = logging.getLogger(__name__)
+ch = logging.StreamHandler()
+ch.setFormatter(logging.Formatter("%(levelname)s:%(module)s l.%(lineno)d:%(message)s"))
+logger.addHandler(ch)
 
 
 def myopen(filename, *args, **kwargs):
@@ -320,7 +324,7 @@ ucsc_conv_filename = '~/ws2/UCSC_genome_releases_full.tsv'
 try:
     assembly2species = load_assembly2species(ucsc_conv_filename)
 except FileNotFoundError:
-    warnings.warn("Conversion file not found: %r" % ucsc_conv_filename)
+    logger.warning("Conversion file not found: %r", ucsc_conv_filename)
     assembly2species = {}
 
 

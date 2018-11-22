@@ -9,6 +9,9 @@ from itertools import zip_longest
 from dendron.climber import dfw_descendants_generalized, \
                             dfw_pairs_generalized
 from dendron.sorter import ladderize
+import logging
+#logging.basicConfig(format="%(levelname)s:%(module)s:l.%(lineno)d:%(funcName)s:%(message)s")
+logger = logging.getLogger(__name__)
 
 
 ### TODO: rename as `printer`
@@ -262,11 +265,10 @@ def make_all_lines(genome, gene_categories, gene_trees, modgene, gene_info):
             try:
                 genome.pop(ne)
             except KeyError as e:
-                print(" -- ERROR -- ", file=sys.stderr)
-                print("info:", gene_info[g], "g =", g, "n =", ne, file=sys.stderr)
-                print("neighbors", neighbours, file=sys.stderr)
                 gtree = g.split('.')[0]
-                print(draw_gene_trees(gene_trees,gtree,gene_info), file=sys.stderr)
+                logger.error("KeyError:\ninfo: %s g = %s n = %s\nneighbors %s\n%s",
+                              gene_info[g], g, ne, neighbours,
+                              draw_gene_trees(gene_trees,gtree,gene_info)
                 raise e
             pos += 2
             i += 1

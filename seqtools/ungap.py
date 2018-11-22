@@ -5,10 +5,15 @@
 """Remove **columns only containing gaps**. Runs in codon mode by default"""
 
 
-from sys import stderr, stdin, stdout
+from sys import stdin, stdout
 import argparse as ap
 from itertools import islice
 from Bio import AlignIO
+import logging
+#logging.basicConfig(format="%(levelname)s:%(funcName)s:%(message)s",
+#                    level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def main(infile, format='fasta', nucl=False, outfile=None):
@@ -36,14 +41,13 @@ def ungap(align, nucl=False):
         gaps.append((curr_gap_start, N))
 
     tot_gap_len = sum((x2 - x1) for x1,x2 in gaps)
-    print("Gap length = %d/%d (Keep %d positions)" % \
-            (tot_gap_len, N, N - tot_gap_len),
-          file=stderr)
+    logger.info("Gap length = %d/%d (Keep %d positions)", 
+                 tot_gap_len, N, N-tot_gap_len)
 
     try:
         gap_start, gap_end = gaps.pop(0)
     except IndexError:
-        print('No need to remove gaps', file=stderr)
+        logger.info('No need to remove gaps')
         return align
 
     ungapped_al = align[:, 0:gap_start]

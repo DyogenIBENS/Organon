@@ -7,9 +7,12 @@ Assumes the tree topology matches the NCBI taxonomy topology.
 Output to stdout."""
 
 
-import sys
 import argparse
 from ete3 import PhyloTree, NCBITaxa
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logger.INFO)
+#logging.basicConfig(format='%(levelname)s:l.%(lineno)d:%(message)s', level=logger.INFO)
 
 
 def get_last_common_element(*iterables):
@@ -25,7 +28,7 @@ def get_last_common_element(*iterables):
 
 
 def matchrename_ncbitax(timetree):
-    print('Discarding duplicate common ancestors', file=sys.stderr)
+    logger.info('Discarding duplicate common ancestors')
     # Apply NCBI name only when it corresponds to a NCBI taxonomy node.
     for node in timetree.traverse():
         node.add_feature('oldname', node.name)
@@ -35,10 +38,10 @@ def matchrename_ncbitax(timetree):
                 node.name = node.sci_name
             else:
                 node.sci_name = ''
-        except:
-            print(node.name, node.features, 'leaf:', node.is_leaf(), file=sys.stderr)
+        except BaseException as err:
+            logger.error('%s %s %s leaf: %s', err, node.name, node.features, node.is_leaf())
             if node.up:
-                print(node.up.name, node.up.features, file=sys.stderr)
+                logger.error('%s %s %s', err, node.up.name, node.up.features)
             raise
     #return timetree
 
@@ -56,18 +59,20 @@ def myannotate(timetree, ncbi):
         else:
             try:
                 lineages = [ncbi.get_lineage(ch.taxid) for ch in node.children]
-            except:
-                print(repr(node.name), [ch.name for ch in node.children], file=sys.stderr)
-                print([(ch.name in seen) for ch in node.children], 'in seen:',
-                      len(seen), file=sys.stderr)
+            except BaseException as err:
+                logger.error('%s %r %s\n%s in seen: %d', err, node.name,
+                              [ch.name for ch in node.children],
+                              [(ch.name in seen) for ch in node.children],
+                              len(seen))
                 raise
 
             lctaxid = get_last_common_element(*lineages)
             try:
                 lca = ncbi.get_taxid_translator([lctaxid])[lctaxid]
-            except:
-                print(', '.join(ch.name for ch in node.children), file=sys.stderr)
-                print(lineages, file=sys.stderr)
+            except BaseException as err:
+                logger.error('%s: %s\n%s', err,
+                              ', '.join(ch.name for ch in node.children),
+                              lineages)
                 raise
 
             node.add_feature('sci_name', lca)
@@ -79,7 +84,7 @@ def myannotate(timetree, ncbi):
 
 
 def name_ancestors(timetreefile, to_table=False):
-    print('Loading data', file=sys.stderr)
+    logger.info('Loading data')
     ### /!\ quoted_node_names only from ete3 v3.1.1
     timetree = PhyloTree(timetreefile, format=1,
                          quoted_node_names=True)
@@ -93,18 +98,16 @@ def name_ancestors(timetreefile, to_table=False):
         try:
             leaf.add_feature('taxid', name2taxid[leaf.name.replace('_', ' ')][0])
         except KeyError:
-            print('WARNING: species %r not found' % leaf.name,
-                  file=sys.stderr)
+            logger.warning('Species %r not found', leaf.name)
             leaf.delete(prevent_nondicotomic=True,
                         preserve_branch_length=True)
 
-    print('Placing common ancestors', file=sys.stderr)
+    logger.info('Placing common ancestors')
     #ncbi.annotate_tree(timetree, 'taxid')
     myannotate(timetree, ncbi)
     matchrename_ncbitax(timetree)
     
-    #print({ft:getattr(timetree, ft) for ft in timetree.features},
-    #        file=sys.stderr)
+    #logger.debug({ft:getattr(timetree, ft) for ft in timetree.features})
 
     if not to_table:
         print(timetree.write(format=1, format_root_node=True))
@@ -120,4 +123,4 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     name_ancestors(**vars(args))
-    
+

@@ -25,7 +25,7 @@ CMD_ARGS = {
                     (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION}),
                     (('-x', '--xlim'),)],
         'tree':    [(('-a', '--age-key'), {'default': DEFAULT_AGE_KEY}),
-                    (('-v', '--vertical'),       {'action':'store_true'}),
+                    (('-V', '--vertical'),       {'action':'store_true'}),
                     (('-p', '--phyltreefile'),   {'default': PHYLTREEFILE}),
                     (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION}),
                     (('-x', '--xlim'),),
@@ -37,14 +37,12 @@ CMD_ARGS = {
                     (('-y',), {'default': DEFAULT_AGE_KEY}),
                     (('--xlim',),), (('--ylim',),)],}
 
-import sys
 import os.path
 import re
 import bz2
 import pickle
 try:
     import argparse_custom as argparse
-    #print("Argparse customized")
 except ImportError:
     import argparse
 
@@ -58,9 +56,15 @@ import numpy as np
 import pandas as pd
 import LibsDyogen.myPhylTree as PhylTree
 
-
 from dendron.climber import dfw_descendants_generalized
 from dendron.sorter import ladderize
+
+import logging
+logger = logging.getLogger(__name__)
+ch = logging.StreamHandler()
+ch.setFormatter(logging.Formatter("%(levelname)s:l.%(lineno)d%:(funcName)s:%(message)s"))
+logger.addHandler(ch)
+
 
 # Change all black to dark grey
 grey10 = '#1a1a1a'
@@ -154,7 +158,7 @@ class DataVisualizor(object):
     default_nbins = DEFAULT_NBINS
 
     def load_edited_set(self, treeforest):
-        print('Loading the set of edited nodes:', end=' ')
+        logger.info('Loading the set of edited nodes:')
         pickled_file = os.path.basename(os.path.splitext(treeforest)[0]) + \
                         '.editedset.pickle'
         if os.path.exists(pickled_file):
@@ -162,7 +166,7 @@ class DataVisualizor(object):
             with open(pickled_file, 'rb') as pickle_in:
                 self.edited_set = pickle.load(pickle_in)
         else:
-            print('searching tree...')
+            logger.info('Searching tree...')
             regex = re.compile("'family_name': '(ENSGT[0-9]+[A-Za-z`.]*)',.*'taxon_name': '([A-Z][A-Za-z _.-]+)'")
             edited_list = []
             with bz2.BZ2File(treeforest) as stream:
@@ -212,7 +216,7 @@ class DataVisualizor(object):
 
         filtered = getattr(self.all_ages[col], CMP_METHODS[comp])(val)
         self.ages = self.all_ages[filtered & (self.all_ages['calibrated'] == 0)].copy()
-        print('shape:', self.ages.shape)
+        logger.debug('shape: %s', self.ages.shape)
 
         if no_edited:
             self.load_edited_set(no_edited)
@@ -221,7 +225,7 @@ class DataVisualizor(object):
         
         self.ages.drop_duplicates(inplace=True)
         assert self.ages.shape[0] > 0, "All data was filtered out."
-        print('shape after drop_dup:', self.ages.shape)
+        logger.debug('shape after drop_dup: %s', self.ages.shape)
         self.ages.reset_index(drop=True, inplace=True)
         self.taxa_ages = self.ages.groupby(['taxon'], sort=False)
         self.taxa_evt_ages = self.ages.groupby(['taxon', 'type'], sort=False)
@@ -286,8 +290,8 @@ class DataVisualizor(object):
                                   color=datacolor,
                                   alpha=self.taxonalpha, label=taxon)
             except KeyError as err:
-                print(('Data column %r not available for scatter plot. Check '
-                       'if your data can be converted to float'), file=sys.stderr)
+                err.args += ('Data column %r not available for scatter plot. Check '
+                             'if your data can be converted to float',)
                 raise
         if xlim is not None:
             self.ax.set_xlim(xlim)
@@ -347,7 +351,7 @@ class DataVisualizor(object):
             data, colors, labs_legend = zip(*[(d,c,l) for d,c,l in \
                                                 zip(data,colors,labs_legend) \
                                                 if len(d)])
-            print('WARNING: Only NaN for some taxa', file=sys.stderr)
+            logger.warning('Only NaN for some taxa')
         return data, colors, labs_legend
 
 
@@ -368,7 +372,7 @@ class DataVisualizor(object):
 
         data, colors, labels = self.make_hist_data(taxa)
 
-        print("plotting histogram")
+        logger.info("plotting histogram")
         
         self.fig, self.ax = plt.subplots()
         self.ax.hist(data, bins=nbins,
@@ -394,15 +398,15 @@ class DataVisualizor(object):
 
         Taxa returned by the iterator are space-separated
         """
-        print("Loading species tree")
-        #print(self.taxa)
+        logger.info("Loading species tree")
+        #logger.debug(self.taxa)
         root, subtree = self.phyltree.getSubAncTree(self.taxa)
 
         # reorder branches in a visually nice manner:
         ladderize(subtree, root)
-        #print(" ---\n subtree: ")
+        #logger.debug(" ---\n subtree: ")
         #for anc, children in subtree.items():
-        #    print(label_fmt % anc, children)
+        #    logger.debug(label_fmt % anc, children)
         get_children = lambda tree, node: tree.get(node, [])
         dfw = dfw_descendants_generalized(subtree, get_children, queue=[root])#,
                                           #include_leaves=True)
@@ -426,9 +430,9 @@ class DataVisualizor(object):
         self.treeforks = []
         """segment to be drawn on figure to visualize the tree: (x, y0, y1)"""
 
-        print(" ---\n Assigning ancestors to subplots:")
+        logger.debug(" ---\n Assigning ancestors to subplots:")
         for anc1, anc2list in self.walk_phylsubtree():
-            print(label_fmt % anc1, anc2list)
+            logger.debug((label_fmt % anc1) + str(anc2list))
             #dotanc1 = anc1.replace(' ', '.')
             subs = []
             for anc2 in anc2list:
@@ -450,11 +454,11 @@ class DataVisualizor(object):
         # remove root from subs_taxa:
         #self.subs_taxa[low_sub].remove(anc1)
 
-        print(" ---\n Assigned coordinates (age, subplot):")
+        logger.debug(" ---\n Assigned coordinates (age, subplot):")
         for anc, coords in self.hist_coords.items():
-            print(label_fmt % anc, ":", "%3d, %2d" % coords)
+            logger.debug((label_fmt % anc) + " : %3d, %2d" % coords)
         for i, subdatalabels in enumerate(self.subs_taxa):
-            print("%2d" %i, ', '.join(subdatalabels))
+            logger.debug("%2d %s", i, ', '.join(subdatalabels))
 
     # Add mouse events: print selected data
     def onpick_bar_printdata(self, pickevent):
@@ -469,28 +473,28 @@ class DataVisualizor(object):
         # get label (taxon)
         picked_taxa = self.subs_taxa[self.axes.tolist().index(self.picked_bar.axes)]
 
-        print("bar x0:", self.picked_bar.get_x())
-        print("bar x1:", self.picked_bar.get_x() + self.picked_bar.get_width())
+        logger.debug("bar x0:", self.picked_bar.get_x())
+        logger.debug("bar x1:", self.picked_bar.get_x() + self.picked_bar.get_width())
         pick_age = pickevent.mouseevent.ydata if self.vertical else \
                     pickevent.mouseevent.xdata
-        print("pick_age:", pick_age)
+        logger.info("pick_age:", pick_age)
         axes_data = pd.concat((self.taxa_ages.get_group(tax) for tax in picked_taxa))
         axes_data = axes_data.dropna(subset=[self.age_key])
         #axes_data, _, _ = self.make_hist_data(taxa=picked_taxa)
         #axes_data = pd.concat(axes_data)
         
-        print(self.data_bins.keys())
+        logger.debug(self.data_bins.keys())
         picked_bins = self.data_bins[picked_taxa.pop()]
         picked_bin = (pick_age > picked_bins).sum()
         assert picked_bin < len(picked_bins) + 1
-        print("picked_bins:", picked_bins)
-        print("picked_bin:", picked_bin)
+        logger.debug("picked_bins:", picked_bins)
+        logger.debug("picked_bin:", picked_bin)
         binned_data = bin_data(axes_data, picked_bins, binvar=self.age_key)
         picked_data = binned_data.get_group(picked_bin)[['name', self.age_key]]
         #max_len = picked_data.name.apply(lambda x: len(x)).max()
         #fmt_name = lambda name: ' ' * (max_len - len(name)) + name
-        print(picked_data.to_string(index=False)) #, formatters=(fmt_name, None)))
-        print("executed onpick action")
+        logger.debug(picked_data.to_string(index=False)) #, formatters=(fmt_name, None)))
+        logger.debug("executed onpick action")
 
 
     def tree_hist(self, nbins=None, vertical=False, xlim=None, ylim=None, sharescale=False,
@@ -556,7 +560,7 @@ class DataVisualizor(object):
         #print(self.ages)
         age_argmax = self.ages[self.age_key].idxmax()
         oldest_lab, oldest_age = self.ages[['taxon', self.age_key]].loc[age_argmax]
-        print("Oldest: %s (%s)" % (oldest_age, oldest_lab))
+        logger.info("Oldest: %s (%s)", oldest_age, oldest_lab)
 
         fig, axes = plt.subplots(nrows, ncols, sharex=sharex, sharey=sharey,
                                  squeeze=False, figsize=figsize)
@@ -567,13 +571,14 @@ class DataVisualizor(object):
         for ax_pos, ax in enumerate(axes):
             labs        = self.subs_taxa[ax_pos]
             data, colors, labs_legend = self.make_hist_data(labs)
-            print("* Labels: %s;" % labs_legend,
-                  "N observations: %s;" % ([d.shape for d in data],),
-                  "nbins: %r" % nbins, file=sys.stderr)
-            #print("orientation: %r" % bar_orientation, file=sys.stderr)
-            #print("colors: %s" % colors, file=sys.stderr)
+            logger.info("* Labels: %s; N observations: %s; nbins: %r",
+                         labs_legend,
+                         ([d.shape for d in data],),
+                         nbins)
+            #logger.debug("orientation: %r", bar_orientation)
+            #logger.debug("colors: %s", colors)
             if not data:
-                print('WARNING: no data. Skip', file=sys.stderr)
+                logger.warning('No data. Skip')
                 continue
             try:
                 if len(data)==1:
@@ -586,11 +591,8 @@ class DataVisualizor(object):
                                  edgecolor='none',
                                  label=labs_legend,
                                  picker=True) # allow mouse selecting bars.
-            except:
-                for d in data:
-                    print(type(d))
-                    print(repr(d))
-                print(data)
+            except BaseException as err:
+                err.args += tuple((type(d), repr(d)) for d in data)
                 raise
 
             fix_dupticks(ax)
@@ -598,7 +600,7 @@ class DataVisualizor(object):
             for lab in labs:
                 self.data_bins[lab] = bins
                 x, y = get_hist_coords(lab)
-                #print('Plotting label %r at (%s, %s)' % (lab, x, y))
+                #logger.debug('Plotting label %r at (%s, %s)' % (lab, x, y))
                 ax.text(x, y, lab, rotation=text_rotation, va='bottom', ha='left', 
                         fontsize='x-small')
             #set_title(ax, "plot %s" % ax_pos)
@@ -616,7 +618,7 @@ class DataVisualizor(object):
             axes[-1].set_ylim(ylim)
 
         # draw tree branches
-        print("n_subs =", n_subs)
+        logger.debug("n_subs =", n_subs)
         for anc1_age, sub1, sub2 in self.treeforks:
             #print(label_fmt % anc1, "%3d %2d %2d" % (anc1_age, sub1, sub2))
             ax1 = axes[sub1]
@@ -655,13 +657,13 @@ class DataVisualizor(object):
         
         for lab, data in self.taxa_ages:
             data = data.dropna(subset=[self.age_key])
-            #print("Nb of NA values:", data[self.age_key].isnull().sum())
-            #print("min:", data[self.age_key].min())
-            #print("max:", data[self.age_key].max())
+            #logger.debug("Nb of NA values:", data[self.age_key].isnull().sum())
+            #logger.debug("min:", data[self.age_key].min())
+            #logger.debug("max:", data[self.age_key].max())
             bins = self.data_bins[lab]
             binned_groups = bin_data(data, bins, binvar=self.age_key,
                                      outvar='name')
-            #print("bin indices found:", binned_groups.groups.keys())
+            #logger.debug("bin indices found:", binned_groups.groups.keys())
             scored_serie = binned_groups.aggregate(scoring, *scoring_args)
             scored_serie.name = score_name
             bin_serie = pd.Series([(bins[x-1] + bins[x])/2 for x in scored_serie.index],
@@ -722,7 +724,7 @@ def run(command, ages_file, phyltreefile=None, ensembl_version=None,
         elif command == 'tree':
             dv.assign_subplots()
             dv.tree_hist(nbins, vertical, xlim, ylim, sharescale, title)
-            print("finished drawing tree & hist.")
+            logger.info("Finished drawing tree & hist.")
         if show_edited:
             dv.add_edited_prop(show_edited)
     elif command == 'scatter':
@@ -772,6 +774,7 @@ if __name__=='__main__':
     parent_parser.add_argument('-f', '--filter',
                                help="Filter rows on the value of a given "\
                                     "column.  e.g: 'type==\"spe\"' ")
+    parent_parser.add_argument('-v', '--verbose', action='store_true')
     
     process_edited_parser = parent_parser.add_mutually_exclusive_group()
     # these two options must be given the treeforest file.
@@ -806,6 +809,9 @@ if __name__=='__main__':
     args = parser.parse_args()
     
     dictargs = vars(args)
+    
+    loglevel = logging.INFO if dictargs.pop('verbose') else logging.WARNING
+    logger.setLevel(loglevel)
 
     #print(dictargs)
 

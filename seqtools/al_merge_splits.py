@@ -5,7 +5,7 @@
 """Merge selected disjoint sequences in an alignment"""
 
 
-from sys import stdin, stdout, stderr
+from sys import stdin, stdout
 import argparse
 
 import numpy as np
@@ -13,6 +13,8 @@ from functools import reduce
 
 from Bio import Align, AlignIO
 from Bio.Seq import Seq
+import logging
+logger = logging.getLogger(__name__)
 
 
 def get_chunks(a):
@@ -54,14 +56,13 @@ def al_merge_splits(align, split_seqs):
     merged_nogap_intersection = reduce(np.bitwise_and, merged_seqs_nogaps)
 
     if merged_nogap_intersection.any():
-        print("WARNING: Sequences coordinates intersect (%d residues, identical: %s)" \
-                         % (merged_nogap_intersection.sum(),
-                            np.array_equal(merged_seqs[0][merged_nogap_intersection],
-                                  merged_seqs[1][merged_nogap_intersection])),
-              file=stderr)
-        print("conflicting slices:",
-              " ".join("%d-%d" % tuple(ch) for ch in get_chunks(merged_nogap_intersection)),
-              file=stderr)
+        logger.warning("Sequences coordinates intersect (%d residues, identical: %s)",
+                    merged_nogap_intersection.sum(),
+                    np.array_equal(merged_seqs[0][merged_nogap_intersection],
+                                   merged_seqs[1][merged_nogap_intersection]))
+        logger.info("conflicting slices: " + 
+                     " ".join("%d-%d" % tuple(ch) for ch in
+                              get_chunks(merged_nogap_intersection)))
 
     # Start merging
     new_rec = merged_records[0]
@@ -94,14 +95,14 @@ def al_merge_splits(align, split_seqs):
                         raise ValueError("Can't decide")
                     else:
                         # The smallest fragment comes from 'newseq', so overwrite it.
-                        print('Discarding smaller conflicting fragment %s from %s'\
-                                %(conflict_chunk, split_seqs[0]), file=stderr)
+                        logger.info('Discarding smaller conflicting fragment %s from %s',
+                                     conflict_chunk, split_seqs[0])
 
                 elif np.array_equal(conflict_chunk, mergedseq_conflict_src[0]):
                     # The merged seq has the smallest fragment, discard it.
                     merged_positions[conflict_chunk[0]:conflict_chunk[1]] = False
-                    print('Discarding smaller conflicting fragment %s from %s'\
-                            %(conflict_chunk, split_seqs[i]), file=stderr)
+                    logger.info('Discarding smaller conflicting fragment %s from %s',
+                                 conflict_chunk, split_seqs[i])
                 else:
                     assert chunk_contained_in(newseq_conflict_src, conflict_chunk).all() and \
                            chunk_contained_in(mergedseq_conflict_src, conflict_chunk).all(), \
@@ -114,11 +115,11 @@ def al_merge_splits(align, split_seqs):
                                           mergedseq_conflict_src[0])]
                     if src_chunk_lengths[0] > src_chunk_lengths[1]:
                         # newseq has the longest source. keep.
-                        print('Discarding smaller conflicting fragment %s from %s'\
-                                %(conflict_chunk, split_seqs[i]), file=stderr)
+                        logger.info('Discarding smaller conflicting fragment %s from %s',
+                                     conflict_chunk, split_seqs[i])
                     else:
-                        print('Discarding smaller conflicting fragment %s from %s'\
-                                %(conflict_chunk, split_seqs[0]), file=stderr)
+                        logger.info('Discarding smaller conflicting fragment %s from %s',
+                                     conflict_chunk, split_seqs[0])
 
         new_seq[merged_positions] = merged_seq[merged_positions]
 
@@ -154,8 +155,18 @@ if __name__ == '__main__':
                         default=stdin)
     parser.add_argument('-o', '--output-al', type=argparse.FileType('w'),
                         default=stdout)
+    parser.add_argument('-v', '--verbose', action='store_true')
     
     args = parser.parse_args()
+    
+    if args.verbose:
+        delattr(args, 'verbose')
+        loglevel = logging.INFO
+    else:
+        loglevel = logging.WARNING
+
+    logger.setLevel(loglevel)
+    
     main(**vars(args))
 
 

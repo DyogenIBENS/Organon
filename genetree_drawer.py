@@ -16,9 +16,8 @@ Draw a gene tree inside a species tree.
 
 import sys
 import os
-import os.path
+import os.path as op
 import re
-import warnings
 try:
     import argparse_custom as argparse # Less verbose help message
 except ImportError:
@@ -42,6 +41,14 @@ import LibsDyogen.myPhylTree as PhylTree
 from dendron.climber import dfw_descendants_generalized
 from dendron.sorter import ladderize
 from dendron.reconciled import get_taxon, get_taxon_treebest, infer_gene_event
+
+import logging
+logger = logging.getLogger(__name__)
+ch = logging.StreamHandler()
+#ch.setLevel()
+ft = logging.Formatter('%(levelname)s:l.%(lineno)d:%(funcName)s:%(message)s')
+ch.setFormatter(ft)
+logger.addHandler(ch)
 
 
 ENSEMBL_VERSION = 85
@@ -272,7 +279,7 @@ class GenetreeDrawer(object):
             filename = '/dev/stdin'
             self.genetreename = 'stdin'
         else:
-            self.genetreename = os.path.splitext(os.path.basename(filename))[0]
+            self.genetreename = op.splitext(op.basename(filename))[0]
 
         #self.genetree = ete3.Tree(filename, format=format)
         with open(filename) as gt_input:
@@ -477,20 +484,19 @@ class GenetreeDrawer(object):
             """When intermediate speciation nodes are missing between a taxon and
             descendant taxa, list the implicit branches (a pair of a taxon and its child
             taxon)."""
-            print("  Missing between %s and %s: %s" % \
-                    (child_taxon, expected_children_taxa,
-                     child_taxon not in expected_children_taxa),
-                    file=sys.stderr)
+            logger.info("  Missing between %s and %s: %s",
+                        child_taxon, expected_children_taxa,
+                        child_taxon not in expected_children_taxa)
             while child_taxon not in expected_children_taxa:
                 tmp_taxon = self.phyltree.parent[child_taxon].name
-                print("  - get intermediate parent of %s: %s" % \
-                        (child_taxon, tmp_taxon), file=sys.stderr)
+                logger.info("  - get intermediate parent of %s: %s",
+                            child_taxon, tmp_taxon)
                 while tmp_taxon not in phylsubtree:
                     try:
                         tmp_taxon = self.phyltree.parent[tmp_taxon].name
                     except KeyError as err:
-                        print(phylsubtree, file=sys.stderr)
                         err.args += (child_taxon,)
+                        logger.error('%s:%s', err, phylsubtree)
                         raise
 
                 yield tmp_taxon, child_taxon
@@ -513,9 +519,8 @@ class GenetreeDrawer(object):
                 assert taxon not in children_taxa, \
                     "This should be a duplication: %s -> %s" % (taxon, children_taxa)
                 if expected_children_taxa != children_taxa:
-                    print('Expected (spe): %s ; got: %s (from %s)' % \
-                            (expected_children_taxa, children_taxa, taxon),
-                            file=sys.stderr)
+                    logger.warning('Expected (spe): %s ; got: %s (from %s)',
+                                   expected_children_taxa, children_taxa, taxon)
 
                     tmp_children_taxa = []
                 
@@ -530,7 +535,7 @@ class GenetreeDrawer(object):
                             tmp_expected_children_taxa = phylsubtree[tmp_taxon]
 
                             deletion_count[node] += orient_deletion(set((tmp_taxon,)), tmp_expected_children_taxa)
-                            print('+1 deletion', file=sys.stderr)
+                            logger.info('+1 deletion')
                         tmp_children_taxa.append(child_taxon)
 
                     deletion_count[node] += orient_deletion(children_taxa, expected_children_taxa)
@@ -540,9 +545,9 @@ class GenetreeDrawer(object):
                     for child in node.children:
                         child_taxon = cached_taxa[child]
                         if child_taxon != taxon:
-                            print('Expected (dup): %s ; got: %s (from %s)' % \
-                                    (taxon, children_taxa, taxon),
-                                    file=sys.stderr)
+                            logger.warning('Expected (dup): %s ; '
+                                           'got: %s (from %s)',
+                                           taxon, children_taxa, taxon)
                             for tmp_taxon, _ in iter_missing_branches(child_taxon,
                                                         set((taxon,))):
                                 tmp_expected_children_taxa = phylsubtree[tmp_taxon]
@@ -762,9 +767,11 @@ class GenetreeDrawer(object):
 
                 assert all((ch_rel_y >= 0) for ch_rel_y in children_rel_ys)
                 if any((children_rel_ys[i+1] - children_rel_ys[i] < 0) for i in range(nch-1)): 
-                    warnings.warn("Children's relative Y not sorted! (%s: %s)" % (event, node.name))
+                    logger.error("Children's relative Y not sorted! (%s: %s)",
+                                  event, node.name)
                 elif any((children_rel_ys[i+1] - children_rel_ys[i] == 0) for i in range(nch-1)):
-                    warnings.warn("Some children's relative Y are identical! (%s: %s)" % (event, node.name))
+                    logger.error("Some children's relative Y are identical! (%s: %s)",
+                                  event, node.name)
 
                 for ch, ch_rel_y, (ch_real_x, ch_real_y), ch_ft in \
                         zip(children, children_rel_ys, children_real_coords,
@@ -847,9 +854,14 @@ class GenetreeDrawer(object):
                             fork_style=("square" if asymmetric else "curved"))
 
 
+###
+### Part of the module that tries to automatically prepare the data for drawing,
+### from a single ensembl genetree name.
+###
+
 def check_extracted(genetrees, output):
     all_outputs = [output.format(genetree=gt) for gt in genetrees]
-    new_genetrees = [gt for gt in genetrees if not os.path.exists(output.format(genetree=gt))]
+    new_genetrees = [gt for gt in genetrees if not op.exists(output.format(genetree=gt))]
     new_outputs = [output.format(genetree=gt) for gt in new_genetrees]
     print("The following genetrees are already extracted: %s" %
             (set(all_outputs) - set(new_outputs),), file=sys.stderr)
@@ -868,7 +880,7 @@ def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
     # 2. Find the orthologs/ancestors in the given ancestors
 
     datadir = '/users/ldog/glouvel/ws2/DUPLI_data%d/alignments' % ensembl_version
-    assert os.path.exists(datadir)
+    assert op.exists(datadir)
 
     if edited:
         # Take gene tree from Genomicus
@@ -876,7 +888,7 @@ def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
                          "GoodThreshold/tree.4F.cut.bz2" % ensembl_version
         withAncGenesNames = True
         field = 'family_name'
-        output = os.path.join(datadir, '{genetree}', '{genetree}.nwk')
+        output = op.join(datadir, '{genetree}', '{genetree}.nwk')
         fix_suffix = True
     else:
         # Take gene tree from Ensembl
@@ -884,7 +896,7 @@ def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
                          "tree.1.ensembl.bz2" % ensembl_version
         withAncGenesNames = False
         field = 'tree_name'
-        output = os.path.join(datadir, '{genetree}', '{genetree}_ensembl.nwk')
+        output = op.join(datadir, '{genetree}', '{genetree}_ensembl.nwk')
         fix_suffix = False
 
     all_outputs, new_outputs, new_genetrees = check_extracted(genetrees, output)
@@ -903,12 +915,12 @@ def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
     gt_format = '{0}' if edited else '{0:.%d}' % len(genetrees[0])
     #print(gt_format)
     
-    prune_outdir = os.path.join(datadir, gt_format, subtrees_dir)
+    prune_outdir = op.join(datadir, gt_format, subtrees_dir)
 
     for gt in genetrees:
         p_outdir = prune_outdir.format(gt)
         print(p_outdir, end=' ')
-        if not os.path.exists(p_outdir):
+        if not op.exists(p_outdir):
             print("make!")
             os.mkdir(p_outdir)
         else:

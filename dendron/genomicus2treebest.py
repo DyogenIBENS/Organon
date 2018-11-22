@@ -7,7 +7,7 @@
 from __future__ import print_function
 
 
-from sys import stdin, stderr, stdout, setrecursionlimit
+from sys import stdin, stdout, setrecursionlimit
 import argparse as ap
 import LibsDyogen.myProteinTree as ProteinTree
 

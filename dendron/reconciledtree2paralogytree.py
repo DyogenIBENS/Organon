@@ -26,7 +26,7 @@ PHYLTREEFILE = "/users/ldog/glouvel/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf"
 
 
 def pdbug(indent, *args, prefix='', sep=' ', end='\n', file=stderr):
-    """Debugging print"""
+    """Debugging print. The indent should reflect the nesting level of calls."""
     message = sep.join(str(arg) for arg in args)
     message = '    '*indent + prefix + message.replace('\n', '\n' + '    '*indent + prefix)
     print(message, end=end, file=file)

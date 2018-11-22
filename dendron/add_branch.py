@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from sys import stdin, stderr
+from sys import stdin
 import argparse
 import ete3
+import logging
+logger = logging.getLogger(__name__)
+#logging.basicConfig(format="%(levelname)s:%(message)s")
+
 
 def main(infile, format=1, *args):
     tree = ete3.Tree(infile, format=format)
@@ -24,8 +28,8 @@ def main(infile, format=1, *args):
         ref_node.detach()
         new_node_dist = ref_node.dist - ref_leaf.dist
         if new_node_dist < 0:
-            print("WARNING: new branch to %r longer than the original, reducing." \
-                    % ref_leaf.name, file=stderr)
+            logger.warning("New branch to %r longer than the original, reducing.",
+                            ref_leaf.name)
             ref_leaf.dist -= new_node_dist
             new_node_dist = 0
         parent.add_child(child=newsubtree, dist=new_node_dist)

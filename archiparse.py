@@ -21,6 +21,10 @@
 
 import re
 from collections import OrderedDict
+import logging
+logger = logging.getLogger(__name__)
+#logging.basicConfig(format="%(levelname)s:%(module)s:%(message)s")
+
 
 class ParseError(BaseException):
     pass
@@ -110,7 +114,7 @@ class ParseUnit(object):
             
             if self.merge or len(groups) <= 1:
                 if self.keys:
-                    warnings.warn('Useless key for single value. Discarding the key.')
+                    logger.warning('Useless key for single value. Discarding the key.')
                 allparsed.extend(groups) #merge should make no difference if len(groups) was 1
             else:
                 allparsed.append(groups)

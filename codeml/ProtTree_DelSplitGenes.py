@@ -46,7 +46,7 @@ def main(ensembltree, outputfile):
 
             tree.printTree(out)
     print("%d trees" % count_trees, file=stderr)
-    print("treenodes:", " ".join(str(nn) for nn in count_treenodes, file=stderr)
+    print("treenodes:", " ".join(str(nn) for nn in count_treenodes), file=stderr)
     print("Splits: %d  Split descendants: %d" % (count_splits, count_split_desc), file=stderr)
 
 

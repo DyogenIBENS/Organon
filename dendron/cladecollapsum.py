@@ -2,7 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """-----
-Tool for phylogenetic comparative testing: Clades -> collapse -> summarize.
+Tool for phylogenetic comparative testing:
+
+    clades -> collapse -> summarize.
+
 
 1. Select clades based on one or more criteria:
     - taxonomic rank (family, order, etc): `-r`
@@ -18,7 +21,7 @@ Tool for phylogenetic comparative testing: Clades -> collapse -> summarize.
         - number of extant species
         - diversification rate
         - feature rate (select feature names)
-    
+
 3. Return:
     - a table with values corresponding to each clade (.tsv);
     - the tree with collapsed clades (.nwk);
@@ -31,14 +34,20 @@ DETAILS:
 Progress on the tree from root to leaves, and collapse the first matching nodes encountered. So it can't return nested clades.
 """
 
-import sys
-import os.path
+from sys import exit
+import os.path as op
 import argparse
 import ete3 # Will use PhyloTree, NCBITaxa
 import numpy as np
 
 from itertools import chain
 from diversete import div_gamma
+
+import logging
+logger = logging.getLogger(__name__)
+ch = logging.StreamHandler()
+ch.setFormatter(logging.Formatter("%(levelname)s:%(message)s"))
+logger.addHandler(ch)
 
 
 RANKS = ['kingdom', 'subkingdom', 'phylum', 'subphylum', 'superclass', 'class', 'subclass', 'infraclass', 'superorder', 'order', 'suborder', 'infraorder', 'parvorder', 'superfamily', 'family', 'subfamily', 'genus', 'subgenus', 'species', 'subspecies']
@@ -84,7 +93,7 @@ def match_duplicate_taxid(taxids, node, taxid2name, ncbi):
     #                                   "ancestor is in multiple lineages.")
     #            #break
 
-    print('Choose %s' % match, file=sys.stderr)
+    logger.info('Choose %s', match)
     return match
 
 
@@ -124,13 +133,17 @@ def def_group_feature_rate(stem_or_crown="crown"):
                     #    print(np.array([float(getattr(descendant, ft)) for ft in features]))
                     #    print(tot_ft)
                     #    print('tot_dist:', tot_dist)
-                except TypeError:
-                    print([getattr(descendant, ft) for ft in features], file=sys.stderr)
+                except TypeError as err:
+                    err.args = (err.args[0] + '. ' +
+                                str([getattr(descendant, ft)
+                                     for ft in features]),) + err.args[1:]
                     raise
-                except AttributeError:
-                    print(node.name, 'root:', node.is_root(),
-                          node.get_farthest_leaf(),
-                          file=sys.stderr)
+                except AttributeError as err:
+                    err.args = (err.args[0] +
+                                ' %s, root: %s, %s' % (node.name,
+                                               node.is_root(),
+                                               node.get_farthest_leaf()),) + \
+                               err.args[1:]
                     raise
 
         return tot_ft / tot_dist
@@ -188,8 +201,8 @@ def make_is_leaf_fn(byrank='', byage=None, bylist=None, bysize=None,
             taxids = name2taxid.get(node.name)
             if taxids is not None:
                 if len(taxids) > 1:
-                    print('WARNING: non unique name %r: %s.' % (node.name, taxids),
-                          end=' ', file=sys.stderr)
+                    logger.warning('Non unique name %r: %s.', node.name, taxids)
+                          #end=' '
                     taxids = [match_duplicate_taxid(taxids, node, taxid2name, ncbi)]
 
                 # Non inclusive method (must be *exactly* rank, not above):
@@ -198,7 +211,7 @@ def make_is_leaf_fn(byrank='', byage=None, bylist=None, bysize=None,
                 # Must be included in the rank:
                 lineage = ncbi.get_lineage(taxids[0])
                 ranks = set(ncbi.get_rank(lineage).values())
-                #print('- %s:' % node.name, ' '.join(ranks), file=sys.stderr)
+                #logger.info('- %s: %s', node.name, ' '.join(ranks))
                 return byrank in ranks
             else:
                 return False
@@ -228,7 +241,7 @@ def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
     if byage:
         outsuffix += '-age%g' % byage
     if bylist:
-        outsuffix += '-list' + os.path.splitext(os.path.basename(bylist))[0]
+        outsuffix += '-list' + op.splitext(op.basename(bylist))[0]
     if bysize:
         outsuffix += '-size%d' % bysize
 
@@ -237,8 +250,8 @@ def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
                 'tree':     (outbase + '%s.nwk' % outsuffix)}
 
     for out in outnames.values():
-        if os.path.exists(out):
-            print("%r already exists, quitting" % out, file=sys.stderr)
+        if op.exists(out):
+            logger.error("%r already exists, quitting", out)
             return 1
     
     columns = [outsuffix.lstrip('-'), 'size', 'branches', 'age', 'tot_len'] #'crown_age', 'stem_age']
@@ -246,7 +259,7 @@ def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
     if features: columns.extend(features)
 
     if byrank or div:
-        print("Loading taxonomy", file=sys.stderr)
+        logger.info("Loading taxonomy")
         ncbi = ete3.NCBITaxa()
 
         name2taxid = ncbi.get_name_translator(
@@ -268,7 +281,7 @@ def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
 
         outtsv.write('\t'.join(columns) + '\n')
         
-        print("Iterating over found clades", file=sys.stderr)
+        logger.info("Iterating over found clades")
         for node in tree.iter_leaves(is_leaf_fn):
             outsub.write(node.write(features, format=1, format_root_node=True) + '\n')
             
@@ -297,9 +310,10 @@ def main(inputtree, outbase, div=True, features=None, stem_or_crown="crown",
                     valid_tax_children = get_valid_tax_children(node, name2taxid)
                     vtc_names = [vtc.name.replace(' ', '_') for vtc in valid_tax_children]
 
-                    print('WARNING: %r not found in NCBI Taxonomy. Merging the'
-                          ' node children %s to get the descendant counts.' \
-                          % (node.name, vtc_names), file=sys.stderr)
+                    logger.warning('%r not found in NCBI Taxonomy. Merging '
+                                    'the node children %s to get the '
+                                    'descendant counts.',
+                                    node.name, vtc_names)
                     
                     nodetaxids = []
                     for vtc_n, vtc in zip(vtc_names, valid_tax_children):
@@ -354,4 +368,4 @@ if __name__ == '__main__':
     
     
     args = parser.parse_args()
-    sys.exit(main(**vars(args)))
+    exit(main(**vars(args)))

@@ -2,6 +2,7 @@
 
 """Parse results of codeml (.mlc files) to save dN, dS values in a table"""
 
+
 from __future__ import print_function
 
 import sys
@@ -10,10 +11,15 @@ import re
 import numpy as np
 import ete3
 import argparse
+import logging
+
 import LibsDyogen.myPhylTree as PhylTree # my custom python3 version
 
 from genomicustools.identify import convert_gene2species
 from IOtools import Stream
+
+logger = logging.getLogger(__name__)
+
 
 #from codeml.codemlparser import mlc_parser
 
@@ -23,12 +29,6 @@ ENSEMBL_VERSION = 85
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0:d}/PhylTree.Ensembl.{0:d}.conf"
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9_.-]+)ENS')
 # ~~> genomicus.my_identify?
-
-
-def print_if_verbose(*args, **kwargs):
-    """Default print function. Assume that --verbose is False, so print
-    nothing."""
-    pass
 
 
 def printtree(tree, indent='', features=None, **kwargs):
@@ -126,13 +126,11 @@ def load_fulltree(mlcfile, replace_nwk='.mlc', replace_by='.nwk'):
         fulltree = ete3.Tree(nwkfile, format=1)
     except ete3.parser.newick.NewickError as e:
         if os.path.exists(nwkfile):
-            print("\nNewickError: Malformed newick tree structure in %r" \
-                    % nwkfile,
-                    file=sys.stderr)
+            logger.error("\nNewickError: Malformed newick tree structure in %r",
+                          nwkfile)
         else:
-            print("\nNewickError: Unexisting tree file %r" % nwkfile,
-                    file=sys.stderr)
-        sys.exit(1)
+            logger.error("\nNewickError: Unexisting tree file %r" % nwkfile)
+        sys.exit(2)
 
     fulltree.add_feature('treename', os.path.basename(rootname))
     return fulltree
@@ -149,7 +147,6 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
         - mlc     : an opened file (codeml result file)
         - fulltree: the ete3.Tree for the gene tree (with reinserted nodes)
     """
-    print_if_verbose()
     regex = re.compile(r'^(.*);$')
     regex_lnL = re.compile(r'^lnL\(')
     regex_w = re.compile(r'^w \(dN/dS\) for branches:')
@@ -202,7 +199,7 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
     while branches:
         br = branches.pop()
         base, tip = br.split('..')
-        print_if_verbose("%-8s" % br, end=' ')
+        logger.debug("%-8s", br)  # end=' '
         # Update the tree_nbs
         base_nb_node = tree_nbs.search_nodes(name=tip)[0].up
         base_nb_node.name = base
@@ -214,7 +211,7 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
                 try:
                     base_node = found_tips[0].up
                 except IndexError as err:
-                    print_if_verbose('Node %s:%r not found in fulltree' % (tip, tip_id))
+                    logger.info('Node %s:%r not found in fulltree', tip, tip_id)
                           #file=sys.stderr)
                     # TODO: search in tree_ids, then detached_subtrees.add()
                     detached_subtrees.add(tip)
@@ -223,30 +220,30 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
                 #while len(base_node.children) == 1:
                 #    base_node = base_node.up
             except AttributeError as err:
-                print('root (%r: %r) cannot have ancestors' % (tip, tip_id))
+                logger.warning('root (%r: %r) cannot have ancestors', tip, tip_id)
                 #print(fulltree.search_nodes(name=tip_id), err)
                 continue
 
             base_id = base_node.name
-            print_if_verbose("%s -> %s  " % (base_id, tip_id), end=" ")
+            logger.debug("%s -> %s  ", base_id, tip_id) # end=" ")
             nb2id[base] = base_id
             id2nb[base_id] = base
             # Add number in the fulltree:
             base_node.add_feature('nb', base)
-            print_if_verbose('ok')
+            logger.debug('Ok')
         except KeyError as e:
             #if base in detached_subtrees:
             # I assume a progression from leaves to root, otherwise I will miss nodes
-            print_if_verbose('Detached')
+            logger.debug('Detached')
             #else:
             # Not found now, put it back in the queue for later
             #    branches.insert(0, (base, tip))
-            #    print_if_verbose('KeyError')
+            #    logger.debug('KeyError')
 
-    print_if_verbose(tree_nbs.get_ascii())
-    print_if_verbose(tree_ids.get_ascii())
-    print_if_verbose(fulltree)
-    #print_if_verbose(fulltree.get_ascii())
+    logger.debug(tree_nbs.get_ascii())
+    logger.debug(tree_ids.get_ascii())
+    logger.debug(fulltree)
+    #logger.debug(fulltree.get_ascii())
     #printtree(fulltree, features=['nb'])
     #showtree(fulltree)
     return id2nb, nb2id, tree_nbs, branch_tw
@@ -355,7 +352,7 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
                 # Disable dating of nodes immediately below the root, as the
                 # tree should be considered unrooted and those values aren't
                 # reliable.
-                print_if_verbose("Node below root: %s. Discard measures." % node.name)
+                logger.info("Node below root: %s. Discard measures.", node.name)
                 totals = {valname: np.NaN for valname in colindex}
             else:
                 try:
@@ -372,9 +369,8 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
                 dist_tot = sum(n.dist for n in (intermediates + [node]))
 
                 if dist_tot == 0:
-                    print("WARNING: dS = 0 between %r and %r" % (parent.name,
-                            node.name),
-                            file=sys.stderr)
+                    logger.warning("WARNING: dS = 0 between %r and %r",
+                                    parent.name, node.name)
                     dist_tot = 1. # should set to NaN to be sure.
 
                 # Constant rates extrapolation.
@@ -396,8 +392,8 @@ def rm_erroneous_ancestors(fulltree, phyltree):  # ~~> genomicustools
     infinite_dist = 100
     for node in fulltree.iter_descendants():
         if node.dist > infinite_dist:
-            print('WARNING: DETACH node with dist>%d : %s, dist=%d' \
-                    % (infinite_dist, node.name, node.dist), file=sys.stderr)
+            logger.warning('DETACH node with dist>%d : %s, dist=%d',
+                  infinite_dist, node.name, node.dist)
             # Detaching/deleting would create a mismatch between fulltree and
             # tree_nbs/tree_ids
             #node.add_feature('skip', True)
@@ -413,16 +409,14 @@ def rm_erroneous_ancestors(fulltree, phyltree):  # ~~> genomicustools
             if len(node.children) <= 1:
                 if hasattr(node, 'reinserted'):
                     if phyltree.ages[taxon] > 0:
-                        print('WARNING: DELETE reinserted node with age>0: %s'\
-                                % node.name,
-                              file=sys.stderr)
+                        logger.warning('DELETE reinserted node with age>0: %s',
+                                        node.name)
                         ### TODO: see if I should actually keep these nodes
                         ###       (most often known ancestors, so might be
                         ###        useful)
                 else:
-                    print('WARNING: DELETE node with single child: %s' \
-                            % node.name,
-                          file=sys.stderr) 
+                    logger.warning('DELETE node with single child: %s',
+                                    node.name)
                 node.delete(prevent_nondicotomic=False,
                             preserve_branch_length=True)
 
@@ -613,10 +607,10 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
 
     for node in fulltree.traverse('postorder'):
         scname = node.name
-        print_if_verbose("* %s:" % scname, end=' ')
+        logger.debug("* %s:", scname) #, end=' ')
         ### DISCARD all dup just after the root speciation/duplication.
         if node.is_root() and not keeproot:
-            print_if_verbose("Root (discard)")
+            logger.debug("Root (discard)")
             continue
         #try:
         branch_measures = np.array([getattr(node, m, np.NaN) for m in measures])
@@ -631,7 +625,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                 taxon = convert_gene2species(scname, ensembl_version)
                 leaf_age = 0 # TODO: take From the calibration dictionary
             except KeyError as err:
-                print('WARNING', err, file=sys.stderr)
+                logger.warning(err)
                 taxon = None
                 leaf_age = np.NaN
 
@@ -645,7 +639,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                         measures_zeros.tolist() +
                         [1, "leaf", getattr(node.up, 'name', None), taxon,
                             fulltree.name, fulltree.treename])
-            print_if_verbose("Leaf")
+            logger.debug("Leaf")
         else:
             #try:
             #    assert len(node.children) > 1
@@ -670,7 +664,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             if tocalibrate(node, taxon, subtree):
                 # it is uncalibrated:
                 node.add_feature('cal', False)
-                print_if_verbose("Uncal.; m=%s" % subtree[scname]['tmp_m'])
+                logger.debug("Uncal.; m=%s", subtree[scname]['tmp_m'])
 
                 # Store the age of the **next calibrated** node (propagate down).
                 # Since it is a duplication, this should be the same for
@@ -678,9 +672,8 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                 ch_ages = [subtree[ch.name]['age'] for ch in node.children]
                 if len(set(ch_ages)) > 1:
 
-                    print(("WARNING: at %r: unequal children's ages (next "
-                           "calibrated ages): %s" % (scname, ch_ages)),
-                          file=sys.stderr)
+                    logger.warning("At %r: unequal children's ages (next "
+                                    "calibrated ages): %s", scname, ch_ages)
                     #showtree(fulltree)
                     subtree[scname]['age'] = np.NaN
                 else:
@@ -690,7 +683,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             else:
                 # it is calibrated.
                 node.add_feature('cal', True)
-                print_if_verbose("Calibrated")
+                logger.debug("Calibrated")
                 # store the age of this taxon
                 node_age = subtree[scname]['age'] = calibration[taxon]
                 subtree[scname]['cal_leaves'] = 1
@@ -728,7 +721,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                     else:
                         scaling_m = None
 
-                    print_if_verbose("    climb up to next calibration: " \
+                    logger.debug("    climb up to next calibration: " \
                                      "dist_to_calib=%s scaling_m=%s tmp_m=%s" \
                                      % (dist_to_calib, scaling_m,
                                         subtree[scname]['tmp_m']))
@@ -743,7 +736,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                             err.args += ("Error: Node exists twice in the "
                               "tree. You may need to rerun `prune2family.py`",)
                             raise
-                        print_if_verbose("    - %s: measure(to calib)=%s"\
+                        logger.debug("    - %s: measure(to calib)=%s"\
                                          "; measure(from calib)=%s" % \
                                             (nextnode.name,
                                              nextnode_m, next_path_m))
@@ -754,10 +747,9 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                                 scaling_m = next_path_m + nextnode_m
 
                             if any(scaling_m == 0):
-                                print("\nWARNING: scaling measure = %s (" \
-                                      "cannot divide) at %r" % \
-                                      (scaling_m, nextnode.name),
-                                      file=sys.stderr)
+                                logger.warning("Scaling measure = %s ("
+                                                "cannot divide) at %r",
+                                                scaling_m, nextnode.name)
                             age = node_age - \
                                   (1 - nextnode_m/scaling_m) * dist_to_calib
                             #ages[nextnode.name] = age
@@ -790,7 +782,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
 
                 # then reset measure (dS, dist) to zero
                 subtree[scname]['tmp_m'] = measures_zeros
-    #print_if_verbose(subtree)
+    #logger.debug(subtree)
     return ages, subtrees
 
 
@@ -810,8 +802,7 @@ def del_singletons(tree):
                 if hasattr(child, feature):
                     setattr(child, feature,
                             getattr(child, feature) + getattr(node, feature, np.nan))
-            print_if_verbose('DELETE %r before saving' % node.name,
-                             file=sys.stderr)
+            logger.info('DELETE %r before saving', node.name)
             node.delete(prevent_nondicotomic=False, preserve_branch_length=True)
     while len(tree.children) == 1:
         tree = tree.children[0].detach()
@@ -908,23 +899,33 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
          saveas='ages', tocalibrate='isdup', keeproot=False):
     nb_mlc = len(mlcfiles)
     
-    # "compile" some functions to avoid redondant tests ("if verbose: ...")
-    if verbose:
-        global print_if_verbose
-        def print_if_verbose(*args, **kwargs):
-            print(*args, **kwargs)
+    loglevel = logging.DEBUG if verbose else logging.WARNING
+    logger.setLevel(loglevel)
 
-    print_if_verbose("Main: outfile  %s\n" % outfile,
-          "     mlcfiles      %s %s\n" % (mlcfiles[:5], '...' * (nb_mlc>5)),
-          "     ensembl       v.%d\n" % ensembl_version,
-          "     measures      %s\n" % measures,
-          "     verbose       %s\n" % verbose,
-          "     show          %s\n" % show,
-          "     method2       %s\n" % method2,
-          "     unweighted    %s\n" % unweighted,
-          "     replace_nwk   %s\n" % replace_nwk,
-          "     replace_by    %s\n" % replace_by,
-          "     ignore_errors %s\n" % ignore_errors)
+    logging.debug("outfile  %s\n"
+                  "     mlcfiles      %s %s\n"
+                  "     ensembl       v.%d\n"
+                  "     measures      %s\n"
+                  "     verbose       %s\n"
+                  "     show          %s\n"
+                  "     method2       %s\n"
+                  "     unweighted    %s\n"
+                  "     replace_nwk   %s\n"
+                  "     replace_by    %s\n"
+                  "     ignore_errors %s\n",
+                  outfile,
+                  (mlcfiles[:5], '...' * (nb_mlc>5)),
+                  ensembl_version,
+                  measures,
+                  verbose,
+                  show,
+                  method2,
+                  unweighted,
+                  replace_nwk,
+                  replace_by,
+                  ignore_errors)
+
+
     
 
     saveas_indices = {'ages': 0, 'fulltree': 1, 'subtrees': 2}
@@ -956,7 +957,7 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
             except BaseException as err:
                 print()
                 if ignore_errors:
-                    print("Skip %r: %r" % (mlcfile, err), file=sys.stderr)
+                    logger.warning("Skip %r: %r", mlcfile, err)
                 else:
                     raise
     print()

@@ -3,10 +3,14 @@
 
 """Edit chosen nodes from the tree: keep only their closest leaf."""
 
-from sys import stdin, stderr, stdout
+from sys import stdin, stdout
 import argparse as ap
 from LibsDyogen import myProteinTree
 from dendron.climber import iter_leaves, iter_leaf_paths
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logger.INFO)
+#logging.basicConfig(format="%(levelname)s:%(message)s", level=logger.INFO)
 
 
 def get_data(tree, datum):
@@ -62,7 +66,7 @@ def edit(badnodes, proteintrees, yield_unchanged=False):
             # Check leaf number: then only check intersection with strictly larger sets.
             new_size = len(leaves)
             if new_size < size:
-                #print("Size decrease!", file=stderr)
+                #logger.debug("Size decrease!")
                 larger_size_i = len(edited_leafsets)
                 size = new_size
 
@@ -81,19 +85,18 @@ def edit(badnodes, proteintrees, yield_unchanged=False):
         yield tree
 
     if badnodes:
-        print("WARNING: %d nodes not found: %s..." % (len(badnodes),
-            ' '.join(str(n) for n in list(badnodes)[:5])), file=stderr)
-    print("%d edited nodes\n%d implicitely edited\n%d with >2 leaves" % (
-            n_edits, n_included, n_morethan2),
-          file=stderr)
-        
+        logger.warning("%d nodes not found: %s...", len(badnodes),
+                        ' '.join(str(n) for n in list(badnodes)[:5]))
+    logger.info("%d edited nodes\n%d implicitely edited\n%d with >2 leaves",
+                 n_edits, n_included, n_morethan2)
+
 
 def main(badnodelistfile, forestfile, badnode_col=0):
     with open(badnodelistfile) as f:
         header_line = next(f)
         badnodes = set(int(line.rstrip().split()[0]) for line in f)
 
-    print(len(badnodes), file=stderr)
+    logger.info('%d nodes to remove.', len(badnodes))
 
     for tree in edit(badnodes, myProteinTree.loadTree(forestfile)):
         tree.printTree(stdout)

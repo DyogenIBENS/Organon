@@ -5,11 +5,16 @@
 """Extract the taxon taxonomic tree from the ncbi taxonomy files
 (nodes.dmp and names.dmp)"""
 
-import sys
 import re
 from collections import defaultdict
 import ete3
 import argparse
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logger.INFO)
+#logging.basicConfig(format='%(levelname)s:%(funcName)s:%s(message)s',
+#                    level=logger.INFO)
+
 
 
 EXCLUDE=r'\b(sp|spp|x)\b'
@@ -54,11 +59,11 @@ def build_tree_ete3(descent, id2names, names2id, taxon, exclude=EXCLUDE):
 
 def extractree(nodesdmp, namesdmp, taxon, cut='subspecies',
                wantedname='scientific name', exclude=EXCLUDE):
-    print("Loading name-to-id conversion", file=sys.stderr)
+    logger.info("Loading name-to-id conversion")
     names2id, id2names = load_names2id(namesdmp, wantedname)
-    print("Loading node children", file=sys.stderr)
+    logger.info("Loading node children")
     descent = load_descent(nodesdmp, cut)
-    print("Building tree", file=sys.stderr)
+    logger.info("Building tree")
     return build_tree_ete3(descent, id2names, names2id, taxon, exclude)
 
 

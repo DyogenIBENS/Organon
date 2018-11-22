@@ -2,8 +2,10 @@
 
 
 import re
-import sys
 import argparse
+import logging
+#logging.basicConfig(format="%(levelname)s:%(funcName)s:%(message)s")
+logger = logging.getLogger(__name__)
 
 
 def parse_assignments(line):
@@ -90,7 +92,7 @@ def get_seq(maffilename, seqname_start, ignore_overlap=False):
                            "%d: %r\n%d: %r" % (seqname, prev_lineno, prev_line,
                                                lineno, line.rstrip()))
                     if ignore_overlap:
-                        print(msg, file=sys.stderr)
+                        logger.warning(msg)
                     else:
                         raise AssertionError(msg)
 
@@ -127,8 +129,7 @@ def get_seq2(maffilename, select_seq='', ref='hg19'):
                 target_contigs = targets.setdefault(seqname, {})
                 start, end, seq = target_contigs.get(seqname, (0, 0, ''))
                 if seqdata['leftS'] == 'T':
-                    print('WARNING: This region is a (tandem) duplicate. Skipping',
-                          file=sys.stderr)
+                    logger.warning("This region is a (tandem) duplicate. Skipping")
                 elif seqdata['leftS'] == 'I':
                     gap_size = seqdata['leftC']
                     # Would be better to retrieve the actual sequence.

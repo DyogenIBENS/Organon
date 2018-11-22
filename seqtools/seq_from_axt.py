@@ -4,9 +4,12 @@
 reverse-complement sequences on the minus strand, and output a fasta file.
 """
 
-import sys
 import argparse
 import gzip
+import logging
+#logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.StreamHandler(logging.INFO))
 
 
 def myopen(filename, *args, **kwargs):
@@ -106,8 +109,7 @@ if __name__=='__main__':
     bed = dictargs.pop('bed')
     
     if bed:
-        print('Taking coordinates from bed file (overrides command-line options)',
-              file=sys.stderr)
+        logger.info('Taking coordinates from bed file (overrides command-line options)')
         seqname, begin, end = get_1based_coords_from_bed(bed)
         dictargs['seqname'] = seqname
         dictargs['begin'] = begin

@@ -2,7 +2,9 @@
 
 
 #import queue
-import warnings
+import logging
+#logging.basicConfig(format='%(levelname)s:%(funcName)s:%(message)s')
+logger = logging.getLogger(__name__)
 
 
 def bfw_pairs(phyltree, queue=None, closest_first=True):
@@ -76,7 +78,7 @@ def dfw_pairs_generalized(tree, get_children, queue=None, include_root=False):
         try:
             queue = [(None, tree.root)]
         except AttributeError as e:
-            warnings.warn("No root attribute found. Please initialize "
+            logger.error("No root attribute found. Please initialize "
                           "the queue with the root: queue=[(None, root)]")
             queue = []  # will raise Stop iteration
 
@@ -172,7 +174,7 @@ def bfw_descendants_generalized(tree, get_children, include_leaves=False,
         try:
             queue = [tree.root]
         except AttributeError as e:
-            warnings.warn("No root attribute found. Please initialize "
+            logger.error("No root attribute found. Please initialize "
                           "the queue with the root: queue=[root]")
             queue = []  # will raise Stop iteration
 
@@ -271,7 +273,7 @@ def dfw_descendants_generalized(tree, get_children, include_leaves=False,
         try:
             queue = [tree.root]
         except AttributeError as e:
-            warnings.warn("No root attribute found. Please initialize "
+            logger.error("No root attribute found. Please initialize "
                           "the queue with the root: queue=[root]")
             queue = []  # will raise Stop iteration
 
@@ -300,7 +302,7 @@ def dfw_lineage_generalized(tree, get_children, queue=None):
         try:
             queue = [[tree.root]]
         except AttributeError as e:
-            warnings.warn("No root attribute found. Please initialize "
+            logger.error("No root attribute found. Please initialize "
                           "the queue with the root: queue=[root]")
             queue = []  # will raise Stop iteration
 

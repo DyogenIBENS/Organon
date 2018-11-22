@@ -7,7 +7,9 @@
 from sys import stdin
 import os.path
 import argparse
-import warnings
+import logging
+logging.basicConfig(format='%(levelname)s:%(funcName):%(message)s')
+
 
 from Bio import AlignIO
 
@@ -271,7 +273,7 @@ def colorizerecord(record, residu2col=CODON2COL, stepwidth=3):
         colorized += residucol + residu + RESET
 
     if unknown_residus:
-        warnings.warn("Unknown codons: %s" % ' '.join(unknown_residus))
+        logging.warning("Unknown codons: %s", ' '.join(unknown_residus))
 
     return colorized
 

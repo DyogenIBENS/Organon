@@ -5,7 +5,6 @@
 """Get all alternative names of a list of taxa."""
 
 
-import sys
 import argparse
 import fileinput
 from collections import defaultdict
@@ -26,7 +25,7 @@ def load_synonyms(namesdmp, wanted='synonym'):
 
 
 def main(namesdmp, taxa, wanted='synonym', oneline=False):
-    #print(len(taxa), taxa, file=sys.stderr)
+    #logger.debug(len(taxa), taxa)
 
     if not taxa:
         # read from stdin
@@ -35,7 +34,7 @@ def main(namesdmp, taxa, wanted='synonym', oneline=False):
         #with fileinput.input([]) as stream:
         #    while stream.isstdin():
         #        taxa.append(next(stream).rstrip())
-                #print(stream.filename(), stream.fileno(), stream.isstdin(), file=sys.stderr)
+                #logging.debug(stream.filename(), stream.fileno(), stream.isstdin())
 
     names2id, id2wanted = load_synonyms(namesdmp, wanted)
 
@@ -47,13 +46,13 @@ def main(namesdmp, taxa, wanted='synonym', oneline=False):
             if synonyms:
                 print('\n'.join(['%s\t%s' % (taxon, syn) for syn in synonyms]))
     
-    #print(len(taxa), taxa, file=sys.stderr)
+    #logging.debug(len(taxa), taxa)
 
     for taxon in taxa:
         try:
             printout(taxon, id2wanted[names2id[taxon]])
-        except KeyError:
-            print(taxon, file=sys.stderr)
+        except KeyError as err:
+            err.args = (err.args[0] + (': %s' % taxon),) + err.args[1:]
             raise
 
 

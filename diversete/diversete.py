@@ -8,8 +8,11 @@
     - constant rate BD fit
     - gamma statistic"""
 
-#from sys import stderr
+
 import numpy as np
+import logging
+logger = logging.getLogger(__name__)
+#logging.basicConfig("%(levelname)s:%(funcName)s:%(message)s")
 
 
 def tot_branch_len(tree):
@@ -132,7 +135,7 @@ def div_gamma(tree):
     try:
         Ttot = T[-1]
     except IndexError:
-        #print("div_gamma WARNING: tree has only one node", file=stderr)
+        logger.warning("Tree has only one node")
         return np.NaN
 
     try:

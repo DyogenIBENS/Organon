@@ -8,7 +8,7 @@ Input/output trees are in Dyogen ProteinTree format.
 """
 
 
-from sys import stdin, stdout, stderr, setrecursionlimit
+from sys import stdin, stdout, setrecursionlimit
 import argparse
 
 from sorter import leaf_sort
@@ -26,8 +26,10 @@ def ProteinTree_getchildren(tree, node_and_dist):
 def ProteinTree_getnodeattr(tree, node_and_dist, attrname="gene_name"):
     try:
         return tree.info[node_and_dist[0]][attrname]
-    except KeyError:
-        print(node_and_dist, tree.info[node_and_dist[0]], file=stderr)
+    except KeyError as err:
+        err.args = (err.args[0] +
+                    '%s %s' % (node_and_dist, tree.info[node_and_dist[0]]),) +\
+                   err.args[1:]
         raise
 
 
