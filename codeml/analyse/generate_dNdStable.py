@@ -136,6 +136,34 @@ def load_fulltree(mlcfile, replace_nwk='.mlc', replace_by='.nwk'):
     return fulltree
 
 
+def eat_lines_uptomatch(file_obj, regex, line=None, jump=0):
+    if line is None:
+        line = file_obj.readline()
+    match = regex.match(line.rstrip())
+    while not match:
+        for _ in range(jump):
+            file_obj.readline()
+
+        line = file_obj.readline()
+        if not line:
+            raise LookupError("Reached end of file without matching '%s'" % regex.pattern)
+        match = regex.match(line.rstrip())
+    return line #, match
+
+
+def yield_lines_whilematch(file_obj, regex, line=None, jump=0):
+    if line is None:
+        line = file_obj.readline()
+    match = regex.match(line.rstrip())
+    while match:
+        yield line
+        for _ in range(jump):
+            file_obj.readline()
+
+        line = file_obj.readline()
+        match = regex.match(line.rstrip())
+
+
 def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
     """Parse the codeml result file (.mlc) to return 2 trees:
     tree_nbs: the tree with node labelled as numbers.
@@ -147,29 +175,49 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
         - mlc     : an opened file (codeml result file)
         - fulltree: the ete3.Tree for the gene tree (with reinserted nodes)
     """
-    regex = re.compile(r'^(.*);$')
-    regex_lnL = re.compile(r'^lnL\(')
-    regex_w = re.compile(r'^w \(dN/dS\) for branches:')
-    # get the line listing all branches
-    line = mlc.readline().rstrip()
+    regex_tree = re.compile(r'^(.*);$')
+    regex_lnL  = re.compile(r'^lnL\(')
+    regex_w    = re.compile(r'^w \(dN/dS\) for branches:')
+    regex_freqtable = re.compile('^Codon position x base \(3x4\) table for each sequence\.$')
+    regex_seqid = re.compile('^#(\d+): (.*)$')
+
+    line = eat_lines_uptomatch(mlc, regex_freqtable)
+
+    seqids = {}
+
+    mlc.readline()
+    line = mlc.readline()
+    while True:
+        m = regex_seqid.match(line.rstrip())
+        if not m:
+            break
+        seqids[m.group(1)] = m.group(2)
+        for _ in range(6):
+            line = mlc.readline()
+        assert line
+        #if not line:
+        #    break
+
+    assert seqids
+    
+    # Get the line listing all branches
     while not regex_lnL.match(line):
         line = mlc.readline().rstrip()
     branches_line = mlc.readline().rstrip()
     branches = branches_line.split()
     # get translation by looking at the newick tree lines.
-    # I could also get it by the lines #1: ENS...
     lengths_line = mlc.readline().rstrip()
     lengths = [float(l) for l in lengths_line.split()]
 
     # Get the tree labelled with numbers
     line = mlc.readline().rstrip()
-    while not regex.match(line):
+    while not regex_tree.match(line):
         line = mlc.readline().rstrip()
     tree_nbs = ete3.Tree(line)
 
     # Get the tree with original labels
     line = mlc.readline().rstrip()
-    while not regex.match(line):
+    while not regex_tree.match(line):
         line = mlc.readline().rstrip()
     tree_ids = ete3.Tree(line)
 
@@ -182,6 +230,8 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
 
     id2nb = dict(zip(tree_ids.get_leaf_names(), tree_nbs.get_leaf_names()))
     nb2id = dict(zip(tree_nbs.get_leaf_names(), tree_ids.get_leaf_names()))
+
+    assert set(seqids) == set(nb2id) and all((seqid == seqids[nb]) for nb,seqid in nb2id.items())
 
     # Remember nodes that were detached from fulltree, and all their descendants
     detached_subtrees = set()
@@ -199,7 +249,7 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
     while branches:
         br = branches.pop()
         base, tip = br.split('..')
-        logger.debug("%-8s", br)  # end=' '
+        debug_msg = "%-8s " % br
         # Update the tree_nbs
         base_nb_node = tree_nbs.search_nodes(name=tip)[0].up
         base_nb_node.name = base
@@ -208,14 +258,13 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
             tip_id = nb2id[tip]
             found_tips = fulltree.search_nodes(name=tip_id)
             try:
-                try:
-                    base_node = found_tips[0].up
-                except IndexError as err:
-                    logger.info('Node %s:%r not found in fulltree', tip, tip_id)
-                          #file=sys.stderr)
-                    # TODO: search in tree_ids, then detached_subtrees.add()
-                    detached_subtrees.add(tip)
-                    continue
+                base_node = found_tips[0].up
+            except IndexError as err:
+                logger.warning('Node %s:%r not found in fulltree', tip, tip_id)
+                      #file=sys.stderr)
+                # TODO: search in tree_ids, then detached_subtrees.add()
+                detached_subtrees.add(tip)
+                continue
 
                 #while len(base_node.children) == 1:
                 #    base_node = base_node.up
@@ -225,16 +274,16 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
                 continue
 
             base_id = base_node.name
-            logger.debug("%s -> %s  ", base_id, tip_id) # end=" ")
+            debug_msg += "%s -> %s  " % (base_id, tip_id)
             nb2id[base] = base_id
             id2nb[base_id] = base
             # Add number in the fulltree:
             base_node.add_feature('nb', base)
-            logger.debug('Ok')
+            logger.debug(debug_msg + 'Ok')
         except KeyError as e:
             #if base in detached_subtrees:
             # I assume a progression from leaves to root, otherwise I will miss nodes
-            logger.debug('Detached')
+            logger.debug(debug_msg + 'Detached')
             #else:
             # Not found now, put it back in the queue for later
             #    branches.insert(0, (base, tip))
@@ -607,10 +656,10 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
 
     for node in fulltree.traverse('postorder'):
         scname = node.name
-        logger.debug("* %s:", scname) #, end=' ')
+        debug_msg = "* %s: " % scname
         ### DISCARD all dup just after the root speciation/duplication.
         if node.is_root() and not keeproot:
-            logger.debug("Root (discard)")
+            logger.debug(debug_msg + "Root (discard)")
             continue
         #try:
         branch_measures = np.array([getattr(node, m, np.NaN) for m in measures])
@@ -639,7 +688,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                         measures_zeros.tolist() +
                         [1, "leaf", getattr(node.up, 'name', None), taxon,
                             fulltree.name, fulltree.treename])
-            logger.debug("Leaf")
+            logger.debug(debug_msg + "Leaf")
         else:
             #try:
             #    assert len(node.children) > 1
@@ -664,7 +713,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             if tocalibrate(node, taxon, subtree):
                 # it is uncalibrated:
                 node.add_feature('cal', False)
-                logger.debug("Uncal.; m=%s", subtree[scname]['tmp_m'])
+                logger.debug(debug_msg + "Uncal.; m=%s", subtree[scname]['tmp_m'])
 
                 # Store the age of the **next calibrated** node (propagate down).
                 # Since it is a duplication, this should be the same for
@@ -683,7 +732,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             else:
                 # it is calibrated.
                 node.add_feature('cal', True)
-                logger.debug("Calibrated")
+                logger.debug(debug_msg + "Calibrated")
                 # store the age of this taxon
                 node_age = subtree[scname]['age'] = calibration[taxon]
                 subtree[scname]['cal_leaves'] = 1
@@ -957,7 +1006,7 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
             except BaseException as err:
                 print()
                 if ignore_errors:
-                    logger.warning("Skip %r: %r", mlcfile, err)
+                    logger.error("Skip %r: %r", mlcfile, err)
                 else:
                     raise
     print()
