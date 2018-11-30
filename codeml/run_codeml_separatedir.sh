@@ -189,6 +189,7 @@ if [ ${PIPESTATUS[0]} -eq 0 ]; then
 		#	mv $maybeoutfile ../$maybeoutfile
 		#fi
 		mv outfile.mlc "$outfile"
+        # TODO: replace all occurences of "seqfile.phy" by $seqfile
 
 		cd ..
 		rmdir $genetree/ #|| echo >&2 "$!"
