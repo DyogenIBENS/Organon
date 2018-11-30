@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 #logging.basicConfig(format="%(levelname)s:%(module)s:%(message)s")
 
 
-class ParseError(BaseException):
+class ParseUnitNotFoundError(LookupError):
     pass
 
 
@@ -45,7 +45,7 @@ def strlist(line):
 
 class ParseBloc(object):
     """Aim to structure multiple ParseUnits/ParseBlocs"""
-    def __init__(self, name, units=None):#, struct=OrderedDict):
+    def __init__(self, name, units=None):#, repeat=False, struct=OrderedDict):
         self.name = name
         self.units = units or []
         #self.struct = struct
@@ -66,7 +66,9 @@ class ParseUnit(object):
                  optional=False, repeat=False, merge=False, flags=re.M,
                  fixed=False, convert=None):
         self.name = name
-        self.regex = pattern if fixed else re.compile(pattern, flags=flags)
+        if fixed:
+            pattern = re.escape(pattern)
+        self.regex = re.compile(pattern, flags=flags)
         self.keys = keys or []
         self.types = types or []
         self.convert = convert
@@ -79,12 +81,9 @@ class ParseUnit(object):
         self.optional = optional
         self.repeat = repeat
         self.merge = merge
-        self.fixed = fixed
+        #self.fixed = fixed
         
     def parse(self, text):
-        if self.fixed:
-            raise NotImplementedError
-
         if self.repeat:
             matches = self.regex.finditer(text)
         else:
@@ -95,7 +94,15 @@ class ParseUnit(object):
             if self.optional:
                 return [], text
             else:
-                raise ParseError("%s: '%s'" % (self.name, self.regex.pattern))
+                lines = text.split('\n')
+                nl = len(lines)
+                lines = lines[:min(2, nl)]
+                if nl > 4:
+                    lines.append('[...]')
+                lines.extend(lines[max(nl-2, nl//2+1):])
+                raise ParseUnitNotFoundError("%s: '%s' in:\n%s" %(self.name,
+                                                        self.regex.pattern,
+                                                        '\n'.join(lines)))
 
         allparsed = []
 
