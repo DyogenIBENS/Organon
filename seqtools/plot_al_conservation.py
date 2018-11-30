@@ -735,6 +735,8 @@ def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
         align_plot.comp_parts(compare_parts)
     if plotlist is not None:
         plotlist = plotlist.split(',')
+        if 'pars' in plotlist:
+            assert treefile is not None, "A treefile must be given to compute parsimony score."
     align_plot.makefig(figwidth, plotlist)
     align_plot.display(outfile)
 

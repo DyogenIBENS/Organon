@@ -43,12 +43,11 @@ from dendron.sorter import ladderize
 from dendron.reconciled import get_taxon, get_taxon_treebest, infer_gene_event
 
 import logging
+#logging.basicConfig(format='%(levelname)s:%(name)s:l.%(lineno)d:%(funcName)s:%(message)s', level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-ch = logging.StreamHandler()
-#ch.setLevel()
-ft = logging.Formatter('%(levelname)s:l.%(lineno)d:%(funcName)s:%(message)s')
-ch.setFormatter(ft)
-logger.addHandler(ch)
+logger.setLevel(logging.DEBUG)
+#print(logger.name, file=sys.stderr)
+#logging.basicConfig(format='', level=logging.DEBUG)
 
 
 ENSEMBL_VERSION = 85
@@ -376,7 +375,7 @@ class GenetreeDrawer(object):
         for parent, (px, py, _), child, (cx, cy, _) in \
               iter_species_coords(self.phyltree, self.taxa, angle_style, ages):
 
-            print(parent, child)
+            logger.debug('%-16s %-16s', parent, child)
             self.species_branches[child] = (parent, cx - px, cy - py)
 
             self.species_coords[child] = (cx, cy)

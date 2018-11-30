@@ -19,6 +19,9 @@ from genomicustools.identify import ultimate_seq2sp
 import logging
 #logging.basicConfig(format='%(levelname)s:%(module)s l.%(lineno)d:%(funcName)s:%(message)s')
 logger = logging.getLogger(__name__)
+#ch = logging.StreamHandler()
+#ch.setFormatter(logging.Formatter("%(levelname)s:%(message)s"))
+#logger.addHandler(ch)
 
 
 # For types
@@ -78,6 +81,7 @@ def infer_gene_event(node, taxon, children_taxa):
     if not children_taxa:
         return 'leaf'
 
+    children_names = [ch.name for ch in node.children]
     treebest_isdup = getattr(node, 'D', None)
 
     if (treebest_isdup == 'Y') or taxon in children_taxa:
@@ -90,23 +94,23 @@ def infer_gene_event(node, taxon, children_taxa):
             logger.warning("The node %r -> %s "
                   "is marked as a *speciation* but looks like a duplication"
                   " after taxon information.",
-                  node.name, [ch.name for ch in node.children])
-        elif treebest_isdup == 'Y':
+                  node.name, children_names)
+        elif treebest_isdup == 'Y' and taxon not in children_taxa:
             logger.warning("The node %r -> %s "
                     "is marked as a *duplication* but is ambiguous: "
                     "intermediate speciation nodes are missing.",
-                  node.name, [ch.name for ch in node.children])
+                  node.name, children_names)
 
         if len(children_taxa) > 1:  # or treebest_isdup == 'Y'
             logger.warning("The node %r -> %s "
                   "is a duplication + a speciation. Not "
-                  "truly reconciled tree.", 
-                  node.name, [ch.name for ch in node.children])
+                  "truly reconciled tree.",
+                  node.name, children_names)
         elif len(node.children) == 1:
             logger.warning("The node %r -> %s "
                   " is a duplication/speciation with one "
                   "descendant.",
-                  node.name, [ch.name for ch in node.children])
+                  node.name, children_names)
         return 'dup'
     else:
         ### FIXME
@@ -121,7 +125,7 @@ def infer_gene_event(node, taxon, children_taxa):
             #           "descendant."
                 #if not node.is_root(): event = 'dup'
                 # TODO: check this in the duplication block above.
-                logger.warning(msg, node.name, [ch.name for ch in node.children])
+                logger.warning(msg, node.name, children_names)
 
         return 'spe'
 
