@@ -191,12 +191,14 @@ class DataVisualizor(object):
         self.phyltree = None
 
         # Parse the filter command:
-        try:
-            col, comp, val = RE_FILTER.match(filter).groups()
-        except AttributeError:
-            raise
-        quoted_match = RE_QUOTED.match(val)
-        val = quoted_match.group(1) if quoted_match else float(val)
+        if filter is not None:
+            try:
+                col, comp, val = RE_FILTER.match(filter).groups()
+            except AttributeError:
+                raise
+
+            quoted_match = RE_QUOTED.match(val)
+            val = quoted_match.group(1) if quoted_match else float(val)
 
         # graphical parameters:
         self.vertical = False
@@ -214,7 +216,7 @@ class DataVisualizor(object):
         if not set(('taxon', 'genetree')) & set(self.all_ages.columns):
             self.all_ages = splitname2taxongenetree(self.all_ages, "name")
 
-        filtered = getattr(self.all_ages[col], CMP_METHODS[comp])(val)
+        filtered = True if filter is None else getattr(self.all_ages[col], CMP_METHODS[comp])(val)
         self.ages = self.all_ages[filtered & (self.all_ages['calibrated'] == 0)].copy()
         logger.debug('shape: %s', self.ages.shape)
 
