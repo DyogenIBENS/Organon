@@ -46,7 +46,7 @@ def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
         alfiles_pattern = op.join(rootdir, genetree, subtreesdir,
                                   ancestor + genetree + '*' + filesuffix)
         alfiles_reg = re.compile(re.escape(alfiles_pattern).replace('\\*', '(.*)'))
-        exclude_reg = re.compile(exclude)
+        exclude_reg = exclude if exclude is None else re.compile(exclude)
 
         print(alfiles_pattern, alfiles_reg.pattern, file=stderr)
         for subtreefile in glob(alfiles_pattern):
@@ -117,8 +117,13 @@ def any_get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
         return get_taxon_treebest(node)
 
 
-def per_node_events(tree, get_taxon=any_get_taxon, *args):
-    """Check each node and its type (duplication, deletion, speciation)"""
+def per_node_events(tree, phyltree, aberrant_dist=10000,
+                    get_taxon=any_get_taxon, *args):
+    """Check each node and its type (duplication, deletion, speciation).
+    """
+    aberrant_dists = 0
+    wrong_duptypes = 0  # NotImplemented (where duplication != 0 or 2 or 3)
+
     leaves = 0
 
     events = ('dup', 'spe', 'speloss', 'duploss')
@@ -128,6 +133,9 @@ def per_node_events(tree, get_taxon=any_get_taxon, *args):
     only_treebest_events = {evt: 0 for evt in events}
 
     for node in tree.traverse('preorder'):
+        if node.dist >= aberrant_dist:
+            aberrant_dists += 1
+
         if node.is_leaf():
             leaves += 1
             continue
@@ -135,6 +143,7 @@ def per_node_events(tree, get_taxon=any_get_taxon, *args):
         treebest_isdup = getattr(node, 'D', None)
 
         taxon = get_taxon(node, *args)
+        expected_speciated_taxa = set(t[0] for t in phyltree.items.get(taxon, []))
         children_taxa = set(get_taxon(ch, *args) for ch in node.children)
 
         event = infer_gene_event_taxa(node, taxon, children_taxa)
@@ -149,14 +158,17 @@ def per_node_events(tree, get_taxon=any_get_taxon, *args):
             counter = only_treebest_events
             event = 'spe'
 
-        if len(node.children) == 1:
+        if (event == 'dup' and counter is sure_events and
+               len(node.children) < 2) or \
+           (event == 'spe' and len(expected_speciated_taxa)>0 and \
+               len(node.children) < len(expected_speciated_taxa)):
             event += 'loss'
 
         counter[event] += 1
 
     #return tuple(sure_events[e] for e in events) + \
     #       tuple(only_treebest_events[e] for e in events)
-    return sure_events, only_treebest_events
+    return sure_events, only_treebest_events, aberrant_dists
 
 
 def make_ancgene2sp(ancestor, phyltree):
@@ -180,7 +192,7 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     phyltree = PhylTree.PhylogeneticTree(phyltreefile)
     #ensembl_ids_anc = get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version)
     print('subtree\tgenetree\troot_location\tleaves_robust\tsingle_gene_nodes'
-            + ('\tnodes_robust\tonly_treebest_spe' if extended else ''))
+            + ('\tnodes_robust\tonly_treebest_spe\taberrant_dists' if extended else ''))
 
     ancgene2sp = make_ancgene2sp(ancestor, phyltree)
     all_ancgene2sp = make_ancgene2sp(phyltree.root, phyltree)
@@ -218,17 +230,20 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
         output = (int(leaves_robust), int(single_child_nodes))
 
         if extended:
-            sure_events, only_treebest_events = per_node_events(tree,
-                                                            any_get_taxon,
-                                                            all_ancgene2sp,
-                                                            ensembl_version)
+            sure_events, only_treebest_events, aberrant_dists = \
+                    per_node_events(tree,
+                                    phyltree,
+                                    10000,
+                                    any_get_taxon,
+                                    all_ancgene2sp,
+                                    ensembl_version)
             nodes_robust = not any((sure_events['dup'],
                                     sure_events['speloss'],
                                     sure_events['duploss'],
                                     only_treebest_events['dup'],
                                     only_treebest_events['speloss'],
                                     only_treebest_events['duploss']))
-            output += (int(nodes_robust), only_treebest_events['spe'])
+            output += (int(nodes_robust), only_treebest_events['spe'], aberrant_dists)
 
 
         print('\t'.join((subtree, genetree, root_location) +
