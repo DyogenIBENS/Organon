@@ -5,11 +5,14 @@
 # jupyter nbconvert --to python \
 #   ~/ws2/DUPLI_data85/alignments_analysis/subtrees_stats/subtrees_stats.ipynb
 
+import warnings
 from io import StringIO
+from collections import OrderedDict
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
-#get_ipython().magic('matplotlib inline')
+mpl.use('TkAgg', warn=False)
+get_ipython().magic('matplotlib inline')
 import matplotlib.pyplot as plt
 import seaborn as sb
 
@@ -38,6 +41,8 @@ from sklearn.preprocessing import StandardScaler
 import statsmodels.api as sm
 #import statsmodels.formula.api as smf
 
+from IPython.display import display_html
+
 
 # Convert "time used" into seconds.
 def time2seconds(time_str):
@@ -61,7 +66,8 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
     criterion = criterion_serie.name if not criterion_name else criterion_name
     ages_subgenetrees = ages.subgenetree.unique()
     
-    assert len(criterion_serie) >= ages_subgenetrees.size, "No all genetrees have a criterion value: %d < %d" % (len(criterion_serie), ages_subgenetrees.size)
+    assert len(criterion_serie) >= ages_subgenetrees.size, \
+            "Not all genetrees have a criterion value: %d < %d" % (len(criterion_serie), ages_subgenetrees.size)
     assert set(criterion_serie.index) >= set(ages_subgenetrees)
     
     #criterion_df = pd.DataFrame({criterion: criterion_serie})
@@ -74,7 +80,22 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
     return ages_c
 
 
+def add_robust_info(ages, ts):
+    pass
+
+def add_control_dates_lengths(ages_robust, phyltreefile, timetree_ages_CI=None):
+    pass
+    return ages_controled, median_taxon_ages, median_brlen
+
+def compute_dating_errors(ages_controled):
+    """Mean errors"""
+    pass
+
+def compute_branchrate_std(ages_controled, dist_measures):
+    pass
+
 # for averaging by taking into account branch length: with Omega.
+# NOTE: columns will be reordered following `var`.
 def group_average(g, var, weight_var="median_brlen"):
     return pd.Series(np.average(g[var], axis=0, weights=g[weight_var]))
 
@@ -157,7 +178,7 @@ def annot_quantiles_on_criterion(ages, criterion_serie, criterion_name=None,
     return ages_c
 
 
-def violin_spe_ages_vs_criterion_quantiles(annot_df, criterion_name, isin=None,
+def _violin_spe_ages_vs_criterion_quantiles(annot_df, criterion_name, isin=None,
                                            split=True):
     Q_col = "Q_" + criterion_name
     if isin is None:
@@ -176,7 +197,7 @@ def violin_spe_ages_vs_criterion(ages, criterion_serie, criterion_name=None,
     annot_ages = annot_quantiles_on_criterion(ages, criterion_serie,
                                               criterion_name, nquantiles)
     isin = None if split else list(range(nquantiles))
-    ax = violin_spe_ages_vs_criterion_quantiles(
+    ax = _violin_spe_ages_vs_criterion_quantiles(
                                 annot_ages[annot_ages.taxon != 'Simiiformes'],
                                 criterion_name, isin, split)
 
@@ -190,23 +211,29 @@ def normal_fit(var):
 
 
 def all_test_transforms(alls, variables):
-    fig, axes = plt.subplots(len(variables),3, figsize=(22, 5*len(variables)))
+    #fig, axes = plt.subplots(len(variables),3, figsize=(22, 5*len(variables)))
     nbins = 50
 
     for i, ft in enumerate(variables):
-        axes[i, 0].set_ylabel(ft)
         
         var = alls[ft]
         
         # Plot original variable distribution 
         if var.dtype != float:
             print("Variable %r not continuous: %s" % (ft, var.dtype))
+            if var.dtype != int:
+                print("Variable %r does not seem to be numeric. Skipping" % ft)
+                continue
         
-        axes[i, 0].hist(var, bins=nbins, density=True)
-        axes[i, 0].plot(*normal_fit(var), '-')
-        axes[i, 0].set_title("original")
-        _, xmax0 = axes[i, 0].get_xlim()
-        _, ymax0 = axes[i, 0].get_ylim()
+        fig, axes = plt.subplots(1, 3, figsize=(22, 5))
+        #axes[i, 0].set_ylabel(ft)
+        axes[0].set_ylabel(ft)
+
+        axes[0].hist(var, bins=nbins, density=True)
+        axes[0].plot(*normal_fit(var), '-')
+        axes[0].set_title("original")
+        _, xmax0 = axes[0].get_xlim()
+        _, ymax0 = axes[0].get_ylim()
         
         text = "Skew: %g\nKurtosis: %g\n" % (var.skew(), var.kurt())
         if (var < 0).any():
@@ -220,15 +247,22 @@ def all_test_transforms(alls, variables):
                 var = -var
         
         # Plot log-transformed distribution
-        logtransformed_var = np.log10(var)
+        with warnings.catch_warnings(record=True) as w:
+            logtransformed_var = np.log10(var)
+            if w:
+                assert issubclass(w[-1].category, RuntimeWarning)
+                assert "divide by zero encountered in log10" in str(w[-1].message)
+                zero_vals = True
+                n_zero_vals = (var == 0).sum()
+
         n_infinite_vals = (~np.isfinite(logtransformed_var)).sum()
         logtransformed_var = logtransformed_var[np.isfinite(logtransformed_var)]
         
-        logtext = "Skew: %g\nKurtosis: %g\n" % (logtransformed_var.skew(),
-                                                logtransformed_var.kurt())
+        logskew, logkurt = logtransformed_var.skew(), logtransformed_var.kurt()
+        logtext = "Skew: %g\nKurtosis: %g\n" % (logskew, logkurt)
 
-        axes[i, 1].hist(logtransformed_var, bins=nbins, density=True, alpha=0.5)
-        axes[i, 1].plot(*normal_fit(logtransformed_var), '-', alpha=0.5)
+        axes[1].hist(logtransformed_var, bins=nbins, density=True, alpha=0.5)
+        axes[1].plot(*normal_fit(logtransformed_var), '-', alpha=0.5)
         
         if n_infinite_vals:
             suggested_increment = logtransformed_var.quantile(0.05)
@@ -238,37 +272,52 @@ def all_test_transforms(alls, variables):
                         % (n_infinite_vals, suggested_increment)
             
             logtransformed_inc_var = np.log10(var + 10**suggested_increment) #1.) 
-            twin_ax1 = axes[i, 1].twinx()
+            twin_ax1 = axes[1].twinx()
             twin_ax1.hist(logtransformed_inc_var, bins=nbins, density=True,
                           alpha=0.5, label="Incremented", color="#78a86a") # Green
             twin_ax1.plot(*normal_fit(logtransformed_inc_var), '-', alpha=0.5)
             
             logtransformed_inc1_var = np.log10(var + 1)
-            twin2_ax1 = axes[i, 1].twinx()
+            twin2_ax1 = axes[1].twinx()
             twin2_ax1.hist(logtransformed_inc1_var, bins=nbins, density=True,
                            alpha=0.5, label="Increment+1", color="#a86a78") # Red
             twin2_ax1.plot(*normal_fit(logtransformed_inc1_var), '-', alpha=0.5)
             
-            logtext = "Skew: %g\nKurtosis: %g\n" % (logtransformed_inc_var.skew(),
-                                                    logtransformed_inc_var.kurt())
+            logtext_inc = ("Skew     (+inc): %g\nKurtosis (+inc): %g\n"
+                           % (logtransformed_inc_var.skew(),
+                              logtransformed_inc_var.kurt()))
+            logtext_inc1 = ("Skew     (+1): %g\nKurtosis (+1): %g\n"
+                            % (logtransformed_inc1_var.skew(),
+                               logtransformed_inc1_var.kurt()))
 
-        _, xmax1 = axes[i, 1].get_xlim()
-        _, ymax1 = axes[i, 1].get_ylim()
+        xmin1, xmax1 = axes[1].get_xlim()
+        _, ymax1 = axes[1].get_ylim()
 
-        axes[i, 1].set_title("log10 transformed")
+        axes[1].set_title("log10 transformed")
         
         sqrttransformed_var = np.sqrt(var)
         sqrttext = "Skew: %g\nKurtosis: %g\n" % (sqrttransformed_var.skew(),
                                                  sqrttransformed_var.kurt())
-        axes[i, 2].hist(sqrttransformed_var, bins=nbins, density=True)
-        axes[i, 2].plot(*normal_fit(sqrttransformed_var), '-')
-        axes[i, 2].set_title("Square root transformed")
-        _, xmax2 = axes[i, 2].get_xlim()
-        _, ymax2 = axes[i, 2].get_ylim()
+        axes[2].hist(sqrttransformed_var, bins=nbins, density=True)
+        axes[2].plot(*normal_fit(sqrttransformed_var), '-')
+        axes[2].set_title("Square root transformed")
+        _, xmax2 = axes[2].get_xlim()
+        _, ymax2 = axes[2].get_ylim()
         
-        axes[i, 0].text(xmax0, ymax0, text, va="top", ha="right")
-        axes[i, 1].text(xmax1, ymax1, logtext, va="top", ha="right")
-        axes[i, 2].text(xmax2, ymax2, sqrttext, va="top", ha="right")
+        axes[0].text(xmax0, ymax0, text, va="top", ha="right")
+
+        xpos1 = xmax1 if logskew>0 else xmin1
+        ha1 = 'right' if logskew>0 else 'left'
+        if n_infinite_vals:
+            axes[1].text(xpos1, ymax1, logtext_inc, va="top", ha=ha1, color='#78a86a')
+            axes[1].text(xpos1, 0.85*ymax1, logtext_inc1, va="top", ha=ha1, color='#a86a78')
+        else:
+            axes[1].text(xpos1, ymax1, logtext, va="top", ha=ha1)
+
+        axes[2].text(xmax2, ymax2, sqrttext, va="top", ha="right")
+
+        #fig.show(warn=False)
+        plt.show()
 
 
 # Variable transformation
@@ -297,15 +346,15 @@ def make_logpostransform_inc(inc=0):
 def plot_cov(ft_cov, features, cmap='seismic'):
     cmap = plt.get_cmap(cmap)
     norm = mpl.colors.Normalize(-1, 1)
-    plt.imshow(ft_cov, cmap=cmap, norm=norm) #plt.pcolormesh
-    ax = plt.gca()
+    fig, ax = plt.subplots()
+    img = ax.imshow(ft_cov, cmap=cmap, norm=norm) #plt.pcolormesh
     ax.set_xticks(np.arange(len(features)))
     ax.set_yticks(np.arange(len(features)))
     ax.set_yticklabels(features)
     ax.set_xticklabels(features, rotation=45, ha='right')
     ax.set_ylabel("Features")
     ax.set_title("Feature covariance")
-    plt.colorbar()
+    fig.colorbar(img)
 
 
 def centered_background_gradient(s, cmap='PRGn', center=0, extend=0):
@@ -369,6 +418,70 @@ def plot_features_PCspace(components, features, PCs=["PC1", "PC2"], ax=None):
     ax.set_xlabel(PCs[0])
     ax.set_ylabel(PCs[1])
     return ax
+
+
+def detailed_pca(alls_normed, features):
+
+    ft_pca = PCA(n_components=15)
+    ft_pca_components = ft_pca.fit_transform(alls_normed[features])
+
+    # ### PC contribution to variance
+
+    print("Components dimensions: %s" % (ft_pca_components.shape,))
+
+    # Explained variance of each principal component.
+    PC_contrib = ft_pca.explained_variance_ratio_
+    print("Feature contributions:\n", PC_contrib)
+
+    # Plot cumulative contribution of PC
+    fig, ax = plt.subplots()
+    ax.bar(np.arange(PC_contrib.size), PC_contrib.cumsum())
+    ax.set_title("Cumulative ratio of variance explained by the Principal Components")
+    ax.set_xlabel("Principal Components")
+    ax.set_ylabel("Cumulative ratio of variance explained");
+    plt.show()
+
+    # Coefficients of the linear combination of each parameter in the resulting components
+    print("Components dimensions:", ft_pca.components_.shape)
+
+    # ### PC loadings
+
+    # weights of each feature in the PCs
+
+    print("### PC loadings")
+    print("%-17s:\t%10s\t%10s" % ('Feature', 'coef PC1', 'coef PC2'))
+    for ft, coef1, coef2 in sorted(zip(features, ft_pca.components_[0,:],
+                                       ft_pca.components_[1,:]),
+                                   key=lambda x: (abs(x[1]), abs(x[2])),
+                                   reverse=True):
+        print("%-17s:\t%10.6f\t%10.6f" % (ft, coef1, coef2))
+
+    components = pd.DataFrame(ft_pca.components_.T, index=features,
+                              columns=["PC%d" % (i+1) for i in
+                                           range(ft_pca.components_.shape[0])])
+
+    styled_components = components.sort_values(["PC1", "PC2"]).style.\
+            apply(centered_background_gradient, cmap="PRGn", extend=0.15).\
+            set_caption("Principal Components loadings").\
+            set_properties(**{'max-width': '80px', 'font-size': '1pt'}).\
+            set_table_styles(magnify())
+    print("Rendered_components:", type(styled_components), styled_components)
+    display_html(styled_components)
+
+    # ### Feature covariance
+
+    ft_cov = ft_pca.get_covariance()
+    print("Covariance dimensions:", ft_cov.shape)
+    plot_cov(ft_cov, features, cmap='seismic')
+    plt.show()
+
+    # Plot feature vectors in the PC space
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(18,9))
+
+    plot_features_PCspace(components, features, ax=ax0)
+    plot_features_PCspace(components, features, PCs=["PC1", "PC3"], ax=ax1)
+    fig.suptitle("Features in Principal Component space"); 
+    plt.show()
 
 
 # Functions for checking colinearity between variables
@@ -516,6 +629,8 @@ if __name__ == '__main__':
 
     # ### Compute the number of duplications and speciations in the tree
 
+    #add_robust_info(ages, ts)
+
     Ndup = ages.groupby('subgenetree').type.agg(lambda v: sum(v == "dup"))
     Ndup.name = 'Ndup'
     Ndup.describe()
@@ -574,6 +689,8 @@ if __name__ == '__main__':
 
 
     # ### Merge control dates
+
+    #add_control_dates_lengths(ages_robust, phyltreefile, timetree_ages_CI=None)
 
     median_taxon_ages = ages_robust[ages_robust.type.isin(("spe", "leaf"))]\
                                    .groupby("taxon").age_dS.median()
@@ -656,6 +773,7 @@ if __name__ == '__main__':
 
 
     # #### Checks
+    #check_control_brlen(ages_controled, phyltree)
 
     # Check out unexpected species branches for robust trees
     ages_best[(ages_best.taxon_parent == "Hominoidea") & (ages_best.taxon == "Homininae")\
@@ -683,6 +801,8 @@ if __name__ == '__main__':
 
 
     # ### Quality measures
+
+    #compute_dating_errors(ages_controled)
 
     ages_controled["abs_age_error"] = \
                     (ages_controled.age_dS - ages_controled.median_taxon_age).abs()
@@ -728,7 +848,10 @@ if __name__ == '__main__':
 
     print(cl_params)
 
+
     dist_measures = ["branch_dist", "branch_t", "branch_dS", "branch_dN"]
+
+    #compute_branchrate_std(ages_controled, dist_measures)
     groupby_cols = ["subgenetree", "median_brlen", "median_taxon_age", "taxon_parent", "taxon"] + dist_measures
     #ages_controled["omega"] = ages_controled.branch_dN / ages_controled.branch_dS
 
@@ -946,12 +1069,12 @@ if __name__ == '__main__':
     ages_GC = annot_quantiles_on_criterion(ages, s.ingroup_glob_GC, "GC", nquantiles=10)
     ages_GC.Q_GC.unique()
     ages_GC[["GC", "Q_GC"]].head()
-    ax = violin_spe_ages_vs_criterion_quantiles(ages_GC, "GC", split=True)
+    ax = _violin_spe_ages_vs_criterion_quantiles(ages_GC, "GC", split=True)
 
     ages_nodup_GC = annot_quantiles_on_criterion(ages_nodup, s.ingroup_glob_GC,
                                                  "GC", nquantiles=10)
 
-    ax = violin_spe_ages_vs_criterion_quantiles(ages_nodup_GC, "GC", split=True)
+    ax = _violin_spe_ages_vs_criterion_quantiles(ages_nodup_GC, "GC", split=True)
 
     ages_GC.plot.scatter("GC", "abs_error_mean");
 
@@ -976,7 +1099,7 @@ if __name__ == '__main__':
     Simiiformes_m1w04_ages.subtreesCleanO2-um2-ci-grepoutSG-lengthhighQ4.tsv \
     Simiiformes_m1w04_ages.subtreesCleanO2-um2-ci-grepoutSG-lengthhighQ4.svg''')
 
-    #violin_spe_ages_vs_criterion_quantiles(ages_len, "len", split=False)
+    #_violin_spe_ages_vs_criterion_quantiles(ages_len, "len", split=False)
     violin_spe_ages_vs_criterion(ages_best, alls.ingroup_glob_len, split=True)
 
     ages_len.plot.scatter("len", "abs_error_mean", alpha=0.25, logy=True);
@@ -990,7 +1113,7 @@ if __name__ == '__main__':
 
     ages_N.Q_N.unique()
 
-    violin_spe_ages_vs_criterion_quantiles(ages_N, "N")
+    _violin_spe_ages_vs_criterion_quantiles(ages_N, "N")
 
 
     # ## gap content
@@ -1014,7 +1137,7 @@ if __name__ == '__main__':
     ages_gaps = annot_quantiles_on_criterion(ages, s.ingroup_mean_gaps,
                                              criterion_name="gaps", nquantiles=10)
 
-    violin_spe_ages_vs_criterion_quantiles(ages_gaps, "gaps", split=False)
+    _violin_spe_ages_vs_criterion_quantiles(ages_gaps, "gaps", split=False)
 
 
     # ## GC heterogeneity
@@ -1024,7 +1147,7 @@ if __name__ == '__main__':
     ages_stdGC = annot_quantiles_on_criterion(ages, s.ingroup_std_GC,
                                               criterion_name="stdGC", nquantiles=4)
 
-    violin_spe_ages_vs_criterion_quantiles(ages_stdGC, "stdGC")
+    _violin_spe_ages_vs_criterion_quantiles(ages_stdGC, "stdGC")
 
 
     # ## Number of duplications in the subtree
@@ -1215,61 +1338,7 @@ if __name__ == '__main__':
     from sklearn.decomposition import PCA
     #import sklearn_panda
 
-
-    ft_pca = PCA(n_components=15)
-    ft_pca_components = ft_pca.fit_transform(alls_normed[features])
-
-    # ### PC contribution to variance
-
-    ft_pca_components.shape
-
-    # Explained variance of each principal component.
-    PC_contrib = ft_pca.explained_variance_ratio_
-    PC_contrib
-
-    # Plot cumulative contribution of PC
-    plt.bar(np.arange(PC_contrib.size), PC_contrib.cumsum())
-    ax = plt.gca()
-    ax.set_title("Cumulative ratio of variance explained by the Principal Components")
-    ax.set_xlabel("Principal Components")
-    ax.set_ylabel("Cumulative ratio of variance explained");
-
-    # Coefficients of the linear combination of each parameter in the resulting components
-    ft_pca.components_.shape
-
-    # ### PC loadings
-
-    # weights of each feature in the PCs
-
-    print("%-17s:\t%10s\t%10s" % ('Feature', 'coef PC1', 'coef PC2'))
-    for ft, coef1, coef2 in sorted(zip(features, ft_pca.components_[0,:],
-                                       ft_pca.components_[1,:]),
-                                   key=lambda x: (abs(x[1]), abs(x[2])),
-                                   reverse=True):
-        print("%-17s:\t%10.6f\t%10.6f" % (ft, coef1, coef2))
-
-    components = pd.DataFrame(ft_pca.components_.T, index=features,
-                              columns=["PC%d" % (i+1) for i in
-                                           range(ft_pca.components_.shape[0])])
-
-    components.sort_values(["PC1", "PC2"]).style.\
-            apply(centered_background_gradient, cmap="PRGn", extend=0.15).\
-            set_caption("Principal Components loadings").\
-            set_properties(**{'max-width': '80px', 'font-size': '1pt'}).\
-            set_table_styles(magnify())
-
-    # ### Feature covariance
-
-    ft_cov = ft_pca.get_covariance()
-    ft_cov.shape
-    plot_cov(ft_cov, features, cmap='seismic')
-
-    # Plot feature vectors in the PC space
-    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(18,9))
-
-    plot_features_PCspace(components, features, ax=ax0)
-    plot_features_PCspace(components, features, PCs=["PC1", "PC3"], ax=ax1)
-    fig.suptitle("Features in Principal Component space"); 
+    detailed_pca(alls_normed, features)
 
     # ## Check variable colinearity
 
