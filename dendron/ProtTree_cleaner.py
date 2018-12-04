@@ -9,7 +9,7 @@ from collections import defaultdict
 
 from LibsDyogen import myProteinTree
 from dendron.climber import iter_leaves, \
-                            iter_leaf_paths, \
+                            iter_distleaves, \
                             dfw_descendants_generalized, \
                             rev_dfw_descendants
 
@@ -28,15 +28,8 @@ def get_children(tree, child):
     return [x for x, _ in tree.data.get(child, [])]
 
 
-def iter_distleaves(tree, root):
-    for leafpath in iter_leaf_paths(tree, get_data, [(root,0)]):
-        leaf = leafpath[-1][0]
-        leafdist = sum(dist for node, dist in leafpath[1:])
-        yield leaf, leafdist
-
-
 def keep_closest_leaf(tree, node):
-    leafdists = sorted(iter_distleaves(tree, node), key=lambda datum: datum[1])
+    leafdists = sorted(iter_distleaves(tree, node, get_data), key=lambda datum: datum[1])
     # This does not keep intermediate nodes.
     tree.data[node] = [leafdists[0]]
     # WARNING: the info of deleted nodes is kept, so don't rely on it!!!
