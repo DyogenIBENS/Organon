@@ -125,3 +125,22 @@ def scatter_density(x, y, data=None, cmap='viridis', scale=None, ax=None, **kwar
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     return collections
+
+
+def dendrogram():
+    raise NotImplementedError
+    #Z = hclust.linkage(df2, hc_method, hc_dist)
+    #L = hclust.leaves_list(Z) # ordered list of leaf labels
+    ddg = hclust.dendrogram(Z, orientation=orientation, labels=df.index)
+
+    # Annotate nodes with the size of the union
+    leaves = ddg['ivl']
+    for x, leaf in zip(ax.get_xticks(), leaves):
+        ax.text(x, 0, tree[leaf]['size'], va='bottom', ha='left',
+                fontsize=7)
+    ax.set_xticklabels(leaves, va='bottom', ha='right', rotation=90,
+                       fontsize=8)
+    ax.set_title(anc, style='italic', family='serif')
+    ax.spines['top'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['right'].set_visible(False)

@@ -31,6 +31,8 @@ pd.set_option("display.show_dimensions", True)  # even on non truncated datafram
 mpl.rcParams['figure.figsize'] = (22, 14) # width, height
 
 from scipy import stats
+import scipy.cluster.hierarchy as hclust
+import scipy.spatial.distance as spdist
 #stats.skew, stats.kurtosis
 
 from LibsDyogen import myPhylTree
@@ -42,6 +44,10 @@ import statsmodels.api as sm
 #import statsmodels.formula.api as smf
 
 from IPython.display import display_html
+import logging
+logger=logging.getLogger(__name__)
+logging.basicConfig()
+logger.setLevel(logging.INFO)
 
 
 # Convert "time used" into seconds.
@@ -51,6 +57,35 @@ def time2seconds(time_str):
     for factor, n_units in zip(factors, reversed(time_str.split(':'))):
         s += factor * int(n_units)
     return s
+
+
+def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
+    """
+    param: template to the csv/tsv files containing al/tree/codeml stats.
+
+    Example template: 'subtreesRawTreeBestO2_{stattype}stats_Simiiformes.tsv'
+    """
+    
+    # ## Load tree/alignment statistics
+    alfile = template.format(stattype='al')
+    treefile = template.format(stattype='tree')
+    codemlfile = template.format(stattype='codeml')
+
+    aS = pd.read_table(alfile, index_col=0)
+    ts = pd.read_table(treefile, index_col=0,
+                       dtype={'leaves_robust':      bool,
+                              'single_child_nodes': bool,
+                              'nodes_robust':       bool,
+                              'only_treebest_spe':  int,
+                              'aberrant_dists':     int})
+                              #'root2tip_var': float
+    ts['really_robust'] = ts.leaves_robust & ts.nodes_robust & ~ts.only_treebest_spe
+
+    # ## Load codeml output statistics
+    cs = pd.read_table("subtrees_codemlstats-Simiiformes.tsv", index_col=0)
+    cs['seconds'] = cs['time used'].apply(time2seconds)
+
+    return aS, ts, cs
 
 
 # ## Function to merge additional subgenetree information into `ages`
@@ -80,19 +115,40 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
     return ages_c
 
 
-def add_robust_info(ages, ts):
-    pass
+def add_robust_info(ages_p, ts):
+    # Compute Number of duplications/speciation per tree.
+    Ndup = ages_p.groupby('subgenetree').type.agg(lambda v: sum(v == "dup"))
+    Ndup.name = 'Ndup'
+    print(Ndup.describe())
+    Nspe = ages_p.groupby('subgenetree').type.agg(lambda v: sum(v == "spe"))
+    Nspe.name = 'Nspe'
+    print(Nspe.describe())
+    # merge tree stats to select robust trees
+    ages_treestats = pd.merge(ages_p,
+                              pd.concat((Ndup, Nspe,
+                                         ts[['really_robust','aberrant_dists']]),
+                                        axis=1,
+                                        join='outer'),
+                              how='left', left_on='subgenetree', right_index=True)
+    return ages_treestats, Ndup, Nspe
+    
 
-def add_control_dates_lengths(ages_robust, phyltreefile, timetree_ages_CI=None):
-    pass
-    return ages_controled, median_taxon_ages, median_brlen
+def load_prepare_ages(ages_file, ts):
+    ages = pd.read_table(ages_file, sep='\t', index_col=0)
+    # Fetch parent node info
+    ages_p = pd.merge(ages,
+                      ages[['taxon', 'type', 'age_t', 'age_dS', 'age_dN',
+                            'age_dist', 'calibrated']],
+                      how="left", left_on="parent", right_index=True,
+                      suffixes=('', '_parent'))
+    ages_spe2spe = ages_p[(ages_p.type.isin(('spe', 'leaf'))) & \
+                          (ages_p.type_parent == 'spe')]
+    ages_treestats, Ndup, Nspe = add_robust_info(ages_p, ts)
+    ages_robust = ages_treestats[ages_treestats.really_robust & \
+                                 (ages_treestats.aberrant_dists == 0)]\
+                            .drop(['really_robust', 'aberrant_dists'], axis=1)
+    return ages_treestats, ages_robust, Ndup, Nspe
 
-def compute_dating_errors(ages_controled):
-    """Mean errors"""
-    pass
-
-def compute_branchrate_std(ages_controled, dist_measures):
-    pass
 
 # for averaging by taking into account branch length: with Omega.
 # NOTE: columns will be reordered following `var`.
@@ -106,6 +162,123 @@ def group_weighted_std(g, var, weight_var="median_brlen"):
 def tree_dist_2_rate(g, dist_var, norm_var="median_brlen"):
     # in pandas, sum is done per columns.
     return g[dist_var].sum() / g[norm_var].sum()
+
+
+
+#def add_control_dates_lengths(ages_robust, phyltree, timetree_ages_CI=None):
+#    pass
+#    return ages_controled, median_taxon_ages, median_brlen
+
+def add_control_dates_lengths(ages, ages_robust, phyltree, timetree_ages_CI=None):
+    # Merge control dates
+    median_taxon_ages = ages[ages.type.isin(("spe", "leaf"))]\
+                               .groupby("taxon").age_dS.median()
+                               #& (ages_robust.taxon != 'Simiiformes')]\
+    median_taxon_ages.name = 'median_taxon_age'
+    
+    timetree_ages = median_taxon_ages.index.to_series().apply(phyltree.ages.get)
+    timetree_ages.name = 'timetree_age'
+
+    control_ages = pd.concat((median_taxon_ages, timetree_ages,
+                              timetree_ages_CI), axis=1, sort=False)
+
+    print(control_ages.sort_values('timetree_age', ascending=False))
+
+    ages_controled = pd.merge(ages_robust, control_ages,
+                              left_on="taxon", right_index=True, validate="many_to_one")
+    ages_controled_withnonrobust = pd.merge(ages, control_ages,
+                              left_on="taxon", right_index=True, validate="many_to_one")
+
+    # Merge control branch lengths
+    invalid_taxon_parent = ages_controled.taxon_parent.isna()
+    if invalid_taxon_parent.any():
+        debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age']
+        logger.error("%d invalid 'taxon_parent':\n%s\n"
+                     "The following taxa have no parent taxa information, "
+                     "please check:\n%s\n**DROPPING** this data!",
+                       invalid_taxon_parent.sum(),
+                       ages_controled[invalid_taxon_parent][
+                           debug_columns
+                           ].head(),
+                       ', '.join(ages_controled[invalid_taxon_parent].taxon.unique()))
+        ages_controled.dropna(subset=['taxon_parent'], inplace=True)
+    
+    ages_controled['median_brlen'] = \
+        ages_controled.taxon_parent.apply(control_ages.median_taxon_age.get) \
+        - ages_controled.median_taxon_age
+    # Resulting branch lengths
+    median_brlen = ages_controled[
+                        ~ages_controled.duplicated(["taxon_parent", "taxon"])
+                        ][
+                            ["taxon_parent", "taxon", "median_brlen",
+                             "median_taxon_age"]
+                        ].sort_values("taxon_parent", ascending=False)
+
+    branch_info = ["taxon_parent", "taxon"]
+    median_brlen.index = pd.MultiIndex.from_arrays(
+                                            median_brlen[branch_info].values.T,
+                                            names=branch_info)
+    median_brlen.drop(branch_info, axis=1, inplace=True)
+    display_html(median_brlen.head().to_html())
+    return ages_controled, ages_controled_withnonrobust, control_ages, median_brlen
+
+
+def compute_dating_errors(ages_controled):
+    ages_controled["abs_age_error"] = \
+                (ages_controled.age_dS - ages_controled.median_taxon_age).abs()
+    ages_controled["signed_age_error"] = \
+                (ages_controled.age_dS - ages_controled.median_taxon_age)
+    ages_controled["abs_brlen_error"] = \
+                (ages_controled.age_dS_parent - ages_controled.age_dS - \
+                 ages_controled.median_brlen).abs()
+    ages_controled["signed_brlen_error"] = \
+                (ages_controled.age_dS_parent - ages_controled.age_dS - \
+                 ages_controled.median_brlen)
+
+    mean_errors = ages_controled[
+                     ['subgenetree', 'abs_age_error', 'signed_age_error',
+                      'abs_brlen_error', 'signed_brlen_error']
+                    ].groupby("subgenetree").mean()
+    return mean_errors
+
+
+def compute_branchrate_std(ages_controled, dist_measures):
+    
+    groupby_cols = ["subgenetree", "median_brlen", "median_taxon_age",
+                    "taxon_parent", "taxon"] + dist_measures
+    #ages_controled["omega"] = ages_controled.branch_dN / ages_controled.branch_dS
+
+    sgg = subgenetree_groups = ages_controled[groupby_cols].groupby('subgenetree')
+
+    # ### Average (substitution) rates over the tree:
+    #     sum of all branch values / sum of branch lengths
+
+    # Sum aggregation + division broadcasted on columns
+    cs_rates = sgg[dist_measures].sum().div(sgg.median_brlen.sum(), axis=0)
+    #cs_rates["omega"] = (sgg.branch_dN / sgg.branch_dS).apply() 
+    cs_rates.columns = [(m.replace('branch_', '') + '_rate') 
+                        for m in dist_measures]
+
+    # ### Weighted standard deviation of substitution rates among branches
+
+    tmp = pd.merge(ages_controled[["subgenetree", "median_brlen"] + dist_measures],
+                   cs_rates, left_on="subgenetree", right_index=True)
+
+    rate_dev = pd.DataFrame({
+                "branch_dist": (tmp.branch_dist/ tmp.median_brlen - tmp.dist_rate)**2,
+                "branch_t":    (tmp.branch_t   / tmp.median_brlen - tmp.t_rate)**2,
+                "branch_dS":   (tmp.branch_dS  / tmp.median_brlen - tmp.dS_rate)**2,
+                "branch_dN":   (tmp.branch_dN  / tmp.median_brlen - tmp.dN_rate)**2,
+                #"omega":       (ages_controled.dN / ages_controled.dS - tmp.omega)**2,
+                "subgenetree": tmp.subgenetree,
+                "median_brlen": tmp.median_brlen})
+
+    cs_wstds = rate_dev.groupby("subgenetree").apply(group_average,
+                                                     var=dist_measures,
+                                                     weight_var="median_brlen")
+    cs_wstds.columns = [(r + '_std') for r in cs_rates.columns]
+
+    return cs_rates, cs_wstds
 
 
 def subset_on_criterion_tails(criterion_serie, ages=None, ages_file=None,
@@ -343,18 +516,62 @@ def make_logpostransform_inc(inc=0):
 
 # Functions for the PCA
 
-def plot_cov(ft_cov, features, cmap='seismic'):
+def plot_cov(ft_cov, features, cmap='seismic', figax=None, cax=None):
     cmap = plt.get_cmap(cmap)
     norm = mpl.colors.Normalize(-1, 1)
-    fig, ax = plt.subplots()
-    img = ax.imshow(ft_cov, cmap=cmap, norm=norm) #plt.pcolormesh
+    fig, ax = plt.subplots() if figax is None else figax
+    img = ax.imshow(ft_cov, cmap=cmap, norm=norm, aspect='auto', origin='lower') #plt.pcolormesh
     ax.set_xticks(np.arange(len(features)))
     ax.set_yticks(np.arange(len(features)))
     ax.set_yticklabels(features)
     ax.set_xticklabels(features, rotation=45, ha='right')
     ax.set_ylabel("Features")
     ax.set_title("Feature covariance")
-    fig.colorbar(img)
+    fig.colorbar(img, ax=ax, cax=cax, aspect=ft_cov.shape[0])
+
+def cov2cor(cov):
+    """Converts covariance matrix into correlation matrix"""
+    var = np.diagonal(cov)[:,np.newaxis]
+    return cov / np.sqrt(var.dot(var.T))
+
+
+def heatmap_cov(ft_cov, features, cmap='seismic',
+                dendro_ratio=0.20, dendro_pad=0.1, cb_ratio=0.025, cb_pad=0.025):
+    """plot_cov, but with hierarchical clustering on the side"""
+    # Tested with figsize=(20, 12)
+    fig, ax = plt.subplots()
+    (x0, y0), (w, h) = ax.get_position().get_points()
+    # absolute padding (in figure coordinate)
+    # correct ratio by taking pad into account
+    
+    # position relatively to figure (percentages)
+    ax.set_position([x0 + (dendro_ratio+dendro_pad)*w, y0,
+                     w*(1-dendro_ratio-dendro_pad-cb_ratio-cb_pad), h])
+    #width2 = width*ratio - float(pad)/w
+    ax_ddg = fig.add_axes([x0, y0, w*dendro_ratio, h], frameon=False)
+    #ax_ddg.set_title("hierarchical clustering (euclidean)")
+    #ax_ddg.axis('off')
+    ax_ddg.xaxis.set_visible(False)
+    ax_cb = fig.add_axes([x0 + w*(1-cb_ratio), y0, w*cb_ratio, h])
+
+    distmat = 1 - np.abs(cov2cor(ft_cov))
+    tol=1e-15
+    #assert (np.diag(distmat) < tol).all()
+    #assert (np.abs(distmat - distmat.T) < tol).all()
+    spdist.is_valid_dm(distmat, tol, throw=True)
+
+    flatdist = spdist.squareform(distmat, force='tovector', checks=False)
+    Z = hclust.linkage(flatdist, method='average', metric='euclidean')
+    ddg = hclust.dendrogram(Z, orientation='left', no_labels=True, #labels=features,
+                            ax=ax_ddg)
+
+    clustered_ft_cov = ft_cov[ddg['leaves'],:][:,ddg['leaves']]
+    #print(ddg['leaves'], ft_cov.shape)
+    #print(clustered_ft_cov)
+    logger.debug(np.array(features)[ddg['leaves']])
+    plot_cov(clustered_ft_cov,
+             np.array(features)[ddg['leaves']], cmap, (fig, ax), ax_cb)
+    plt.show()
 
 
 def centered_background_gradient(s, cmap='PRGn', center=0, extend=0):
@@ -482,6 +699,7 @@ def detailed_pca(alls_normed, features):
     plot_features_PCspace(components, features, PCs=["PC1", "PC3"], ax=ax1)
     fig.suptitle("Features in Principal Component space"); 
     plt.show()
+    return ft_pca
 
 
 # Functions for checking colinearity between variables
@@ -511,7 +729,7 @@ def check_decorrelate(var, correlated_var, data, logdata=None):
         scatter_density(data[correlated_var], logdata[var] - logdata[correlated_var], s=9, alpha=0.5, ax=ax3)
         ax3.set_xlabel("log(%s)" % correlated_var)
         ax1.set_title("Log-scale")
-    
+
 
 # Functions for linear models
 
@@ -550,30 +768,19 @@ if __name__ == '__main__':
 
     # # Load data
 
-    # ## Load tree/alignment statistics
-
-    aS = pd.read_table("subtrees_alstats-Simiiformes.tsv", index_col=0)
-    ts = pd.read_table("subtrees_treestats-Simiiformes.tsv", index_col=0,
-                       dtype={'robust': bool})
-    #aS.shape, ts.shape, ts.shape[0] - aS.shape[0] 
-
-    s_all = pd.merge(ts.drop('genetree', axis=1), aS, left_index=True,
-                     right_index=True, how='outer', indicator=True)
-
-    s_all[s_all._merge == "left_only"].head()
-
-    # Genetrees without out-Simiiformes groups
-
-    s = pd.merge(ts.drop('genetree', axis=1), aS, left_index=True,
-                 right_index=True, how='inner')
+    aS, ts, cs = load_subtree_stats("subtrees_{stattype}stats-Simiiformes.tsv")
 
     al_params = ["ingroup_glob_len", "ingroup_mean_GC", "ingroup_mean_N",
                  "ingroup_mean_gaps", "ingroup_mean_CpG", "ingroup_std_len",
                  "ingroup_std_GC",  "ingroup_std_N",  "ingroup_std_gaps",
                  "ingroup_std_CpG"]
     tree_params = ["robust"]
+    cl_params = cs.columns.tolist()[1:]
+    cl_params.remove('time used')
 
     # ### Group columns by type
+
+    s = pd.merge(aS, ts.drop(['subgenetree'], axis=1), how='inner')
 
     ingroup_cols = s.columns.str.startswith('ingroup')
     outgroup_cols = ~ingroup_cols
@@ -608,14 +815,6 @@ if __name__ == '__main__':
     s_out.head()
     s_out_glob.head()
     s.columns
-
-    # ## Load codeml output statistics
-
-    cs = pd.read_table("subtrees_codemlstats-Simiiformes.tsv", index_col=0)
-    cs['seconds'] = cs['time used'].apply(time2seconds)
-
-    cl_params = cs.columns.tolist()[1:]
-    cl_params.remove('time used')
 
 
     # ## Load ages
@@ -851,21 +1050,7 @@ if __name__ == '__main__':
 
     dist_measures = ["branch_dist", "branch_t", "branch_dS", "branch_dN"]
 
-    #compute_branchrate_std(ages_controled, dist_measures)
-    groupby_cols = ["subgenetree", "median_brlen", "median_taxon_age", "taxon_parent", "taxon"] + dist_measures
-    #ages_controled["omega"] = ages_controled.branch_dN / ages_controled.branch_dS
-
-    sgg = subgenetree_groups = ages_controled[groupby_cols].groupby('subgenetree')
-
-    # ### Average (substitution) rates over the tree:
-    #     sum of all branch values / sum of branch lengths
-
-    # Sum aggregation + division broadcasted on columns
-    cs_rates = sgg[dist_measures].sum().div(sgg.median_brlen.sum(), axis=0)
-    #cs_rates["omega"] = (sgg.branch_dN / sgg.branch_dS).apply() 
-    cs_rates.columns = ["dist_rate", "t_rate", "dS_rate", "dN_rate"]
-    cs_rates
-
+    cs_rates, cs_wstds = compute_branchrate_std(ages_controled, dist_measures)
     # #### Checks
 
     test_g = sgg.get_group('SimiiformesENSGT00390000000002.a.a.a').drop("subgenetree", axis=1)
@@ -889,28 +1074,6 @@ if __name__ == '__main__':
     ((all_median_brlen - real_control_treelen).abs() < epsilon).all()
     # OK!
 
-    # ### Weighted standard deviation of substitution rates among branches
-
-    tmp = pd.merge(ages_controled[["subgenetree", "median_brlen"] + dist_measures],
-                   cs_rates, left_on="subgenetree", right_index=True)
-
-    #rate_dev = pd.DataFrame({"dist_rate_std": tmp.branch_dist - tmp.dist_rate,
-    #                         "t_rate_std":    tmp.branch_t    - tmp.t_rate,
-    #                         "dS_rate_std":   tmp.branch_dS   - tmp.dS_rate,
-    #                         "dN_rate_std":   tmp.branch_dN   - tmp.dN_rate})**2
-    rate_dev = pd.DataFrame({
-                "branch_dist": (tmp.branch_dist/ tmp.median_brlen - tmp.dist_rate)**2,
-                "branch_t":    (tmp.branch_t   / tmp.median_brlen - tmp.t_rate)**2,
-                "branch_dS":   (tmp.branch_dS  / tmp.median_brlen - tmp.dS_rate)**2,
-                "branch_dN":   (tmp.branch_dN  / tmp.median_brlen - tmp.dN_rate)**2,
-                #"omega":       (ages_controled.dN / ages_controled.dS - tmp.omega)**2,
-                "subgenetree": tmp.subgenetree,
-                "median_brlen": tmp.median_brlen})
-    rate_dev.head()
-
-    cs_wstds = rate_dev.groupby("subgenetree").apply(group_average, var=dist_measures, weight_var="median_brlen")
-
-    cs_wstds.columns = ["dist_rate_std", "t_rate_std", "dS_rate_std", "dN_rate_std"]
     cs_wstds.head()
 
 
