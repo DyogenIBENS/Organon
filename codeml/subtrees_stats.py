@@ -22,6 +22,7 @@ from genomicustools.identify import SP2GENEID, \
 from dendron.reconciled import get_taxon, \
                                get_taxon_treebest, \
                                infer_gene_event_taxa
+from dendron.climber import iter_distleaves
 from seqtools import ungap, \
                      algrep, \
                      make_al_stats
@@ -180,19 +181,22 @@ def make_ancgene2sp(ancestor, phyltree):
                       + r')(.*)$')
 
 
+def get_childdist_ete3(tree, node):
+    return [(ch, ch.dist) for ch in node.children]
+
 def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                    subtreesdir='subtreesCleanO2',
                    ensembl_version=ENSEMBL_VERSION,
                    ignore_outgroups=False, extended=False):
-    """Currently only determining the robustness of the tree.
+    """Determine the robustness of the tree, and its clock-likeliness.
 
     To find the robust trees from the given ancestor only, (excluding the
     outgroup) use `subtreesdir="subtreesClean"`."""
 
     phyltree = PhylTree.PhylogeneticTree(phyltreefile)
     #ensembl_ids_anc = get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version)
-    print('subtree\tgenetree\troot_location\tleaves_robust\tsingle_child_nodes'
-            + ('\tnodes_robust\tonly_treebest_spe\taberrant_dists' if extended else ''))
+    print('subtree\tgenetree\troot_location\tleaves_robust\tsingle_child_nodes\troot2tip_sd'
+          + ('\tnodes_robust\tonly_treebest_spe\taberrant_dists' if extended else ''))
 
     ancgene2sp = make_ancgene2sp(ancestor, phyltree)
     all_ancgene2sp = make_ancgene2sp(phyltree.root, phyltree)
@@ -227,7 +231,12 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
         except KeyError as err:  # Error while converting genename to species
             err.args += (subtreefile,)
             raise
-        output = (int(leaves_robust), int(single_child_nodes))
+
+        root_to_tips = np.array([leafdist for _, leafdist in
+                                 iter_distleaves(tree, tree.root,
+                                                 get_childdist_ete3)])
+
+        output = (int(leaves_robust), int(single_child_nodes), root_to_tips.std())
 
         if extended:
             sure_events, only_treebest_events, aberrant_dists = \
@@ -244,7 +253,6 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                     only_treebest_events['speloss'],
                                     only_treebest_events['duploss']))
             output += (int(nodes_robust), only_treebest_events['spe'], aberrant_dists)
-
 
         print('\t'.join((subtree, genetree, root_location) +
                          tuple(str(x) for x in output)))
