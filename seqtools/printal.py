@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#
+
+# Copyright © Guillaume LOUVEL
+# e-mail : guillaume.louvel@ens.fr
+# License LGPL v3
 
 """Print an alignment to stdout, with colors."""
 
@@ -8,7 +11,7 @@ from sys import stdin
 import os.path
 import argparse
 import logging
-logging.basicConfig(format='%(levelname)s:%(funcName):%(message)s')
+logging.basicConfig(format='%(levelname)s:%(funcName)s:%(message)s')
 
 
 from Bio import AlignIO
