@@ -221,7 +221,7 @@ def edit_toolong(proteintrees, maxdist=MAXDIST):
         for subtree in detached_subtrees:
             yield True, subtree
 
-    logger.info("%d detached; %d included; %d leaves_detached.",
+    logger.info("%d detached; +%d included; %d leaves_detached.",
                 n_detached, n_included, n_leaves_detached)
         
 
@@ -337,19 +337,33 @@ def main(badnodelistfile, forestfile, badnode_col=0, maxdist=MAXDIST,
     #                                maxdist=maxdist):
     if dryrun:
         def output(tree, flag1, flag2):
-            pass
+            return int(flag1 | flag2)
     elif print_unchanged:
         def output(tree, flag1, flag2):
             tree.printTree(stdout)
+            return int(flag1 | flag2)
     else:
         def output(tree, flag1, flag2):
             if flag1 | flag2:
                 tree.printTree(stdout)
+                return 1
+            else:
+                return 0
+
+    n_edited_trees = 0
+    n_edited_trees_fromsel = 0
+    n_edited_trees_toolong = 0
 
     for change1, change2, tree in edit_toolong_flagged(
                                     edit_from_selection(proteintrees, badnodes),
                                     maxdist=maxdist):
-        output(tree, change1, change2)
+        n_edited_trees_fromsel += int(change1)
+        n_edited_trees_toolong += int(change2)
+        n_edited_trees += output(tree, change1, change2)
+
+    logger.info('%d edited trees. %d from node selection, %d because of too '
+                'long branches', n_edited_trees, n_edited_trees_fromsel,
+                n_edited_trees_toolong)
 
 
 if __name__ == '__main__':
