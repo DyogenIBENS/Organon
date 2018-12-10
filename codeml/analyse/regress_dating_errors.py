@@ -71,7 +71,9 @@ def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
     treefile = template.format(stattype='tree')
     codemlfile = template.format(stattype='codeml')
 
+    print('Load', alfile)
     aS = pd.read_table(alfile, index_col=0)
+    print('Load', treefile)
     ts = pd.read_table(treefile, index_col=0,
                        dtype={'leaves_robust':      bool,
                               'single_child_nodes': bool,
@@ -82,10 +84,30 @@ def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
     ts['really_robust'] = ts.leaves_robust & ts.nodes_robust & ~ts.only_treebest_spe
 
     # ## Load codeml output statistics
-    cs = pd.read_table("subtrees_codemlstats-Simiiformes.tsv", index_col=0)
+    print('Load', codemlfile)
+    cs = pd.read_table(codemlfile, index_col=0)
     cs['seconds'] = cs['time used'].apply(time2seconds)
 
     return aS, ts, cs
+
+def check_load_subtree_stats(aS, ts, cs):
+    print("shapes: aS %s, ts %s, cs %s" % (aS.shape, ts.shape, cs.shape))
+    print("aS has dup:", aS.index.has_duplicates)
+    print("ts has dup:", ts.index.has_duplicates)
+    print("cs has dup:", cs.index.has_duplicates)
+    common_subtrees = set(aS.index) & set(ts.index) & set(cs.index)
+    print("%d common subtrees" % len(common_subtrees))
+    only_al = aS.index.difference(ts.index.union(cs.index))
+    only_tr = ts.index.difference(aS.index.union(cs.index))
+    only_co = cs.index.difference(aS.index.union(ts.index))
+    l_al = len(only_al)
+    l_tr = len(only_tr)
+    l_co = len(only_co)
+    print("%d only in al stats: %s" % (l_al, list(only_al)[:min(5, l_al)]))
+    print("%d only in tree stats: %s" % (l_tr, list(only_tr)[:min(5, l_tr)]))
+    print("%d only in codeml stats: %s" % (l_co, list(only_co)[:min(5, l_co)]))
+    # Todo: pyupset plot
+
 
 
 # ## Function to merge additional subgenetree information into `ages`
@@ -124,29 +146,68 @@ def add_robust_info(ages_p, ts):
     Nspe.name = 'Nspe'
     print(Nspe.describe())
     # merge tree stats to select robust trees
-    ages_treestats = pd.merge(ages_p,
+    ages_treestats = pd.merge(ages_p.drop('_merge', axis=1),
                               pd.concat((Ndup, Nspe,
                                          ts[['really_robust','aberrant_dists']]),
                                         axis=1,
-                                        join='outer'),
-                              how='left', left_on='subgenetree', right_index=True)
+                                        join='outer', sort=False),
+                              how='left', left_on='subgenetree', right_index=True,
+                              indicator=True, validate='many_to_one')
+    print("Ndup", Ndup.shape, "Nspe", Nspe.shape, "ages_treestats", ages_treestats.shape)
+    print(ages_treestats.groupby('_merge')['_merge'].count())
     return ages_treestats, Ndup, Nspe
     
 
 def load_prepare_ages(ages_file, ts):
     ages = pd.read_table(ages_file, sep='\t', index_col=0)
+
+    print("Shape ages: %s; has dup: %s" % (ages.shape, ages.index.has_duplicates))
+    n_nodes = ages.shape[0]
+    print("Shape ages internal nodes:", ages[ages.type != 'leaf'].shape)
+    n_nodes_int = (ages.type != 'leaf').sum()
+
     # Fetch parent node info
     ages_p = pd.merge(ages,
-                      ages[['taxon', 'type', 'age_t', 'age_dS', 'age_dN',
-                            'age_dist', 'calibrated']],
+                      ages[ages.type != 'leaf'][['taxon', 'type', 'age_t',
+                              'age_dS', 'age_dN', 'age_dist', 'calibrated']],
                       how="left", left_on="parent", right_index=True,
-                      suffixes=('', '_parent'))
+                      suffixes=('', '_parent'), indicator=True,
+                      validate='many_to_one')
+    print("Shape ages with parent info: %s" % (ages_p.shape,))
+    n_nodes_p = ages_p.shape[0]
+
+    if n_nodes_p < n_nodes:
+        logger.warning('%d nodes were lost when fetching parent information.',
+                       n_nodes - n_nodes_p)
+
+    orphans = ages_p._merge=='left_only'
+    ages_orphans = ages_p[orphans]
+
+    print("\nOrphans: %d\n" % ((orphans).sum()))
+    #display_html(ages_orphans.head())
+
+    assert ((ages_orphans.parent == ages_orphans.root) |
+            (ages_orphans.type == 'leaf')).all()
+    print("All orphans are expected (leaf, or child of the root).")
+    
+    e_nochild = set(ages.index) - set(ages.parent)  # expected
+    parent_nodata = set(ages[ages.type!='leaf'].parent) - set(ages_p.index)  # real
+    n_nochild = len(e_nochild)
+    print("\nExpected nodes without children (leaves): %d" % (n_nochild,))
+    print("Parent nodes without data: %d" % (len(parent_nodata),))
+    #assert len(nochild) == n_nochild, \
+    #    "Found %d unexpected nodes without child:\n%s" % \
+    #        (len(nochild) - n_nochild,
+    #         ages.loc[nochild - e_nochild])
+
     ages_spe2spe = ages_p[(ages_p.type.isin(('spe', 'leaf'))) & \
                           (ages_p.type_parent == 'spe')]
+    print("\nShape ages speciation to speciation branches (no dup):", ages_spe2spe.shape)
     ages_treestats, Ndup, Nspe = add_robust_info(ages_p, ts)
     ages_robust = ages_treestats[ages_treestats.really_robust & \
                                  (ages_treestats.aberrant_dists == 0)]\
                             .drop(['really_robust', 'aberrant_dists'], axis=1)
+    print("\n%d nodes from robust trees" % (ages_robust.shape[0],))
     return ages_treestats, ages_robust, Ndup, Nspe
 
 
@@ -191,7 +252,10 @@ def add_control_dates_lengths(ages, ages_robust, phyltree, timetree_ages_CI=None
 
     # Merge control branch lengths
     invalid_taxon_parent = ages_controled.taxon_parent.isna()
+    # Should be nodes whose parent node is the root.
     if invalid_taxon_parent.any():
+        assert ages_controled[invalid_taxon_parent].parent == \
+                ages_controled[invalid_taxon_parent].root
         debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age']
         logger.error("%d invalid 'taxon_parent':\n%s\n"
                      "The following taxa have no parent taxa information, "
@@ -769,6 +833,7 @@ if __name__ == '__main__':
     # # Load data
 
     aS, ts, cs = load_subtree_stats("subtrees_{stattype}stats-Simiiformes.tsv")
+    check_load_subtree_stats(aS, ts, cs)
 
     al_params = ["ingroup_glob_len", "ingroup_mean_GC", "ingroup_mean_N",
                  "ingroup_mean_gaps", "ingroup_mean_CpG", "ingroup_std_len",
