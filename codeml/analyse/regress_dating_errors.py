@@ -21,6 +21,7 @@ import os.path as op
 from codeml.analyse.dSvisualizor import splitname2taxongenetree
 from seqtools.compo_freq import weighted_std
 from plottools import scatter_density
+from dendron.climber import dfw_pairs_generalized
 
 mpl.style.use("softer")
 pd.set_option("display.max_columns", 50)
@@ -191,9 +192,11 @@ def load_prepare_ages(ages_file, ts):
     print("All orphans are expected (leaf, or child of the root).")
     
     e_nochild = set(ages.index) - set(ages.parent)  # expected
-    parent_nodata = set(ages[ages.type!='leaf'].parent) - set(ages_p.index)  # real
+    parent_nodata = set(ages[ages.type!='leaf'].parent) - set(ages_p.index)
     n_nochild = len(e_nochild)
     print("\nExpected nodes without children (leaves): %d" % (n_nochild,))
+    print("Observed nodes not found as parents: %d" % \
+            len(set(ages.index) - set(ages_p[ages_p._merge=='both'].index)))
     print("Parent nodes without data: %d" % (len(parent_nodata),))
     #assert len(nochild) == n_nochild, \
     #    "Found %d unexpected nodes without child:\n%s" % \
@@ -254,8 +257,8 @@ def add_control_dates_lengths(ages, ages_robust, phyltree, timetree_ages_CI=None
     invalid_taxon_parent = ages_controled.taxon_parent.isna()
     # Should be nodes whose parent node is the root.
     if invalid_taxon_parent.any():
-        assert ages_controled[invalid_taxon_parent].parent == \
-                ages_controled[invalid_taxon_parent].root
+        assert (ages_controled[invalid_taxon_parent].parent == \
+                ages_controled[invalid_taxon_parent].root).all()
         debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age']
         logger.error("%d invalid 'taxon_parent':\n%s\n"
                      "The following taxa have no parent taxa information, "
@@ -270,24 +273,68 @@ def add_control_dates_lengths(ages, ages_robust, phyltree, timetree_ages_CI=None
     ages_controled['median_brlen'] = \
         ages_controled.taxon_parent.apply(control_ages.median_taxon_age.get) \
         - ages_controled.median_taxon_age
+
+    ages_controled['timetree_brlen'] = \
+        ages_controled.taxon_parent.apply(control_ages.timetree_age.get) \
+        - ages_controled.timetree_age
+
     # Resulting branch lengths
-    median_brlen = ages_controled[
+    control_brlen = ages_controled[
                         ~ages_controled.duplicated(["taxon_parent", "taxon"])
                         ][
-                            ["taxon_parent", "taxon", "median_brlen",
-                             "median_taxon_age"]
+                           ["taxon_parent", "taxon", "median_brlen",
+                            "median_taxon_age", "timetree_brlen", "timetree_age"]
                         ].sort_values("taxon_parent", ascending=False)
 
     branch_info = ["taxon_parent", "taxon"]
-    median_brlen.index = pd.MultiIndex.from_arrays(
-                                            median_brlen[branch_info].values.T,
+    control_brlen.index = pd.MultiIndex.from_arrays(
+                                            control_brlen[branch_info].values.T,
                                             names=branch_info)
-    median_brlen.drop(branch_info, axis=1, inplace=True)
-    display_html(median_brlen.head().to_html())
-    return ages_controled, ages_controled_withnonrobust, control_ages, median_brlen
+    control_brlen.drop(branch_info, axis=1, inplace=True)
+    display_html(control_brlen)
+    return ages_controled, ages_controled_withnonrobust, control_ages, control_brlen
 
 
-def compute_dating_errors(ages_controled):
+def check_control_dates_lengths(control_brlen, phyltree, root):
+    get_phylchildren = lambda phyltree, ancdist: phyltree.items.get(ancdist[0], [])
+
+    expected_branches, expected_dists = zip(*(((p[0],ch[0]),ch[1]) for p,ch in
+                             dfw_pairs_generalized(phyltree,
+                                                   get_phylchildren,
+                                                   queue=[(None, (root,0))])))
+
+    #logger.debug(expected_branches)
+    #logger.debug(expected_dists)
+
+    median_brlen_sum = control_brlen.median_brlen.sum()
+    print("Sum of median branch lengths =", median_brlen_sum, "My")
+    timetree_brlen_sum = control_brlen.timetree_brlen.sum()
+    print("Sum of timetree branch lengths =", timetree_brlen_sum, "My")
+    real_timetree_brlen_sum = sum(expected_dists)
+    print("Real sum of TimeTree branch lengths (in phyltree) =",
+          real_timetree_brlen_sum, "My")
+
+    unexpected_branches = set(control_brlen.index) - set(expected_branches)
+    if unexpected_branches:
+        logger.error("Extraneous branches not seen in phyltree:\n%s",
+                     unexpected_branches)
+    lost_branches = set(expected_branches) - set(control_brlen.index)
+    if lost_branches:
+        logger.error("Forgotten branches in phyltree:\n%s",
+                     lost_branches)
+    
+    median_treelen_phyltree = control_brlen.reindex(list(expected_branches)).median_brlen.sum()
+    timetree_treelen_phyltree = control_brlen.reindex(list(expected_branches)).timetree_brlen.sum()
+    print("Sum of median branch lengths for branches found in phyltree =",
+          median_treelen_phyltree)
+    print("Sum of timetree branch lengths for branches found in phyltree =",
+          timetree_treelen_phyltree)
+
+
+def compute_dating_errors(ages_controled, control='median'):
+    if control == 'timetree':
+        raise NotImplementedError("control ages/brlen with timetree.")
+
     ages_controled["abs_age_error"] = \
                 (ages_controled.age_dS - ages_controled.median_taxon_age).abs()
     ages_controled["signed_age_error"] = \
@@ -320,26 +367,35 @@ def compute_branchrate_std(ages_controled, dist_measures):
     # Sum aggregation + division broadcasted on columns
     cs_rates = sgg[dist_measures].sum().div(sgg.median_brlen.sum(), axis=0)
     #cs_rates["omega"] = (sgg.branch_dN / sgg.branch_dS).apply() 
-    cs_rates.columns = [(m.replace('branch_', '') + '_rate') 
-                        for m in dist_measures]
+    rate_measures = [(m.replace('branch_', '') + '_rate') for m in dist_measures]
+    cs_rates.columns = rate_measures
 
     # ### Weighted standard deviation of substitution rates among branches
 
     tmp = pd.merge(ages_controled[["subgenetree", "median_brlen"] + dist_measures],
                    cs_rates, left_on="subgenetree", right_index=True)
 
-    rate_dev = pd.DataFrame({
-                "branch_dist": (tmp.branch_dist/ tmp.median_brlen - tmp.dist_rate)**2,
-                "branch_t":    (tmp.branch_t   / tmp.median_brlen - tmp.t_rate)**2,
-                "branch_dS":   (tmp.branch_dS  / tmp.median_brlen - tmp.dS_rate)**2,
-                "branch_dN":   (tmp.branch_dN  / tmp.median_brlen - tmp.dN_rate)**2,
-                #"omega":       (ages_controled.dN / ages_controled.dS - tmp.omega)**2,
-                "subgenetree": tmp.subgenetree,
-                "median_brlen": tmp.median_brlen})
+    #rate_dev = pd.DataFrame({
+    #            "branch_dist": (tmp.branch_dist/ tmp.median_brlen - tmp.dist_rate)**2,
+    #            "branch_t":    (tmp.branch_t   / tmp.median_brlen - tmp.t_rate)**2,
+    #            "branch_dS":   (tmp.branch_dS  / tmp.median_brlen - tmp.dS_rate)**2,
+    #            "branch_dN":   (tmp.branch_dN  / tmp.median_brlen - tmp.dN_rate)**2,
+    #            #"omega":       (ages_controled.dN / ages_controled.dS - tmp.omega)**2,
+    #            "subgenetree": tmp.subgenetree,
+    #            "median_brlen": tmp.median_brlen})
 
-    cs_wstds = rate_dev.groupby("subgenetree").apply(group_average,
-                                                     var=dist_measures,
-                                                     weight_var="median_brlen")
+    # subtract branch rate with mean rate, then square.
+    rate_dev_dict = {d: (tmp[d] / tmp.median_brlen - tmp[r])**2
+                     for d,r in zip(dist_measures, rate_measures)}
+    rate_dev_dict.update(subgenetree=tmp.subgenetree,
+                         median_brlen=tmp.median_brlen)
+    rate_dev = pd.DataFrame(rate_dev_dict)
+
+    cs_wstds = rate_dev.groupby("subgenetree").apply(
+                (lambda x, var, weight_var:
+                                    sqrt(group_average(x, var, weight_var))),
+                dist_measures, "median_brlen")
+                
     cs_wstds.columns = [(r + '_std') for r in cs_rates.columns]
 
     return cs_rates, cs_wstds
