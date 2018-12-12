@@ -43,7 +43,7 @@ from dendron.sorter import ladderize
 from dendron.reconciled import get_taxon, get_taxon_treebest, infer_gene_event
 
 import logging
-#logging.basicConfig(format='%(levelname)s:%(name)s:l.%(lineno)d:%(funcName)s:%(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(levelname)s:%(name)s:l.%(lineno)d:%(funcName)s:%(message)s')#, level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 #print(logger.name, file=sys.stderr)
@@ -828,6 +828,8 @@ class GenetreeDrawer(object):
                     try:
                         node_text += " %s=%s" % (ft, getattr(node, ft))
                     except AttributeError:
+                        logger.debug("Attribute %r not found in node %s",
+                                     ft, node_text)
                         pass
 
                 self.ax1.text(real_x, real_y, node_text, alpha=0.5,
