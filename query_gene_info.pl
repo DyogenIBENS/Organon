@@ -1,9 +1,10 @@
-#!/usr/bin/env perl -w
+#!/usr/bin/env perl
 
 # An example script demonstrating the use of BioMart API.
 # This perl API representation is only available for configuration versions >=  0.5 
 # Guillaume edit 2016/09/04: useful tuto at [https://www.biostars.org/p/53241/]
 
+use warnings;
 use strict;
 use BioMart::Initializer;
 use BioMart::Query;
@@ -11,7 +12,7 @@ use BioMart::QueryRunner;
 
 my $confFile = "/users/ldog/glouvel/.local/lib/perl/biomart-perl/conf/martURLLocation85.xml";
 #
-# NB: change action to 'clean' if you wish to start a fresh configuration  
+# NB: change action to 'clean' if you wish to start a fresh configuration
 # and to 'cached' if you want to skip configuration step on subsequent runs from the same registry
 #
 
@@ -39,8 +40,15 @@ while (my $dataset = <>) {
 	$query->addAttribute("external_gene_name");
 	$query->addAttribute("external_gene_source");
 	$query->addAttribute("transcript_count");
-	$query->addAttribute("percentage_gc_content");
+    #$query->addAttribute("percentage_gc_content");  #NOT FOUND
 	$query->addAttribute("description");
+	$query->addAttribute("go_id");
+	$query->addAttribute("name_1006");
+	$query->addAttribute("definition_1006");
+	$query->addAttribute("go_linkage_type");
+	$query->addAttribute("namespace_1003");
+	$query->addAttribute("goslim_goa_accession");
+	$query->addAttribute("hgnc_id");
 
 	$query->formatter("TSV");
 
@@ -63,5 +71,9 @@ while (my $dataset = <>) {
 	$query_runner->printFooter(\*OUT);
 	close OUT ;
 	#####################################################################
+
+    # bizarrement, une fois le fichier rempli, la connexion a la base de
+    # données bloque, et l'itération suivante n'est exécutée qu'après
+    # "Problems with the web server: 500 read timeout"
 }
 
