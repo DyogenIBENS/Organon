@@ -1,6 +1,6 @@
 *.pyc
 *~
-test*
+#test*
 figs
 *.svg
 fluidcondor/*

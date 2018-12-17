@@ -267,8 +267,8 @@ def make_all_lines(genome, gene_categories, gene_trees, modgene, gene_info):
             except KeyError as e:
                 gtree = g.split('.')[0]
                 logger.error("KeyError:\ninfo: %s g = %s n = %s\nneighbors %s\n%s",
-                              gene_info[g], g, ne, neighbours,
-                              draw_gene_trees(gene_trees,gtree,gene_info)
+                             gene_info[g], g, ne, neighbours,
+                             draw_gene_trees(gene_trees,gtree,gene_info))
                 raise e
             pos += 2
             i += 1
