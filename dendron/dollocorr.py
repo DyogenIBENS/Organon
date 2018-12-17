@@ -22,21 +22,29 @@ get_phylchildren = lambda tree,node: [x for x,_ in tree.items.get(node,[])]
 
 #@myTools.memoize
 def place_single_events(n, phyltree, get_phylchildren=get_phylchildren):
-    """Dynamic approache to place n events in a Maddison manner on a
-    phylogenetic tree"""
+    """Dynamic programming approach to place n events in a Maddison manner on a
+    phylogenetic tree.
 
+    Briefly, those events are considered unique/irreversible, so if it happened
+    *once* in the ancestry, it can't happen again in any descendant.
+
+    The tree must be a strictly dichotomic tree."""
+
+    # Store intermediate results for each node.
     node_counts = {}
+
     #TODO: if n is None:
     # There can't be more single events than there are leaves.
     maxn = min(n, len(phyltree.listSpecies))
 
+    # There is exactly 1 way to place 0 event on a single branch,
+    # and we initialize 0 ways for all other numbers of events.
     init_count = np.array([1] + [0]*n)
 
+    # Iterate from the leaves to the root.
     for parent, children in rev_dfw_descendants(phyltree, get_phylchildren,
                                                 include_leaves=True):
         if not children:
-            # There is exactly one way to place 0 event on a single branch,
-            # and one way to place one single event on a single branch.
             node_counts[parent] = init_count.copy()
             logger.debug('* Leaf %r: counts %s', parent, node_counts[parent])
             continue
@@ -45,8 +53,16 @@ def place_single_events(n, phyltree, get_phylchildren=get_phylchildren):
         assert len(children) == 2, "Not implemented for non dichotomic trees."\
                 " (node %s)" % parent
         
-        c1 = node_counts.pop(children[0])
-        c2 = node_counts.pop(children[1])
+        #nch = len(children)
+        #chcounts = np.array([node_counts.pop(ch) for ch in children])
+        try:
+            c1, c2 = [node_counts.pop(ch) for ch in children]
+        except ValueError as err:
+            err.args = ("Not implemented for non dichotomic trees."\
+                        " (node %s)" % parent,)
+            raise
+
+
         logger.debug('children counts: %s: %s; %s: %s', children[0], c1,
                      children[1], c2)
                 
@@ -54,17 +70,18 @@ def place_single_events(n, phyltree, get_phylchildren=get_phylchildren):
 
         # Iterating in decreasing order, because I need to call pcount[k+1], k+2
         # Exclude 0. The number of ways of placing 0 events is defined as 1.
-        for k in range(maxn, -1, -1):
+        for k in range(maxn, 0, -1):
             logger.debug('  k=%d', k)
             # Zero event on the two children branches
             # All possible ways of sharing k events between 2 children
-            if k>0:
-                # The following matrix product is equivalent to:
-                #pcount[k] = 0
-                #for i in range(0, k+1):
-                #    pcount[k] += c1[i] * c2[k-i]
 
-                pcount[k] = c1[:(k+1)].dot(c2[:(k+1)][::-1])
+            # The following matrix product is equivalent to:
+            #pcount[k] = 0
+            #for i in range(0, k+1):
+            #    pcount[k] += c1[i] * c2[k-i]
+
+            pcount[k] = c1[:(k+1)].dot(c2[:(k+1)][::-1])
+            #pcount[k] = combinations_of_2_children_summing_to_k(c1, c2, k)
 
             logger.debug('  %d ways of having: %d event(s) in the subtrees', pcount[k], k)
             #if k <= maxn-1:

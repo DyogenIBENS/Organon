@@ -77,3 +77,8 @@ assert r[4] == 1
 assert r[5] == 0
 assert r[6] == 0
 
+tree_nondicho = myPhylTree.PhylogeneticTree(StringIO("((A:1)a:1,B:2)r;"))
+try:
+    r = place_single_events(1, tree_nondicho)
+except ValueError as expected_err:
+    assert 'Not implemented for non dichotomic trees' in expected_err.args[0]
