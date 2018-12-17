@@ -12,7 +12,7 @@ r = place_single_events(1, tree1)
 
 assert isinstance(r, dict)
 assert r[0] == 1
-assert r.get(1, 0) == 0 
+assert r[1] == 0 
 
 tree2 = myPhylTree.PhylogeneticTree(StringIO("(A:1,B:1)r;"))
 r0 = place_single_events(0, tree2)
@@ -23,37 +23,32 @@ assert 1 not in r0.keys()
 
 r1 = place_single_events(1, tree2)
 
-#assert isinstance(r1, dict)
-assert r[0] == 1
-assert r[1] == 2
+assert r1[0] == 1
+assert r1[1] == 2
 
 r2 = place_single_events(2, tree2)
 
-#assert isinstance(r2, dict)
 assert r2[0] == 1
 assert r2[1] == 2
 assert r2[2] == 1
 
 r3 = place_single_events(3, tree2)
 
-#assert isinstance(r3, dict)
 assert r3[0] == 1
 assert r3[1] == 2
 assert r3[2] == 1
-assert r3[3] == 0
+#assert r3[3] == 0
 
 # Smallest (interesting) tree: 3 leaves
 
 tree3 = myPhylTree.PhylogeneticTree(StringIO("((A:1,B:1)ab:1,C:2)r;"))
 r = place_single_events(1, tree3)
 
-#assert isinstance(r, dict)
 assert r[0] == 1
 assert r[1] == 4
 
 r = place_single_events(4, tree3)
 
-#assert isinstance(r, dict)
 assert r[0] == 1
 assert r[1] == 4
 assert r[2] == 4
