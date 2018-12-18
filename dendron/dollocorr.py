@@ -10,11 +10,96 @@ where one is supposed to cause the other one. In this method, the explained trai
 not be lost."""
 
 
+import itertools as it
 import numpy as np
 from dendron.climber import rev_dfw_descendants
 import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig()
+
+
+def integer_n_partition(total, nterms):
+    """Iterator over all possible ways of summing to `total` in nterms,
+    ordered, without zeros."""
+    # Select nterms-1 split locations among [1, 2, ..., total-1]
+    for isplits in it.combinations(range(1, total), nterms-1):
+        splits = np.array( (0,) + isplits + (total,) )
+        terms = splits[1:] - splits[:-1]
+        yield terms
+    ###FIXME: pb: I get all possible orderings, e.g (1,2) AND (2,1).
+    ###       I only want each set once. (Because in the calling function, I
+    ###       have already made all permutations).
+
+def integer_partition(total, max_nterms=None):
+    if max_nterms is None:
+        max_nterms = total
+    for nterms in range(1, max_nterms+1):
+        yield from integer_n_partition(total, nterms)
+
+
+def ordered_integer_n_partition(total, nterms, minval=1):
+    """Iterate over all possibilities.
+    Each terms of the summation is ordered."""
+    assert nterms>0
+
+    if nterms == 1:
+        yield (total,)
+    else:
+        for i in range(minval, total//nterms + 1):
+            for next_terms in ordered_integer_n_partition(total-i, nterms-1, i):
+                yield (i,) + next_terms
+
+
+def combinations_of_children_summing_to_k(chcounts, k):
+    """Given children counts, compute the number of possibilities to observe
+    k events in the tree rooted at the current node.
+    
+    param: chcounts := precomputed number of possibilities of any number of
+                       events in the children pending subtrees. (children
+                       of the current node)
+                          
+    Count all possible ways of observing k events at the current node.
+    To do so, we need to decompose between:
+    1. Observing a sum of k events in the pending subtrees, and no event in the
+       branches leading to the children;
+    2. observing i (1<=i<=k) events in the children branches, then k-i events
+       in the pending subtrees.
+
+    For each selected `i`, select all possible arrangements of
+    (child branch, child nb of events) such that they sum to k-i.
+    For a given particular arrangement, the number of possibilities is the
+    product for each child of the number of possibilities of getting
+    `child nb of events`.
+    """
+    # Generalization to any number of children.
+    pcountk = 0
+
+    # We have nch branches (one per children)
+    # * We select i branches with one event each, then we get the k - i remaining events
+    #   from the b-i remaining branches.
+    nch = len(chcounts)
+    branches = set(range(nch))
+    for i in range( min(nch,k)+1 ):  # i of the k events happened on this fork.
+        # For each selection of i branches among b:
+        for event_branches in it.combinations(branches, i):
+            noevent_branches = branches - set(event_branches)
+            for permuted_noevent_br in it.permutations(noevent_branches):
+
+                # How many ways of sharing k-i events between b-i branches?
+                for nterms in range(1, min(k-i, b-i)):
+                    for terms in ordered_integer_n_partition(k-i, nterms):
+                        # Product of the number of ways of the descendants:
+                        ki_noevent_count = 1
+                        for neb, n_events in zip(permuted_noevent_br, terms):
+                            ki_noevent_count *= chcounts[neb][n_events]
+                        #for s0 in range(s, len(noevent_branches)):
+                        #    ki_noevent_count *= 1
+                        pcountk += ki_noevents_count
+    return pcountk
+
+
+def combinations_of_2_children_summing_to_k(chcounts, k):
+    pass
 
 
 get_phylchildren = lambda tree,node: [x for x,_ in tree.items.get(node,[])]
