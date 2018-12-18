@@ -124,7 +124,7 @@ def place_single_events(n, phyltree, get_phylchildren=get_phylchildren):
 
     # There is exactly 1 way to place 0 event on a single branch,
     # and we initialize 0 ways for all other numbers of events.
-    init_count = np.array([1] + [0]*n)
+    init_count = np.array([1] + [0]*n, dtype=int)
 
     # Iterate from the leaves to the root.
     for parent, children in rev_dfw_descendants(phyltree, get_phylchildren,
