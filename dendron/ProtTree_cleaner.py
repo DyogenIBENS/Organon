@@ -245,7 +245,9 @@ def edit_toolong_flagged(flagged_proteintrees, maxdist=MAXDIST):
             #TODO: actually accurately flag if subtree has an inner change
             yield flag, True, subtree
     
-    logger.info("%d detached; +%d included; %d leaves_detached.",
+    logger.info("\n  %9d detached;\n"
+                "  +%8d included;\n"
+                "  %9d leaves_detached.",
                 n_detached, n_included, n_leaves_detached)
 
 
@@ -310,8 +312,10 @@ def edit_from_selection(proteintrees, badnodes):
     if badnodes:
         logger.warning("%d nodes not found: %s...", len(badnodes),
                         ' '.join(str(n) for n in list(badnodes)[:5]))
-    logger.info("%d edited nodes\n+%d implicitely edited\n%d with >2 leaves",
-                 n_edits, n_included, n_morethan2)
+    logger.info("\n  %9d edited nodes\n"
+                "  +%8d implicitely edited\n"
+                "  %9d with >2 leaves",
+                n_edits, n_included, n_morethan2)
 
 
 def or_combine_flagged_iterable(flagged_iterable, flagging_iterator, *args, **kwargs):
@@ -322,7 +326,7 @@ def or_combine_flagged_iterable(flagged_iterable, flagging_iterator, *args, **kw
 
 
 def main(badnodelistfile, forestfile, badnode_col=0, maxdist=MAXDIST,
-         print_unchanged=False, dryrun=False):
+         print_unchanged=True, dryrun=False):
     with open(badnodelistfile) as f:
         header_line = next(f)
         badnodes = set(int(line.rstrip().split()[0]) for line in f)
@@ -335,8 +339,11 @@ def main(badnodelistfile, forestfile, badnode_col=0, maxdist=MAXDIST,
     #                                edit_from_selection(proteintrees, badnodes),
     #                                edit_toolong,
     #                                maxdist=maxdist):
+    unprinted = 0
+
     if dryrun:
         def output(tree, flag1, flag2):
+            unprinted += 1
             return int(flag1 | flag2)
     elif print_unchanged:
         def output(tree, flag1, flag2):
@@ -348,6 +355,7 @@ def main(badnodelistfile, forestfile, badnode_col=0, maxdist=MAXDIST,
                 tree.printTree(stdout)
                 return 1
             else:
+                unprinted += 1
                 return 0
 
     n_edited_trees = 0
@@ -361,9 +369,11 @@ def main(badnodelistfile, forestfile, badnode_col=0, maxdist=MAXDIST,
         n_edited_trees_toolong += int(change2)
         n_edited_trees += output(tree, change1, change2)
 
-    logger.info('%d edited trees. %d from node selection, %d because of too '
-                'long branches', n_edited_trees, n_edited_trees_fromsel,
-                n_edited_trees_toolong)
+    logger.info('\n%9d edited trees. %d unprinted trees.\n'
+                ' -> %9d from node selection,\n'
+                ' -> %9d because of too long branches.\n',
+                n_edited_trees, unprinted,
+                n_edited_trees_fromsel, n_edited_trees_toolong)
 
 
 if __name__ == '__main__':
@@ -375,6 +385,9 @@ if __name__ == '__main__':
                         help='[%(default)s]')
     parser.add_argument('-d', '--debug', action='store_true')
     parser.add_argument('-n', '--dryrun', action='store_true')
+    parser.add_argument('-c', '--changed-only', action='store_false',
+                        dest='print_unchanged',
+                        help='Output only tree that were changed.')
 
     dictargs = vars(parser.parse_args())
 
