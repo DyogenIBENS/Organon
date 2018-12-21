@@ -339,11 +339,12 @@ def main(badnodelistfile, forestfile, badnode_col=0, maxdist=MAXDIST,
     #                                edit_from_selection(proteintrees, badnodes),
     #                                edit_toolong,
     #                                maxdist=maxdist):
-    unprinted = 0
+    n_unprinted = 0
 
     if dryrun:
         def output(tree, flag1, flag2):
-            unprinted += 1
+            nonlocal n_unprinted
+            n_unprinted += 1
             return int(flag1 | flag2)
     elif print_unchanged:
         def output(tree, flag1, flag2):
@@ -355,7 +356,8 @@ def main(badnodelistfile, forestfile, badnode_col=0, maxdist=MAXDIST,
                 tree.printTree(stdout)
                 return 1
             else:
-                unprinted += 1
+                nonlocal n_unprinted
+                n_unprinted += 1
                 return 0
 
     n_edited_trees = 0
