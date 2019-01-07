@@ -1010,7 +1010,7 @@ if __name__ == '__main__':
 
     # ### Merge control dates
 
-    #add_control_dates_lengths(ages_robust, phyltreefile, timetree_ages_CI=None)
+    #add_control_dates_lengths(ages_treestats, ages_robust, phyltree, timetree_ages_CI=None)
 
     median_taxon_ages = ages_robust[ages_robust.type.isin(("spe", "leaf"))]\
                                    .groupby("taxon").age_dS.median()
