@@ -6,9 +6,9 @@ from glob import glob
 import os.path as op
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logger.INFO)
+logger.setLevel(logging.INFO)
 #logging.basicConfig(format="%(levelname)s:%(funcName)s:%(message)s",
-#                    level=logger.INFO)
+#                    level=logging.INFO)
 
 
 def get_genomicus_release(dirname):

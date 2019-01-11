@@ -11,8 +11,8 @@ import argparse
 from ete3 import PhyloTree, NCBITaxa
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logger.INFO)
-#logging.basicConfig(format='%(levelname)s:l.%(lineno)d:%(message)s', level=logger.INFO)
+logger.setLevel(logging.INFO)
+#logging.basicConfig(format='%(levelname)s:l.%(lineno)d:%(message)s', level=logging.INFO)
 
 
 def get_last_common_element(*iterables):
