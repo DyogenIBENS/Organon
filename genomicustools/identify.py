@@ -104,21 +104,24 @@ PROT2SP = {85:
            }
 
 PROT2SP[86] = deepcopy(PROT2SP[85])
-PROT2SP[86].update(**{'MGP_SPR': 'Mus spretus'})  # TODO: check the protein id
+PROT2SP[86].update({'MGP_SPR': 'Mus spretus'})  # TODO: check the protein id
 
 PROT2SP[87] = deepcopy(PROT2SP[86])
-PROT2SP[87].update(**{'ENSTSYP': 'Carlito syrichta'})
+PROT2SP[87].update({'ENSTSYP': 'Carlito syrichta'})
 
-PROT2SP[90] = PROT2SP[88] = PROT2SP[87]
+PROT2SP[88] = PROT2SP[87]
 
+PROT2SP[90] = deepcopy(PROT2SP[88])
 PROT2SP[90].update({'ENSMEUP': 'Notamacropus eugenii',  # Update of Macropus e.
                     'ENSCAPP': 'Cavia aperea',
                     'ENSCLAP': 'Chinchilla lanigera',
-                    'ENSCGRP00001': 'Cricetulus griseus CHOK1GS',
-                    'ENSCGRP00000': 'Cricetulus griseus Crigri',  # !!!!
+                    #'ENSCGRP00001': 'Cricetulus griseus CHOK1GS',
+                    #'ENSCGRP00000': 'Cricetulus griseus Crigri',  # !!!!
+                    'ENSCGRP': 'Cricetulus griseus',  # !!!!
                     'ENSFDAP':      'Fukomys damarensis',
-                    'ENSHGLP00000': 'Heterocephalus glaber female',
-                    'ENSHGLP00100': 'Heterocephalus glaber male',
+                    #'ENSHGLP00000': 'Heterocephalus glaber female',
+                    #'ENSHGLP00100': 'Heterocephalus glaber male',
+                    'ENSHGLP': 'Heterocephalus glaber',
                     'ENSJJAP': 'Jaculus jaculus',
                     'ENSMAUP': 'Mesocricetus auratus',
                     'ENSMOCP': 'Microtus ochrogaster',
@@ -127,6 +130,28 @@ PROT2SP[90].update({'ENSMEUP': 'Notamacropus eugenii',  # Update of Macropus e.
                     'ENSNGAP': 'Nannospalax galili',
                     'ENSODEP': 'Octodon degus',
                     'ENSPEMP': 'Peromyscus maniculatus bairdii'})
+
+PROT2SP[91] = deepcopy(PROT2SP[90])
+PROT2SP[91].update({'ENSANAP': 'Aotus nancymaae',
+                    'ENSCCAP': 'Cebus capucinus imitator',  # 'Cebus capucinus'
+                    'ENSCATP': 'Cercocebus atys',
+                    'ENSCANP': 'Colobus angolensis palliatus',
+                    'ENSMFAP': 'Macaca fascicularis',
+                    'ENSMNEP': 'Macaca nemestrina',
+                    'ENSMLEP': 'Mandrillus leucophaeus',
+                    'ENSPPAP': 'Pan paniscus',
+                    'ENSPCOP': 'Propithecus coquereli',
+                    'ENSRBIP': 'Rhinopithecus bieti',
+                    'ENSRROP': 'Rhinopithecus roxellana',
+                    'ENSSBOP': 'Saimiri boliviensis boliviensis'})
+
+PROT2SP[92] = deepcopy(PROT2SP[91])
+PROT2SP[92].update({'ENSCHIP':'Capra hircus'})
+
+PROT2SP[93] = deepcopy(PROT2SP[92])
+PROT2SP[93].update({'ENSEBUP': 'Eptatretus burgeri',
+                    'ENSPPRP': 'Panthera pardus',
+                    'ENSPTIP': 'Panthera tigris altaica'})
 
 GENE2SP = {}
 
@@ -206,17 +231,19 @@ GENE2SP[86].update(**{'MGP_SPR': 'Mus spretus'})
 
 GENE2SP[87] = deepcopy(GENE2SP[86])
 GENE2SP[87].update({'ENSTSYG': 'Carlito syrichta'})
+GENE2SP[88] = GENE2SP[87]
 
-GENE2SP[90] = GENE2SP[88] = GENE2SP[87]
-
+GENE2SP[90] = deepcopy(GENE2SP[88])
 GENE2SP[90].update({'ENSMEUG': 'Notamacropus eugenii',  # Update of Macropus e.
                     'ENSCAPG': 'Cavia aperea',
                     'ENSCLAG': 'Chinchilla lanigera',
-                    'ENSCGRG00001': 'Cricetulus griseus CHOK1GS',
-                    'ENSCGRG00000': 'Cricetulus griseus Crigri',  # !!!!
+                    #'ENSCGRG00001': 'Cricetulus griseus CHOK1GS',
+                    #'ENSCGRG00000': 'Cricetulus griseus Crigri',  # !!!!
+                    'ENSCGRG': 'Cricetulus griseus',
                     'ENSFDAG':      'Fukomys damarensis',
-                    'ENSHGLG00000': 'Heterocephalus glaber female',
-                    'ENSHGLG00100': 'Heterocephalus glaber male',
+                    #'ENSHGLG00000': 'Heterocephalus glaber female',
+                    #'ENSHGLG00100': 'Heterocephalus glaber male',
+                    'ENSHGLG': 'Heterocephalus glaber',
                     'ENSJJAG': 'Jaculus jaculus',
                     'ENSMAUG': 'Mesocricetus auratus',
                     'ENSMOCG': 'Microtus ochrogaster',
@@ -225,6 +252,29 @@ GENE2SP[90].update({'ENSMEUG': 'Notamacropus eugenii',  # Update of Macropus e.
                     'ENSNGAG': 'Nannospalax galili',
                     'ENSODEG': 'Octodon degus',
                     'ENSPEMG': 'Peromyscus maniculatus bairdii'})
+
+GENE2SP[91] = deepcopy(GENE2SP[90])
+GENE2SP[91].update({'ENSANAG': 'Aotus nancymaae',
+                    'ENSCCAG': 'Cebus capucinus imitator',  # 'Cebus capucinus'
+                    'ENSCATG': 'Cercocebus atys',
+                    'ENSCANG': 'Colobus angolensis palliatus',
+                    'ENSMFAG': 'Macaca fascicularis',
+                    'ENSMNEG': 'Macaca nemestrina',
+                    'ENSMLEG': 'Mandrillus leucophaeus',
+                    'ENSPPAG': 'Pan paniscus',
+                    'ENSPCOG': 'Propithecus coquereli',
+                    'ENSRBIG': 'Rhinopithecus bieti',
+                    'ENSRROG': 'Rhinopithecus roxellana',
+                    'ENSSBOG': 'Saimiri boliviensis boliviensis'})
+
+GENE2SP[92] = deepcopy(GENE2SP[91])
+GENE2SP[92].update({'ENSCHIG':'Capra hircus'})
+
+GENE2SP[93] = deepcopy(GENE2SP[92])
+GENE2SP[93].update({'ENSEBUG': 'Eptatretus burgeri',
+                    'ENSPPRG': 'Panthera pardus',
+                    'ENSPTIG': 'Panthera tigris altaica'})
+
 
 SP2GENEID = {}
 for version, conversion in GENE2SP.items():
@@ -424,3 +474,44 @@ def test_convert_gene2species(ensembl_version, gene_info, cgene=1):
                     raise
                 assert sp == predicted_sp, "%s: %r ≠ %r" % (gene, sp, predicted_sp)
     return True
+
+
+def test_convert2species(ensembl_version, default=None,
+                         forestfile='~/GENOMICUS%d/tree.1.ensembl.bz2'):
+    """test the `convert_prot2species` function for every modernID"""
+    # Check rejection of wrong strings
+    from LibsDyogen import myProteinTree
+
+    for wrong in ('xululul', '0000000', 'ENSXXXP', 'ENSG000'):
+        predicted_sp = convert_prot2species(wrong, ensembl_version, False)
+        assert predicted_sp is False, "%r predicted %r" % (wrong, predicted_sp)
+
+    expected_species = set(GENE2SP[ensembl_version].values())
+    expected_species_p = set(PROT2SP[ensembl_version].values())
+    assert expected_species == expected_species_p
+
+    for tree in myProteinTree.loadTree(op.expanduser(forestfile % ensembl_version)):
+        for tip in (set(tree.info) - set(tree.data)):
+            tipinfo = tree.info[tip]
+            sp = tipinfo['taxon_name']
+            gene = tipinfo['gene_name']
+            prot = tipinfo['protein_name']
+
+            assert sp in expected_species, 'Unexpected species %r' % sp
+
+            try:
+                predicted_sp = convert_gene2species(gene, ensembl_version)
+            except KeyError as err:
+                err.args = err.args[:-1] + \
+                           (err.args[-1] + ' '.join((sp, gene, "Not found")),)
+                raise
+            assert sp == predicted_sp, "%s: %r ≠ %r" % (gene, sp, predicted_sp)
+
+            try:
+                predicted_sp = convert_prot2species(prot, ensembl_version, default)
+            except KeyError as err:
+                err.args = err.args[:-1] + \
+                           (err.args[-1] + ' '.join((sp, prot, "Not found")),)
+                raise
+            assert sp == predicted_sp, "%s: %r ≠ %r" % (prot, sp, predicted_sp)
+            
