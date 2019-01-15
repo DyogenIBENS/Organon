@@ -6,14 +6,14 @@ import argparse
 import ete3
 import logging
 logger = logging.getLogger(__name__)
-#logging.basicConfig(format="%(levelname)s:%(message)s")
+logging.basicConfig(format="%(levelname)s:%(message)s")
 
 
 def main(infile, subtreesfile=None, format=1, quoted_node_names=False):
     tree = ete3.Tree(infile, format=format)
 
     stream = stdin if subtreesfile is None else open(subtreesfile)
-    subtrees = [s + ';' for s in stream.read().split(';')]
+    subtrees = [s + ';' for s in stream.read().rstrip('; \t\n').split(';')]
     if subtreesfile is None:
         stream.close()
 
@@ -21,7 +21,9 @@ def main(infile, subtreesfile=None, format=1, quoted_node_names=False):
         newsubtree = ete3.Tree(subtreetxt, format=format, quoted_node_names=quoted_node_names)
         # First leaf of newsubtree should be an existing node in the main tree.
         ref_leaf = newsubtree.get_leaves()[0]
-        assert ref_leaf == newsubtree.children[0], "incorrect subtree specification"
+        assert ref_leaf == newsubtree.children[0], \
+            "Incorrect subtree specification: ref_leaf %r VS\n%s" % \
+                (ref_leaf.name, newsubtree.get_ascii())
         try:
             ref_node = tree.search_nodes(name=ref_leaf.name)[0]
         except IndexError:
@@ -58,5 +60,4 @@ if __name__ == '__main__':
     parser.add_argument('-q', '--quoted-node-names', '--quoted', action='store_true')
     
     args = parser.parse_args()
-    print(args)
     main(args.infile, args.subtreesfile, args.format, args.quoted_node_names)
