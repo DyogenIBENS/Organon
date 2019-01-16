@@ -11,8 +11,8 @@ import argparse
 from ete3 import PhyloTree, NCBITaxa
 import logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(format='%(levelname)s:%(message)s')
 logger.setLevel(logging.INFO)
-#logging.basicConfig(format='%(levelname)s:l.%(lineno)d:%(message)s', level=logging.INFO)
 
 
 def get_last_common_element(*iterables):
@@ -27,23 +27,28 @@ def get_last_common_element(*iterables):
     return last
 
 
-def matchrename_ncbitax(timetree):
-    logger.info('Discarding duplicate common ancestors')
+def matchrename_ncbitax(timetree, uniq=True):
+    """Apply scientific name as the node name.
+    If a child has the same name as its parent and `uniq` is True, do not apply
+    the scientific name."""
+
+    if uniq:
+        logger.info('Discarding duplicate common ancestors')
+
     # Apply NCBI name only when it corresponds to a NCBI taxonomy node.
     for node in timetree.traverse():
         node.add_feature('oldname', node.name)
-        try:
-            if not node.is_leaf() and \
-                    (node.is_root() or node.up.taxid != node.taxid):
+        if not node.is_leaf():
+            if not node.is_root():
+                if node.up.taxid == node.taxid:
+                    logger.warning("Node %r is a duplicated taxon %d (%r).",
+                                   node.name, node.taxid, node.sci_name)
+                    # Indicates a multifurcation in the NCBI taxonomy.
+                    if uniq:
+                        node.sci_name = ''
+
+            if node.sci_name:
                 node.name = node.sci_name
-            else:
-                node.sci_name = ''
-        except BaseException as err:
-            logger.error('%s %s %s leaf: %s', err, node.name, node.features, node.is_leaf())
-            if node.up:
-                logger.error('%s %s %s', err, node.up.name, node.up.features)
-            raise
-    #return timetree
 
 
 def myannotate(timetree, ncbi):
@@ -83,7 +88,7 @@ def myannotate(timetree, ncbi):
     #return timetree
 
 
-def name_ancestors(timetreefile, to_table=False):
+def name_ancestors(timetreefile, to_table=False, ete3_algo=False, uniq=True):
     logger.info('Loading data')
     ### /!\ quoted_node_names only from ete3 v3.1.1
     timetree = PhyloTree(timetreefile, format=1,
@@ -103,9 +108,11 @@ def name_ancestors(timetreefile, to_table=False):
                         preserve_branch_length=True)
 
     logger.info('Placing common ancestors')
-    #ncbi.annotate_tree(timetree, 'taxid')
-    myannotate(timetree, ncbi)
-    matchrename_ncbitax(timetree)
+    if ete3_algo:
+        ncbi.annotate_tree(timetree, 'taxid')
+    else:
+        myannotate(timetree, ncbi)
+    matchrename_ncbitax(timetree, uniq)
     
     #logger.debug({ft:getattr(timetree, ft) for ft in timetree.features})
 
@@ -120,6 +127,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('timetreefile')
     parser.add_argument('--to-table', action='store_true')
+    parser.add_argument('--ete3-algo', '--ete3', action='store_true',
+                        help='Use the annotate function from ete3 instead of mine.')
+    parser.add_argument('-d', '--duplicate', action='store_false', dest='uniq',
+                        help='Keep duplicated consecutive annotations')
     
     args = parser.parse_args()
     name_ancestors(**vars(args))
