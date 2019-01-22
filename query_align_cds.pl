@@ -65,6 +65,11 @@ while (my $GeneTree = <STDIN>) {
 		print STDERR "$count : Downloading $GeneTree.\n"; # Compressing '$prev_outfile'\n" ;		
 		# fetch_all?
 		my $tree = $tree_adaptor->fetch_by_stable_id($GeneTree);
+		#TODO: Check that $tree is not undefined.
+		if ( not defined $tree ) {
+			print STDERR "WARNING: $GeneTree not found in the database! Skipping.\n";
+			next;
+		}
 		$tree->preload;
 
 		$tree = $tree->root;
