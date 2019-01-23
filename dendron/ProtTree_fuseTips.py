@@ -57,6 +57,9 @@ def fuse_subspecies(forest, species2seq, delete_distant_orthologs=False):
 
         info = tree.info
         data = tree.data
+        # Backup 'tree_name' in case the root is deleted
+        #tree_name = tree.info[tree.root]['tree_name']
+        
         kept_children = set()  # Check variable.
         removed_children = set()
         edited_parents = set()
@@ -120,8 +123,8 @@ def fuse_subspecies(forest, species2seq, delete_distant_orthologs=False):
                 #    import ipdb; ipdb.set_trace()
 
                 # Replace with the correct child.
-                info[parent] = info.pop(kept_ch)
-                ###TODO: choose bootstrap value.
+                info[parent].update(info.pop(kept_ch))  # So that 'tree_name' or 'Bootstrap' fields are conserved.
+                
                 try:
                     data[parent] = data.pop(kept_ch)
                 except KeyError as err:

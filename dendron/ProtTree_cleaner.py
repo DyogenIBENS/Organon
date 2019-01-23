@@ -374,7 +374,7 @@ def main(badnodelistfile, forestfile, badnode_col=0, maxdist=MAXDIST,
     logger.info('\n%9d edited trees. %d unprinted trees.\n'
                 ' -> %9d from node selection,\n'
                 ' -> %9d because of too long branches.\n',
-                n_edited_trees, unprinted,
+                n_edited_trees, n_unprinted,
                 n_edited_trees_fromsel, n_edited_trees_toolong)
 
 
