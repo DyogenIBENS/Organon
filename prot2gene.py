@@ -12,11 +12,30 @@ import os.path as op
 import argparse
 from bz2 import BZ2File
 from multiprocessing import Pool
+import logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(format='%(levelname)s:%(funcName)s:%(message)s')
 
-from genomicustools.identify import convert_prot2gene
+
+#from genomicustools.identify import convert_prot2gene
+from genomicustools.identify import convert_prot2species
 
 
 ENSEMBL_VERSION = 85
+
+
+class noop_output(object):
+    """Object that behaves like an output file object but does absolutely nothing"""
+    def __init__(self, *args, **kwargs):
+        pass
+    def __enter__(self):
+        return self
+    def __exit__(self, type, value, traceback):
+        pass
+    def write(self, *args):
+        pass
+    def writelines(self, *args):
+        pass
 
 
 def myopen(filename, *args, **kwargs):
@@ -26,10 +45,19 @@ def myopen(filename, *args, **kwargs):
         return open(filename, *args, **kwargs)
 
 
+def load_prot2gene(filename, cprot, cgene):
+    conversions = {}
+    with open(filename) as f:
+        for line in f:
+            fields = line.rstrip().split('\t')
+            conversions[fields[cprot]] = fields[cgene]
+    return conversions
+
+
 def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2,
                       cgene=0, shorten_species=False,
                       ensembl_version=ENSEMBL_VERSION, force_overwrite=False,
-                      verbose=1, strict=False):
+                      verbose=1, strict=False, dryrun=False):
     if verbose:
         print(fastafile)
     genetree, ext = op.splitext(fastafile)
@@ -39,9 +67,12 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
     outfile = outputformat.format(genetreefile)
     if op.exists(outfile):
         if force_overwrite:
-            print("(Overwriting %s)" % outfile, file=stderr)
+            if not dryrun:
+                logger.warning("(Overwriting %s)", outfile)
+            else:
+                logger.warning("(Dry-run: real run would overwrite %s)", outfile)
         else:
-            print("%s exists. Skipping." % outfile, file=stderr)
+            logger.warning("%s exists. Skipping.", outfile)
             return
 
     # avoid duplicate genes
@@ -52,13 +83,17 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
         iter_lines = lambda F: (line.decode() for line in F)
     else:
         iter_lines = lambda F: F
+    
+    prot2gene = load_prot2gene(gene_info, cprot, cgene)
 
-    with myopen(fastafile) as IN, myopen(outfile, 'w') as OUT:
+    with myopen(fastafile) as IN, \
+            (noop_output() if dryrun else myopen(outfile, 'w')) as OUT:
         for line in iter_lines(IN):
             if line[0] == '>':
                 protID = line[1:].split('/')[0]
-                geneID = convert_prot2gene(protID, gene_info, cprot, cgene,
-                                           shorten_species, ensembl_version)
+                geneID = prot2gene.get(protID)
+                         #convert_prot2gene(protID, gene_info, cprot, cgene,
+                         #                  shorten_species, ensembl_version)
                 #if not geneID and protID.startswith('ENSCSAP'):
                 #    protID = protID.replace('ENSCSAP', 'ENSCSAVP')
                 #    geneID = convert_prot2gene(protID)
@@ -67,11 +102,14 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
                 #        # Fit names in tree
                 #        geneID = geneID.replace('ENSCSAVG', 'ENSCSAG')
                 if not geneID:
+                    notfound_msg = "Protein ID %s could not be converted" % protID
                     if strict:
-                        raise RuntimeError("protein ID %s could not be converted"\
-                                           % protID)
+                        raise LookupError(notfound_msg)
+                    else:
+                        logger.error(notfound_msg)
                     unknowns += 1
-                    geneID = "unknown_gene_%s" % unknowns
+                    species = convert_prot2species(protID, ensembl_version, 'unknown')
+                    geneID = "%s_gene_%d" % (species, unknowns)
                 else:
                     found.setdefault(geneID, 0)
                     found[geneID] += 1
@@ -106,23 +144,22 @@ if __name__=='__main__':
     parser.add_argument("-v", "--verbose", action='store_const', const=2,
                         dest='verbose', default=1,
                         help="print each conversion")
+    parser.add_argument('-n', '--dryrun', action='store_true')
     parser.add_argument("-o", "--outputformat", default="{0}_genes.fa",
                         help=("output file: '{0}' will be replaced by the "
                               "basename of the input file. [%(default)r]"))
-    parser.add_argument("--shorten-species", action='store_true',
-                        help="change 'Mus musculus' to 'mmusculus'?")
     parser.add_argument("-f", "--force-overwrite", action='store_true',
                         help="overwrite already existing files")
     parser.add_argument("--cprot", type=int, default=2, metavar='INT',
                         help="column for protein [%(default)s]")
     parser.add_argument("--cgene", type=int, default=0, metavar='INT',
                         help="column for gene [%(default)s]")
-    parser.add_argument('-e', '--ensembl-version', type=int,
-                        default=ENSEMBL_VERSION, help='[%(default)s]')
-
-    ##TODO: argument to trow error if conversion not found
     parser.add_argument("--strict", action='store_true',
                         help="Exit at first failed conversion")
+    parser.add_argument('-e', '--ensembl-version', type=int,
+                        default=ENSEMBL_VERSION, help='[%(default)s]')
+    parser.add_argument("--shorten-species", action='store_true',
+                        help="DEPRECATED. Change 'Mus musculus' to 'mmusculus'?")
 
     args = parser.parse_args()
     #for protID in argv[2:]:
@@ -132,7 +169,7 @@ if __name__=='__main__':
     pool = Pool(processes=args.cores)
     if args.fromfile:
         if len(args.fastafiles) > 1:
-            print("Error: only one 'fastafiles' allowed with --fromfile. See help", file=stderr)
+            logger.error("Only one 'fastafiles' allowed with --fromfile. See help")
             exit(1)
         else:
             with open(args.fastafiles[0]) as ff:
@@ -152,6 +189,7 @@ if __name__=='__main__':
                       args.ensembl_version,
                       args.force_overwrite,
                       args.verbose,
-                      args.strict) for f in fastafiles)
+                      args.strict,
+                      args.dryrun) for f in fastafiles)
     pool.map(rewrite_fasta_process, generate_args)
 

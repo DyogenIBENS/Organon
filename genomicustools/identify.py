@@ -11,6 +11,7 @@ import os.path as op
 import re
 from copy import deepcopy
 from bz2 import BZ2File
+import warnings
 import logging
 logger = logging.getLogger(__name__)
 ch = logging.StreamHandler()
@@ -350,6 +351,7 @@ def grep_gene(filename, geneID, cprot=2, cgene=0):
 
 def convert_prot2gene(protID, gene_info, cprot=2, cgene=0, shorten_species=False,
                       ensembl_version=ENSEMBL_VERSION):
+    warning.warn('Bad (inefficient) function (too much IO). You should load all conversions at once in a dict.')
     sp = convert_prot2species(protID, ensembl_version)
     if shorten_species:
         spsplit = sp.split()
