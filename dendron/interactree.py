@@ -33,8 +33,9 @@ def fileinputtrees():
     #        if newick.rstrip()]
 
 
-def main(newickfiles, subnewick_format=1, rootnode=None, show_internal=False,
-         show_dists=False, nodesize=1, text=False, compact=False, output=None):
+def main(newickfiles, subnewick_format=1, rootnode=None, ladderize=False,
+         show_internal=False, show_dists=False, nodesize=1, text=False,
+         compact=False, output=None):
     #newicks = fileinput.input(files=newickfiles)
     if not newickfiles:
         newickfiles = fileinputtrees()
@@ -42,11 +43,12 @@ def main(newickfiles, subnewick_format=1, rootnode=None, show_internal=False,
 
     for i, newick in enumerate(newickfiles, start=1):
         print('Tree %d' % i)
-        display_onetree(newick, subnewick_format, rootnode, show_internal,
-                        show_dists, nodesize, text, compact, output)
+        display_onetree(newick, subnewick_format, rootnode, ladderize,
+                        show_internal, show_dists, nodesize, text, compact,
+                        output)
 
 
-def display_onetree(newick, subnewick_format=1, rootnode=None,
+def display_onetree(newick, subnewick_format=1, rootnode=None, ladderize=False,
                     show_internal=False, show_dists=False, nodesize=1,
                     text=False, compact=False, output=None):
     #print('subnewick format = %d' % subnewick_format)
@@ -59,6 +61,9 @@ def display_onetree(newick, subnewick_format=1, rootnode=None,
     if rootnode:
         #print(tree.search_nodes(name=rootnode))
         tree = tree.search_nodes(name=rootnode)[0]
+
+    if ladderize:
+        tree.ladderize()
 
     if text:
         show_attr=['dist'] if show_dists else None
@@ -99,6 +104,8 @@ if __name__=='__main__':
                              'see ete3 documentation. [%(default)s]')
     parser.add_argument('-r', dest='rootnode', help='rootnode: name of an ' \
                         'internal node to take as root.')
+    parser.add_argument('-l', dest='ladderize', action='store_true',
+                        help='Ladderize tree before display')
     parser.add_argument('-i', dest='show_internal', action='store_true', 
                         help='Display internal nodes names')
     parser.add_argument('-d', dest='show_dists', action='store_true', 
