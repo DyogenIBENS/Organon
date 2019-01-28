@@ -2,6 +2,14 @@
 # -*- coding: utf-8 -*-
 
 
+"""
+Rename clades using a conversion file.
+
+If the converted name indicates a paraphyly (with a `+`), delete it.
+The parent clade therefore becomes a polytomy.
+"""
+
+
 from sys import stdin
 import argparse as ap
 import ete3
@@ -72,7 +80,8 @@ def main(conversionfile, treefile=None):
 
 if __name__ == '__main__':
     parser = ap.ArgumentParser(description=__doc__)
-    parser.add_argument('conversionfile')
+    parser.add_argument('conversionfile',
+                        help='2 columns file as produced by `clade_match.py`.')
     parser.add_argument('treefile', nargs='?')
     
     args = parser.parse_args()
