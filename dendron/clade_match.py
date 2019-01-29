@@ -165,7 +165,7 @@ def match_clades(tree1, tree2):
                     # Largest inclusion is the empty set
                     break
 
-                matching_cl.append(best[0])
+                matching_cl.append('(%s)' % best[0] if '+' in best[0] else best[0])
                 unmatched_sp.difference_update(best[1])
                 matched_sp |= best[1]
 
@@ -173,12 +173,13 @@ def match_clades(tree1, tree2):
                 if not unmatched_sp:
                     break
             
+            matching_cl_str = '+'.join(matching_cl)
             if len(matching_cl) >= 1:
                 # add this (possibly polyphyletic) clade to the reference tree.
-                clades2_dict['+'.join(matching_cl)] = matched_sp
-                clades2.append(('+'.join(matching_cl), matched_sp))
+                clades2_dict[matching_cl_str] = matched_sp
+                clades2.append((matching_cl_str, matched_sp))
 
-            matching_clades.append((clade1, '+'.join(matching_cl)))
+            matching_clades.append((clade1, matching_cl_str))
     return matching_clades
 
 
