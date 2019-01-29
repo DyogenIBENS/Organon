@@ -3,9 +3,9 @@
 
 
 """
-Rename clades using a conversion file.
+Read clade conversions from file (like produced with `clade_match`).
 
-If the converted name indicates a paraphyly (with a `+`), delete it.
+If the converted name indicates a polyphyly (with a `+`), delete it.
 The parent clade therefore becomes a polytomy.
 """
 
@@ -34,7 +34,7 @@ def get_data(tree, nodedist):
     return [(ch, ch.dist) for ch in nodedist[0].children]
 
 
-def make_polytomies(tree, conversion):
+def delete_polyphylies(tree, conversion):
     for node in tree.traverse('postorder'):
         newname = conversion.get(node.name, node.name)
         if '+' in newname:
@@ -73,7 +73,7 @@ def main(conversionfile, treefile=None):
         treefile = stdin.read()
     tree = ete3.Tree(treefile, format=1)
     
-    make_polytomies(tree, conversion)
+    delete_polyphylies(tree, conversion)
 
     print(tree.write(format=1, format_root_node=True))
 
