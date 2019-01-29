@@ -24,7 +24,7 @@ def load_conversion(conversionfile):
         conversion = {}
         for line in stream:
             if not line.startswith('#'):
-                field1, field2 = line.rstrip().split('\t')
+                field1, field2, *extra = line.rstrip().split('\t')
                 if field1 and field2:
                     conversion[field1] = field2
     return conversion
