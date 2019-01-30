@@ -45,6 +45,7 @@ try:
     import argparse_custom as argparse
 except ImportError:
     import argparse
+from textwrap import dedent
 
 import matplotlib as mpl
 #print(mpl.get_backend())
@@ -337,7 +338,7 @@ class DataVisualizor(object):
         taxa = taxa if taxa is not None else self.taxa
 
         #duptaxa = [k for k in self.taxa if k in self.taxa_ages.groups]
-        data = [self.taxa_evt_ages.get_group((lab, evt))[self.age_key].dropna().as_matrix() \
+        data = [self.taxa_evt_ages.get_group((lab, evt))[self.age_key].dropna().values \
                     for lab, evt in self.taxa_evt \
                     if lab in taxa]
                     #if lab in self.taxa_ages.groups else [] \
@@ -358,7 +359,8 @@ class DataVisualizor(object):
 
 
     def lineage_hist(self, lineage=None, nbins=None):
-        """Histogram of duplications along a selected lineage.
+        """
+        Histogram of duplications along a selected lineage.
         
         Lineage: a species name"""
         nbins = nbins if nbins else self.default_nbins
@@ -502,7 +504,8 @@ class DataVisualizor(object):
     def tree_hist(self, nbins=None, vertical=False, xlim=None, ylim=None, sharescale=False,
                   title=None):
         # labels, newdata, self.taxa_ages, hist_coords, subs_labels, treeforks, 
-        """Draw histograms on top of a given phylogenetic tree (e.g species tree).
+        """
+        Draw histograms on top of a given phylogenetic tree (e.g species tree).
         
         It needs a list of data, and the list of tree forks positions.
 
@@ -793,7 +796,7 @@ if __name__=='__main__':
     for cmd_name in COMMANDS:
         cmd_func = CMD_FUNC[cmd_name] # only used for the __doc__ ...
         cmd_parser = subparsers.add_parser(cmd_name,
-                                           description=cmd_func.__doc__,
+                                           description=dedent(cmd_func.__doc__),
                                            parents=[parent_parser],
                         formatter_class=argparse.RawDescriptionHelpFormatter)#,
                                         #formatter_class=RawDescArgDefFormatter)
