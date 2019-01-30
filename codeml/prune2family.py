@@ -8,7 +8,7 @@ Also add missing speciation nodes."""
 
 import logging
 logger = logging.getLogger(__name__)
-logging.basicConfig(format='%(levelname)s:%(module)s:%(funcName)s:%(message)s')
+logging.basicConfig(format='%(levelname)s:%(name)s:%(module)s:%(funcName)s:%(message)s')
 logger.setLevel(logging.INFO)
 
 
