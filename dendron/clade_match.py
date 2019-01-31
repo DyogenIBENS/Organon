@@ -10,9 +10,13 @@
 
 import sys
 import argparse
-import ete3
-from LibsDyogen import myPhylTree
-from collections import defaultdict
+#from dendron.climber import dfw_descendants_generalized
+from itertools import zip_longest
+import logging
+logger = logging.getLogger(__name__)
+
+import dendron.parsers as treeparsers
+import dendron.converters as treeconverters
 
 import signal, traceback
 
@@ -34,9 +38,17 @@ def get_clade2sp(tree):
     clade2sp = []
     clade2sp_dict = {}
     for node in tree.traverse('postorder'):
+        nodename = node.name
+        # Ensure this name is not a duplicate
+        dup = 0
+        while nodename in clade2sp_dict:
+            dup += 1
+            nodename = '%s_%d' % (node.name, dup)
+        node.name = nodename  # For later collecting as child.
+
         clade = set()
         if node.is_leaf():
-            clade.add(node.name)
+            clade.add(nodename)
         else:
             for child in node.children:
                 try:
@@ -44,14 +56,30 @@ def get_clade2sp(tree):
                 except KeyError as err:
                     print('KeyError: Current clade2sp_dict %s' % clade2sp_dict,
                           file=sys.stderr)
-                    err.args += ('at node %r' % node.name,)
+                    err.args += ('at node %r' % nodename,)
                     raise
-        clade2sp.append((node.name, clade))
-        clade2sp_dict[node.name] = clade
+        clade2sp.append((nodename, clade))
+        clade2sp_dict[nodename] = clade
     return clade2sp
 
 
-def match_clades(tree1, tree2):
+def name_similarity(name1, name2):
+    lclade1 = str(name1).lower()
+    lclade1words = set(lclade1.split())
+    lclade2 = str(name2).lower()
+    lclade2words = set(lclade2.split())
+    l1 = len(lclade1)
+    l2 = len(lclade2)
+    minlen = min(l1, l2)
+    if lclade1words <= lclade2words or lclade1words >= lclade2words:
+        return len(lclade1words & lclade2words)
+    elif (lclade2 in lclade1 or lclade1 in lclade2) and minlen>5:
+        return float(minlen) / max(l1, l2)
+    else:
+        return 0
+
+
+def match_clades(tree1, tree2, exact=False):
     """"""
     clades1 = get_clade2sp(tree1)
     clades1_dict = dict(clades1)
@@ -71,39 +99,40 @@ def match_clades(tree1, tree2):
         leaf2name = leaf2.name
         if leaf2name in clades1_dict:  # If it is an existing leaf or clade.
             matching_clades.append((leaf2name, leaf2name))
-        else:
+        elif not exact:
             # Find a 'close-enough' clade name.
-            lclade2 = leaf2name.lower()
-            lclade2words = set(lclade2.split())
-            for clade1, spset1 in clades1:
-                lclade1 = clade1.lower()
-                lclade1words = set(lclade1.split())
-                #if lclade1 in lclade2 or lclade2 in lclade1:
-                if lclade1words <= lclade2words or lclade1words >= lclade2words \
-                        or ((lclade2 in lclade1 or lclade1 in lclade2)
-                            and len(lclade2)>5 and len(lclade1)>5):
-                    # Ignore this if clade1 already exists as another node
-                    # in tree2:
-                    if clade1 in clades2_names or lclade1 in clades2_names:
-                        # Edit the species set from tree2:
-                        clade2match = clade1 if clade1 in clades2_names else lclade1
+            #if 'Cebus capucinus' in leaf2name:
+            #    import ipdb; ipdb.set_trace()
+            similars = sorted([(clade1, name_similarity(leaf2name, clade1))
+                               for clade1,_ in clades1],
+                              key=lambda x: x[1],
+                              reverse=True)
+            most_sim, sim = similars[0]
+            if sim and sim > similars[1][1]:  # Unambiguous name match
+                logger.info('Fuzzy matching %r ~ %r (score=%g)',
+                            leaf2name, most_sim, sim)
+                lmost_sim = str(most_sim).lower()
 
-                        # Update tree2 data if it's the first time we see this name.
-                        if clade2match not in inner1_matching_sp2:
-                            inner1_matching_sp2.add(clade2match)
-                            node2match = tree2&clade2match
-                            for descendant in node2match.iter_descendants():
-                                matching_clades.append(('', descendant.name))
-                                if descendant.is_leaf():
-                                    unmatched_sp2.add(descendant.name)
-                            node2match.children = []
-                            # Also replace the value in the list of tuples
-                            matching_clades.append((clade1, clade2match))
-                    else:
-                        matching_clades.append((clade1, leaf2name))
-                        leaf2.name = clade1  # All clades2 will use this species name.
-                    break
+                # Ignore this if clade1 already exists as another node
+                # in tree2:
+                if most_sim in clades2_names or lmost_sim in clades2_names:
+                    # Edit the species set from tree2:
+                    clade2match = most_sim if most_sim in clades2_names else lmost_sim
 
+                    # Update tree2 data if it's the first time we see this name.
+                    if clade2match not in inner1_matching_sp2:
+                        inner1_matching_sp2.add(clade2match)
+                        node2match = tree2&clade2match
+                        for descendant in node2match.iter_descendants():
+                            matching_clades.append(('', descendant.name))
+                            if descendant.is_leaf():
+                                unmatched_sp2.add(descendant.name)
+                        node2match.children = []
+                        # Also replace the value in the list of tuples
+                        matching_clades.append((most_sim, clade2match))
+                else:
+                    matching_clades.append((most_sim, leaf2name))
+                    leaf2.name = most_sim  # All clades2 will use this species name.
             else:
                 matching_clades.append(('', leaf2name))
                 unmatched_sp2.add(leaf2name)
@@ -165,7 +194,7 @@ def match_clades(tree1, tree2):
                     # Largest inclusion is the empty set
                     break
 
-                matching_cl.append('(%s)' % best[0] if '+' in best[0] else best[0])
+                matching_cl.append('(%s)' % best[0] if '+' in str(best[0]) else str(best[0]))
                 unmatched_sp.difference_update(best[1])
                 matched_sp |= best[1]
 
@@ -173,7 +202,7 @@ def match_clades(tree1, tree2):
                 if not unmatched_sp:
                     break
             
-            matching_cl_str = '+'.join(matching_cl)
+            matching_cl_str = '+'.join(sorted(matching_cl))  # sort line for reproducibility
             if len(matching_cl) >= 1:
                 # add this (possibly polyphyletic) clade to the reference tree.
                 clades2_dict[matching_cl_str] = matched_sp
@@ -183,29 +212,63 @@ def match_clades(tree1, tree2):
     return matching_clades
 
 
-def main_ete3(treefile1, treefile2, format=1):
-    tree1 = ete3.Tree(treefile1, format=format)
-    tree2 = ete3.Tree(treefile2, format=format)
-    pass
+def main(treefile1, treefile2, exact=False, sort=False, parser='PhylTree',
+         output='<=>!'):
+    try:
+        parse_trees = treeparsers.parserchoice[parser]
+        to_ete3 = treeconverters.converterchoice[parser]['ete3']
 
+        def iter_trees(treefile, *args, **kwargs):
+            for tree in parse_trees(treefile, *args, **kwargs):
+                yield to_ete3(tree)
 
-def main(treefile1, treefile2, sort=False):
-    tree1 = myPhylTree.PhylogeneticTree(treefile1).to_ete3()
-    tree2 = myPhylTree.PhylogeneticTree(treefile2).to_ete3()
+    except KeyError:
+        raise ValueError('Bad parser value', parser)
+
+    parser_kwargs = {'format': 1} if parser.lower() == 'ete3' else {}
+
     print(treefile1 + '\t' + treefile2)
-    matched_clades = match_clades(tree1, tree2)
-    if sort:
-        matched_clades.sort()
-    for matching in matched_clades:
-        print('\t'.join(matching))
+    for tree1, tree2 in zip_longest(iter_trees(treefile1, **parser_kwargs),
+                                    iter_trees(treefile2, **parser_kwargs)):
+        if tree1 is None and tree2 is not None:
+            logger.error("More trees2 than trees1. Ignoring.")
+            break
+        elif tree2 is None:
+            logger.error("More trees1 than trees2. Ignoring.")
+            #TODO: recycle if only one tree2
+            break
+
+        matched_clades = match_clades(tree1, tree2, exact)
+        if sort:
+            matched_clades.sort()
+        for matching in matched_clades:
+            matchtype = ('<' if not matching[1] else
+                         '>' if not matching[0] else
+                         '=' if matching[0] == matching[1] else
+                         '!')
+            if matchtype in output:
+                print('%s\t%s' % matching)
 
 
 if __name__ == '__main__':
+    logging.basicConfig()
+    logger.setLevel(logging.INFO)
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('treefile1')
     parser.add_argument('treefile2')
+    parser.add_argument('-e', '--exact', action='store_true',
+                        help='Do not attempt fuzzy matching of not found leaves.')
     parser.add_argument('-s', '--sort', action='store_true')
+    parser.add_argument('-p', '--parser', default='PhylTree',
+                        help=('Choices: "ete3", "PhylTree", "ProtTree" (case '
+                              'insensitive) [%(default)s]'))
+    parser.add_argument('-o', '--output', default='<=>!',  # '~' for fuzzy
+                        help=('Matches to output:\n'
+                              '`=` identical,\n'
+                              '`!` changed,\n'
+                              '`<` only in left tree,\n'
+                              '`>` only in right tree.'))
     
     args = parser.parse_args()
     main(**vars(args))
