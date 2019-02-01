@@ -34,7 +34,7 @@ def ete3_to_linkage(tree):
         
 def ProtTree_to_ete3(prottree):
     import ete3
-    tree = ete3.Tree(name=prottree.root)
+    tree = ete3.Tree(name=prottree.root, dist=0)
     current_nodes = [tree]
     while current_nodes:
         current = current_nodes.pop()
