@@ -310,8 +310,8 @@ def edit_from_selection(proteintrees, badnodes):
         yield True, tree
 
     if badnodes:
-        logger.warning("%d nodes not found: %s...", len(badnodes),
-                        ' '.join(str(n) for n in list(badnodes)[:5]))
+        logger.warning("%d nodes not found: %s",
+                       len(badnodes), ' '.join(str(n) for n in badnodes))
     logger.info("\n  %9d edited nodes\n"
                 "  +%8d implicitely edited\n"
                 "  %9d with >2 leaves",
