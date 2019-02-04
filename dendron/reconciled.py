@@ -204,3 +204,118 @@ def infer_gene_event_taxa(node, taxon, children_taxa,
                 logger.warning(msg, nodename, [get_name(ch, *args) for ch in children])
 
         return 'spe'
+
+
+from collections import defaultdict
+from dendron.climber import dfw_pairs_generalized, iter_leaves
+
+def prottree_extract_genecounts(proteintrees, ancestor, phyltree,
+                                speciesset=set(('Homo sapiens',)), onlybasal=False):
+    """Walk each tree to find the ancestor taxon, then output the gene counts
+    per descendant species, as well as the list of human genes.
+    """
+    
+    # for myProteinTree class
+    def get_children(tree, node):
+        return [c for c,_ in tree.data.get(node, [])]
+
+    ancestor_ancgenes   = []
+    ancestor_genecounts = []  # In each species
+    ancestor_spgenes    = []  # For genes from speciesset.
+    ancestors = []  # Ancestors at which we got the node.
+
+    clades_before_ancestor = set(phyltree.dicLinks[phyltree.root][ancestor])  # includes anc
+    clades_after_ancestor = phyltree.allDescendants[ancestor]  # includes anc
+    clades_outside_ancestor = (phyltree.outgroupSpecies[ancestor]
+                               | ( phyltree.getTargetsAnc("/" + ancestor)
+                                   - clades_before_ancestor )
+                              )
+
+    for tree in proteintrees:
+        info = tree.info
+        #if tree.root == 16401:
+        #    import ipdb; ipdb.set_trace()
+
+        if info[tree.root]['taxon_name'] in clades_before_ancestor:
+            for parent, node in dfw_pairs_generalized(tree, get_children,
+                                                      include_root=True):
+                taxon_node = info[node]['taxon_name']
+                if parent is not None:
+                    taxon_parent = info[parent]['taxon_name']
+                else:
+                    # then the child node (i.e the root) should be kept if it
+                    # is exactly equal to ancestor.
+                    taxon_parent = taxon_node  # We know it's before (or equal).
+
+                if taxon_parent in clades_before_ancestor and \
+                        taxon_node in clades_after_ancestor:
+
+                    if taxon_node != ancestor and taxon_parent != ancestor:
+                        # The branch "jumps" over this ancestral species
+                        # Process the most basal node. WHY? NO!
+                        #node = parent
+                        #taxon_node = taxon_parent
+                        pass
+                    elif taxon_node != ancestor:
+                        # The parent is Amniota and this node should already 
+                        # have been taken into account.
+                        # Except if the parent is the root.
+                        #assert info[parent]['family_name'] in ancestor_ancgenes,\
+                        #    "At %d->%d: %s %s ->..." % (parent, node,
+                        #                            taxon_parent,
+                        #                            info[parent]['family_name'])
+                        continue
+                    
+                    nodename = info[node]['family_name']
+                    #assert nodename not in ancestor_ancgenes
+                    ancestor_ancgenes.append(nodename)
+                    ancestors.append((taxon_parent, taxon_node))
+                    
+                    spgenes = defaultdict(list)
+                    gene_counts = defaultdict(int)
+                    for leaf in iter_leaves(tree, get_children, queue=[node]):
+                        taxon_leaf = phyltree.officialName[info[leaf]['taxon_name']]
+                        if not taxon_leaf in phyltree.listSpecies:
+                            # Error because of tree.data.pop
+                            #import ipdb; ipdb.set_trace()
+                            if onlybasal and taxon_leaf in phyltree.allNames:
+                                continue
+                            else:
+                                errmsg = "%d '%s' is not a species! (tree %d, node %d)"\
+                                          % (leaf, taxon_leaf, tree.root, node)
+                                raise RuntimeError(errmsg)
+                        gene_counts[taxon_leaf] += 1
+                        #if taxon_leaf == 'Homo sapiens':
+                        #    spgenes.append(info[leaf]['gene_name'])
+                        if taxon_leaf in speciesset:
+                            spgenes[taxon_leaf].append(info[leaf]['gene_name'])
+
+                    ancestor_genecounts.append(gene_counts)
+                    #ancestor_spgenes.append(tuple(spgenes))  # tuple: Important for finding `()` in Series.
+                    ancestor_spgenes.append({sp: tuple(genes) for sp,genes in
+                                             spgenes.items()})
+
+                    # Now do we wan't to score descendant ancestor nodes?
+                    if onlybasal:
+                        try:
+                            tree.data.pop(node)
+                        except KeyError:
+                            # This node is not in data because it is a leaf:
+                            assert node in tree.info
+                elif taxon_node not in clades_before_ancestor:
+                    # Avoid visiting outgroups and strict ingroups.
+                    try:
+                        # I don't know how, but this messes up the dfw iteration.
+                        tree.data.pop(node)
+                        logger.debug("pop data of %d (%s)", node, taxon_node)
+                    except KeyError:
+                        #assert 'gene_name' in info[node]
+                        logger.debug("Ignore data of %d (%s)", node, taxon_node)
+                        pass  # It's a leaf.
+
+    assert len(ancestor_ancgenes) == len(ancestors)
+    assert len(ancestor_ancgenes) == len(ancestor_spgenes)
+    assert len(ancestor_ancgenes) == len(ancestor_genecounts)
+
+    return ancestors, ancestor_ancgenes, ancestor_genecounts, ancestor_spgenes
+
