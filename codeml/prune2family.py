@@ -35,6 +35,7 @@ from copy import copy
 import ete3
 import LibsDyogen.myPhylTree as PhylTree
 
+from dendron.parsers import read_multinewick, iter_from_ete3
 # The 3 following imports are just so messy. TODO: write a unique conversion
 # function, and/or centralize these functions in a single script.
 from genomicustools.identify import convert_gene2species, ultimate_seq2sp
@@ -468,6 +469,8 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                                                      genename, #because speciation
                                                      diclinks,
                                                      ages)
+                            ###TODO: do not raise the warning about clade ages
+
                             new_node_names.insert(0, spe_node_name)
                             new_taxa.insert(0, parent_sp)
                             # adjust the length of this dup-spe branch
@@ -670,11 +673,13 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     #print("treebest = %s" % treebest, file=stderr)
     outfiles_set = set() # check whether I write twice to the same outfile
     if treefile == '-': treefile = '/dev/stdin'
-    try:
-        tree = ete3.Tree(treefile, format=1)
-    except ete3.parser.newick.NewickError as err:
-        err.args = (err.args[0] + 'ERROR with treefile %r' % treefile,)
-        raise
+    #try:
+    tree, *extratrees = iter_from_ete3(treefile, format=1)
+    #except ete3.parser.newick.NewickError as err:
+    #    err.args = (err.args[0] + 'ERROR with treefile %r ...' % treefile[:50],)
+    #    raise
+    if extratrees: logger.warning('Ignoring additional trees from: %s', treefile[:50])
+    
     insert_species_nodes_back(tree, ancgene2sp, diclinks, ages, fix_suffix,
                               force_mrca, ensembl_version, treebest)
     # Output the features as detected in the root and one leaf.
@@ -792,6 +797,8 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
         def format_outdir(treefile):
             return outdir.format(op.splitext(op.basename(treefile))[0])
 
+    # NOTE: each arg should be a *list* (because need the .pop() method),
+    #       and `ignore_errors` should be the last arg.
     generate_args = [[treefile,
                       ancestorlists,
                       ancestor_regexes,
@@ -813,10 +820,13 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
     n_input = len(treefiles)
     logger.info("To process: %d input trees", n_input)
     if ncores > 1:
-        pool = mp.Pool(ncores)
         install_mp_handler(logger)
-        outputs = pool.map(save_subtrees_process, generate_args)
-        return_values, outfiles = zip(*outputs)
+
+        with mp.Pool(ncores) as pool:
+            return_values, outfiles = zip(*pool.map_async(
+                                                save_subtrees_process,
+                                                generate_args).get()
+                                         )
         progress = sum(return_values)
         outfiles = [outf for outf_group in outfiles for outf in outf_group]
     else:
@@ -914,7 +924,8 @@ if __name__ == '__main__':
     elif dargs.pop("multi_newick"):
         treefile = dargs.pop("treefile")
         with (open(treefile) if treefile != '-' else stdin) as tree_input:
-            treefiles = [txt + ';' for txt in tree_input.read().split(';')]
+        #    treefiles = [txt + ';' for txt in tree_input.read().split(';')]
+            treefiles = read_multinewick(tree_input)
     else:
         treefiles = [dargs.pop("treefile")]
     parallel_save_subtrees(treefiles, **dargs)

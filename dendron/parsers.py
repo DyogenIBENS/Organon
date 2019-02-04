@@ -32,7 +32,11 @@ def iter_from_ete3(treefile, *args, **kwargs):
     f = treefile if treefile is stdin else open(treefile)
     try:
         for newick in read_multinewick(f):
-            yield ete3.Tree(newick, *args, **kwargs)
+            try:
+                yield ete3.Tree(newick, *args, **kwargs)
+            except ete3.parser.newick.NewickError as err:
+                err.args = (err.args[0] + 'ERROR with treefile %r ...' % treefile[:50],)
+                raise
     finally:
         if f is not stdin:
             f.close()
