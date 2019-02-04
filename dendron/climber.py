@@ -242,7 +242,7 @@ def dfw_descendants(phyltree, closest_first=False,
 
 
 def dfw_descendants_generalized(tree, get_children, include_leaves=False,
-                                queue=None):                 # trees
+                                queue=None, copy=True):         # trees
     """Depth-first walk. yields node and its children list
     You can give any tree structure as long as you provide the appropriate
     get_children function
@@ -283,13 +283,15 @@ def dfw_descendants_generalized(tree, get_children, include_leaves=False,
     # iterate
     parent = queue.pop()  # != bfw
 
-    descendants = list(get_children(tree, parent))  # copying is important!
+    descendants = get_children(tree, parent)
+    if copy:
+        descendants = list(descendants)  # copying is important!
     if include_leaves or descendants:
-        queue.extend(reversed(descendants))
         yield parent, descendants
+        queue.extend(reversed(descendants))
 
     for nextnode, nextdescendants in \
-            dfw_descendants_generalized(tree, get_children,include_leaves, queue):
+            dfw_descendants_generalized(tree, get_children,include_leaves, queue, copy):
         yield nextnode, nextdescendants
 
 
