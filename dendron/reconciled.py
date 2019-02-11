@@ -271,7 +271,7 @@ def prottree_extract_genecounts(proteintrees, ancestor, phyltree,
                     ancestor_ancgenes.append(nodename)
                     ancestors.append((taxon_parent, taxon_node))
                     
-                    spgenes = defaultdict(list)
+                    spgenes = {sp: [] for sp in speciesset}
                     gene_counts = defaultdict(int)
                     for leaf in iter_leaves(tree, get_children, queue=[node]):
                         taxon_leaf = phyltree.officialName[info[leaf]['taxon_name']]

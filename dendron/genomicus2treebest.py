@@ -7,7 +7,7 @@
 from __future__ import print_function
 
 
-from sys import stdin, stdout, setrecursionlimit
+from sys import stdin, stdout, stderr, setrecursionlimit
 import argparse as ap
 import LibsDyogen.myProteinTree as ProteinTree
 
@@ -45,10 +45,16 @@ if __name__ == '__main__':
                                  withID=True)
 
     if not indiv_files:
-        for tree in ProteinTree.loadTree(args.forestfile):
-            tree.printNewick(outfile, withDist=True, withTags=True,
-                             withAncSpeciesNames=True, withAncGenesNames=True,
-                             withID=True)
+        try:
+            for tree in ProteinTree.loadTree(args.forestfile):
+                tree.printNewick(outfile, withDist=True, withTags=True,
+                                 withAncSpeciesNames=True, withAncGenesNames=True,
+                                 withID=True)
+        except BrokenPipeError:
+            if outfile is stdout:
+                print('Caught BrokenPipeError', file=stderr)
+            else:
+                raise
 
         if args.outfile is not None:
             outfile.close()

@@ -9,14 +9,15 @@ from __future__ import print_function
 from sys import stderr
 import os.path as op
 import re
+from functools import partial
 from copy import deepcopy
 from bz2 import BZ2File
 import warnings
 import logging
 logger = logging.getLogger(__name__)
-ch = logging.StreamHandler()
-ch.setFormatter(logging.Formatter("%(levelname)s:%(module)s l.%(lineno)d:%(message)s"))
-logger.addHandler(ch)
+#ch = logging.StreamHandler()
+#ch.setFormatter(logging.Formatter("%(levelname)s:%(module)s l.%(lineno)d:%(message)s"))
+#logger.addHandler(ch)
 
 
 def myopen(filename, *args, **kwargs):
@@ -287,8 +288,73 @@ for version, conversion in GENE2SP.items():
             SP2GENEID[version][species] = geneid
 #from tabletools import inverse
 
+#@myTools.memoize
+def get_available_ensembl_version(version, available):
+    # Search sorted and get the element after.
+    for i, av in enumerate(sorted(available)):
+        if version <= av:
+            if version != av:
+                logger.debug('Iter %d', i)
+                logger.warning('No precomputed conversion dict for '
+                               'version %s, fall back to %s.',
+                               version, av)
+            return av
+
+    logger.warning('All precomputed versions are older than %s. '
+                   'Fall back to the most recent one: %s.',
+                   version, av)
+    return av
+
+
+class fallbackContent(object):
+
+    def __init__(self, srcdict, fallbackfunc):  # warn=True
+        self.available = srcdict
+        self._fallbackfunc = fallbackfunc
+        self.fallbacks = {}
+
+    def __getitem__(self, key):
+        try:
+            return self.available[key]
+        except KeyError:
+            return self.available[self.set_fallback(key)]
+    
+    def get(self, key):
+        try:
+            return self.__getitem__(key)
+        except KeyError:
+            return None
+
+    def set_fallback(self, key):
+        try:
+            return self.fallbacks[key]
+        except KeyError:
+            fallback_key = self._fallbackfunc(key)
+            self.fallbacks[key] = fallback_key
+            return fallback_key
+
+
+class fallback_gene2species(fallbackContent):
+    def __init__(self):
+        fallbackContent.__init__(self,
+            GENE2SP,
+            partial(get_available_ensembl_version, available=GENE2SP.keys())
+            )
+
+class fallback_prot2species(fallbackContent):
+    def __init__(self):
+        fallbackContent.__init__(self,
+            PROT2SP,
+            partial(get_available_ensembl_version, available=PROT2SP.keys())
+            )
+
+
+GENE2SP_F = fallback_gene2species()
+PROT2SP_F = fallback_prot2species()
+
 
 def convert_prot2species(modernID, ensembl_version=ENSEMBL_VERSION, default=None):
+    ensembl_version = PROT2SP_F.set_fallback(ensembl_version)
     if ensembl_version >= 90:
         try:
             return PROT2SP[ensembl_version][modernID[:12]]
@@ -312,8 +378,10 @@ def convert_prot2species(modernID, ensembl_version=ENSEMBL_VERSION, default=None
                                 (modernID, ensembl_version))
 
 
+
 def convert_gene2species(modernID, ensembl_version=ENSEMBL_VERSION):
     """Give the species of an **extant** sequence id (from ENSEMBL)."""
+    ensembl_version = GENE2SP_F.set_fallback(ensembl_version)
     gene2sp = GENE2SP[ensembl_version]
     if ensembl_version >= 90:
         try:

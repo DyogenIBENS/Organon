@@ -4,6 +4,7 @@
 """Module centralizing multiple phylogenetic tree parsers"""
 
 from sys import stdin
+import os.path as op
 
 
 def read_multinewick(lines):
@@ -29,6 +30,10 @@ def iter_from_prottree(treefile, *args, **kwargs):
 
 def iter_from_ete3(treefile, *args, **kwargs):
     import ete3
+    if treefile is not stdin and not op.exists(treefile):
+        yield ete3.Tree(treefile, *args, **kwargs)
+        raise StopIteration
+
     f = treefile if treefile is stdin else open(treefile)
     try:
         for newick in read_multinewick(f):

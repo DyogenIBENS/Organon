@@ -6,13 +6,9 @@ from __future__ import print_function
 Also add missing speciation nodes."""
 
 
-import logging
-logger = logging.getLogger(__name__)
-logging.basicConfig(format='%(levelname)s:%(name)s:%(module)s:%(funcName)s:%(message)s')
-logger.setLevel(logging.INFO)
-
-
+import sys  # Changing stdout for all the interpreter only works when using sys.stdout
 from sys import stdin, stderr, exit
+from io import StringIO
 import os.path as op
 import re
 
@@ -22,6 +18,7 @@ try:
 except ImportError:
     import argparse
 
+import logging
 import multiprocessing as mp
 try:
     from multiprocessing_logging import install_mp_handler
@@ -40,10 +37,19 @@ from dendron.parsers import read_multinewick, iter_from_ete3
 # function, and/or centralize these functions in a single script.
 from genomicustools.identify import convert_gene2species, ultimate_seq2sp
 
+logger = logging.getLogger(__name__)
+
+#stdoutlog = logging.getLogger(__name__ + '.stdout')
+#stdouth = logging.StreamHandler(stdout)
+#stdouth.setFormatter(logging.Formatter("%(message)s"))
+#stdoutlog.addHandler(stdouth)
+#stdoutlog.setLevel(logging.INFO)
+
 
 ENSEMBL_VERSION = 85
 PHYLTREE_FMT = "/users/ldog/alouis/ws2/GENOMICUS_SVN/data{0}/PhylTree.Ensembl.{0}.conf"
-NEW_DUP_SUFFIX = re.compile(r'\.[A-Za-z`]+$')
+NEW_DUP_SUFFIX = re.compile(r'\.[a-z][a-z`]*$')  # The backtick is allowed because of a bug in older version of LibsDyogen.myProteinTree.getDupSuffix
+NEW_ROOTDUP_SUFFIX = re.compile(r'\.[A-Z]+$')
 ANCGENE_START = 'ENSGT'
 ANCGENE2SP_PATTERN = r'([A-Z][A-Za-z_.-]+)(%s.*)$'
 ANCGENE2SP = re.compile(ANCGENE2SP_PATTERN % ANCGENE_START)
@@ -53,6 +59,7 @@ ANCGENE2SP = re.compile(ANCGENE2SP_PATTERN % ANCGENE_START)
 
 def print_if_verbose(*args, **kwargs):
     print(*args, **kwargs)
+    #stdoutlog.info(*args, **kwargs)
 
 
 def split_species_gene(nodename, ancgene2sp):
@@ -121,7 +128,11 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
                 new_branch_dists.append(new_dist / total_len)
             except ZeroDivisionError as err:
                 err.args += (parent_sp, ancestor, "please check ages.")
-                logger.warning(err)
+                if link_parent != link:
+                    logger.warning(err)
+                else:
+                    #assert
+                    pass
                 new_branch_dists.append(0)
     else:
         total_len = len(ancestor_lineage) - 1
@@ -151,7 +162,7 @@ def insert_nodes(new_node_names, parent, child, new_taxa, new_dist_ratios=None):
         if getattr(child, 'P', None) is not None:
             new_node.add_feature('P', child.P)
         new_nodes.append(new_node)
-        print_if_verbose(" -", new_name)
+        print_if_verbose(" - %s" % new_name)
     #print_if_verbose()
     # Move the child on top of the created intermediate links
     new_node = new_node.add_child(child=child.detach(), dist=new_branch_dists[-1])
@@ -202,15 +213,30 @@ def add_species_nodes_back(tree, diclinks, ages=None):
 
 
 def suffixes_ok(parent, child, event): # ~~> genomicustools/dendron?
-    """parent: genename
-        child: genename
-        event: 'dup' or 'spe'"""
+    """parent: *genename* (Better if does not contain the taxon name);
+        child: *genename*
+        event: 'dup' or 'spe'
+    """
     #TODO: what to do with leaves (modern gene names)
     if event == 'spe':
         return parent == child
     elif event =='dup':
+        expected_suffix = NEW_DUP_SUFFIX
+        if not child.startswith(parent):
+            # Might be a duplication at the root of the tree, in which case
+            # the suffix should be upper-case letters.
+            assert parent.find(ANCGENE_START) == 0 and child.find(ANCGENE_START) == 0
+            parent = parent.split('.')[0]  # Keep only the 'tree_name'.
+            expected_suffix = NEW_ROOTDUP_SUFFIX
+            # TOCHECK: that the taxon is the root taxon for this proteintree, 
+            #          and that the child node is a speciation.
+
+        if not child.startswith(parent):
+            return False
+            
         new_suffix = child[len(parent):]
-        return child.startswith(parent) and NEW_DUP_SUFFIX.match(new_suffix)
+        return expected_suffix.match(new_suffix)
+
     else:
         raise ValueError("Invalid argument 'event' (must be 'dup' or 'spe')")
 
@@ -365,8 +391,11 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
             else:
                 event = 'spe'
                 # Check that parent is the MRCA
-                mrca = get_mrca(parent_sp, child_sp, diclinks)
-                if not parent_sp == mrca:
+                if len(child_sp)>1:
+                    mrca = get_mrca(parent_sp, child_sp, diclinks)
+                else:
+                    mrca = parent_sp
+                if parent_sp != mrca:
                     # I didn't expect this to happen. Let's fix it (not raise)
                     msg = ("Unexpected case: parent %r is not the MRCA of %s. "
                             % (parent_sp, child_sp))
@@ -671,7 +700,7 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
         only_dup=False, one_leaf=False, outgroups=0, dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
     #print("treebest = %s" % treebest, file=stderr)
-    outfiles_set = set() # check whether I write twice to the same outfile
+    outtrees_set = set() # check whether I write twice the same tree
     if treefile == '-': treefile = '/dev/stdin'
     #try:
     tree, *extratrees = iter_from_ete3(treefile, format=1)
@@ -715,15 +744,17 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                     #                                  node.name,
                     #                                  ancestor,
                     #                                  outname))
+                    if outname in outtrees_set:
+                        raise RuntimeError("Cannot output twice the same tree" 
+                                           % outname)
 
-                    outfile = op.join(outdir, outname + '.nwk')
-                    if outdir == '-':
-                        outfile = None
-                    elif outfile in outfiles_set:
+                    
+                    outfile = None if outdir == '-' else op.join(outdir, outname + '.nwk')
+                    #elif outfile in outfiles_set:
                         # Not sure this case can happen, but better prevent it.
                         # Months later: this case happened.
                         #logger.error("Cannot output twice to %r", outfile)
-                        raise FileExistsError("Cannot output twice to %r" % outfile)
+                    #    raise FileExistsError("Cannot output twice to %r" % outfile)
                     
                     # Add requested outgroups:
                     root = reroot_with_outgroup(node, outgroups)
@@ -731,7 +762,12 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                         continue
 
                     if dry_run:
-                        print("node %r (%s)\n\\-> %s" % (node.name, ancestor, outfile))
+                        print("node %r (%s) -> %s"
+                              % (node.name, ancestor, outfile))
+                        root.write(format=1,
+                                   format_root_node=True,
+                                   outfile=None,
+                                   features=output_features)
                     else:
                         print_if_verbose("Writing to %r." % outfile)
                         outtree = root.write(format=1,
@@ -740,23 +776,33 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                                              features=output_features)
                         if outtree is not None:
                             print(outtree)
-                    outfiles_set.add(outfile)
+                    #outfiles_set.add(outfile)
+                    outtrees_set.add(outname)
     #print_if_verbose("Output %d trees." % len(outfiles_set))
-    return list(outfiles_set)
+    return outtrees_set
 
 
 def save_subtrees_process(params):
-    logger.info("* Input tree: %r", params[0])
+    logger.info("* Input tree: '%s%s'",
+                '...' if len(params[0])>80 else '',
+                params[0][-60:])
     ignore_errors = params.pop()
+    # Setup the stdout replacement for this subprocess
+    #global stdout
+    process_stdout = StringIO()
+    #params += (process_stdout,)
+    sys.stdout = process_stdout
     try:
-        outfiles = save_subtrees(*params)
+        outtrees = save_subtrees(*params)
     except BaseException as err:
         if ignore_errors:
             logger.info("Ignore %r: %r", params[0], err)
-            return 0, []
+            return 0, set(), process_stdout.getvalue()
         else:
             raise
-    return 1, outfiles # return a value to let Pool.map count the number of results.
+    # return a value to let Pool.map count the number of results.
+    sys.stdout = sys.__stdout__
+    return 1, outtrees, process_stdout.getvalue()
 
 
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
@@ -821,32 +867,45 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
     logger.info("To process: %d input trees", n_input)
     if ncores > 1:
         install_mp_handler(logger)
-
-        with mp.Pool(ncores) as pool:
-            return_values, outfiles = zip(*pool.map_async(
-                                                save_subtrees_process,
-                                                generate_args).get()
-                                         )
-        progress = sum(return_values)
-        outfiles = [outf for outf_group in outfiles for outf in outf_group]
+        def iter_outputs():
+            chunksize = min(20, n_input//ncores + 1)
+            with mp.Pool(ncores) as pool:
+                yield from pool.imap_unordered(save_subtrees_process,
+                                               generate_args,
+                                               chunksize)
     else:
-        progress = 0
-        outfiles = []
-        for args in generate_args:
-            return_value, some_outfiles = save_subtrees_process(args)
-            progress += return_value
-            outfiles.extend(some_outfiles)
-    logger.info("Finished processing %d/%d input trees. Output %d trees.",
-                progress, n_input, len(outfiles))
-    return outfiles
+        def iter_outputs():
+            return (save_subtrees_process(args) for args in generate_args)
+
+    progress = 0
+    all_outtrees = set()
+    matching_inputs = 0
+    for return_value, outtrees, stdout_txt in iter_outputs():
+        print(stdout_txt, end='')
+        progress += return_value
+        assert not all_outtrees & outtrees, \
+                "Duplicated outtrees from different input trees."
+        all_outtrees |= outtrees
+        matching_inputs += bool(outtrees)  # +1 if not empty.
+
+    logger.info("\nFinished processing %d/%d input trees.\n"
+                "Output %d trees found in %d input trees.",
+                progress, n_input, len(all_outtrees), matching_inputs)
+    return all_outtrees
 
 
 def parse_treefiles(treefiles_file):
-    with open(treefiles_file) as stream:
-        return [line.rstrip() for line in stream]
+    try:
+        with open(treefiles_file) as stream:
+            return [line.rstrip() for line in stream]
+    except BrokenPipeError:
+        logger.warning('Broken pipe.')
 
 
 if __name__ == '__main__':
+    logging.basicConfig(format='%(levelname)s:%(name)s:%(module)s:%(funcName)s:%(message)s')
+    logger.setLevel(logging.INFO)
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("treefile")
     parser.add_argument("ancestors", nargs='+')
@@ -923,9 +982,12 @@ if __name__ == '__main__':
         dargs.pop("multi_newick")
     elif dargs.pop("multi_newick"):
         treefile = dargs.pop("treefile")
-        with (open(treefile) if treefile != '-' else stdin) as tree_input:
-        #    treefiles = [txt + ';' for txt in tree_input.read().split(';')]
-            treefiles = read_multinewick(tree_input)
+        try:
+            with (open(treefile) if treefile != '-' else stdin) as tree_input:
+            #    treefiles = [txt + ';' for txt in tree_input.read().split(';')]
+                treefiles = list(read_multinewick(tree_input))
+        except BrokenPipeError:
+            logger.warning('Broken pipe.')
     else:
         treefiles = [dargs.pop("treefile")]
     parallel_save_subtrees(treefiles, **dargs)
