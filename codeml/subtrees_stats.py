@@ -357,7 +357,7 @@ if __name__ == '__main__':
     
     subp = parser.add_subparsers(dest='commands', help='type of statistics to compile')
     
-    codemlstats_parser = subp.add_parser('codeml', parents=[parent_parser])
+    codemlstats_parser = subp.add_parser('codeml', parents=[parent_parser], aliases=['co'])
     codemlstats_parser.set_defaults(func=make_subparser_func(get_codeml_stats))
     
     alstats_parser = subp.add_parser('alignment', parents=[parent_parser], aliases=['al'])
