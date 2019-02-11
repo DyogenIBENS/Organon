@@ -3,6 +3,7 @@ import sys
 import re
 import os.path
 from glob import iglob
+import bz2
 
 ruleorder: codeml_condor > codeml
 
@@ -54,10 +55,10 @@ if not isinstance(REDO, bool):
 
 def get_subtrees_ancestor(wildcards):
 	
-	cachefile = '.cache_nwkfiles_{subtreedir}-{ancestor}.txt'.format(**vars(wildcards))
+	cachefile = '.cache_nwkfiles_{subtreedir}-{ancestor}.list.bz2'.format(**vars(wildcards))
 	if os.path.exists(cachefile):
 		print("Loading from cache %r" % cachefile, file=sys.stderr)
-		with open(cachefile) as cache:
+		with bz2.open(cachefile, 'rt', encoding='utf8') as cache:
 			for line in cache:
 				yield line.rstrip()
 	else:
@@ -70,7 +71,7 @@ def get_subtrees_ancestor(wildcards):
 		#total_genetrees = len(GENETREES)
 		#fmt_progress = '\r[progress: %5d/' + str(total_genetrees) + ' (%.2f)]'
 		
-		with open(cachefile, 'w') as cache:
+		with bz2.open(cachefile, 'wt', encoding='utf8') as cache:
 			for processed_genetrees, pattern in enumerate(patterns, start=1):
 				#percentage = float(processed_genetrees) / total_genetrees * 100
 				#print(fmt_progress % (processed_genetrees, percentage),
