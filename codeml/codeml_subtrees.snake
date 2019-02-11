@@ -53,31 +53,42 @@ if not isinstance(REDO, bool):
 #	return [f.replace('.nwk', '.ctl') for f in get_subtrees(wildcards)]
 
 def get_subtrees_ancestor(wildcards):
-	mainpattern = '{{0}}/{subtreedir}/{ancestor}{{0}}*.nwk'.format(**vars(wildcards))
-	print("Search on pattern: %r" % mainpattern, file=sys.stderr)
-	patterns = [mainpattern.format(genetree) for genetree in GENETREES]
-	#discarded = 0
-	#discarded_codeml = 0
-	#total_genetrees = len(GENETREES)
-	#fmt_progress = '\r[progress: %5d/' + str(total_genetrees) + ' (%.2f)]'
 	
-	for processed_genetrees, pattern in enumerate(patterns, start=1):
-		#percentage = float(processed_genetrees) / total_genetrees * 100
-		#print(fmt_progress % (processed_genetrees, percentage),
-		#		end=' ', file=sys.stderr)
-		stricter_pattern = re.compile(pattern.replace('*', '([.`a-zA-Z])*'))
-		for f in iglob(pattern):
-			if stricter_pattern.match(f):
-				yield f
-	#print(file=sys.stderr)
-			#else:
-			#	discarded += 1
-			#	if re.search(r'_codeml', f):
-			#		discarded_codeml += 1
-			#	else:
-			#		print(f, end=',', file=sys.stderr)
-	#print("Discarded: %d (codeml: %d). " % (discarded, discarded_codeml),
-	#	  end=' ', file=sys.stderr)
+	cachefile = '.cache_nwkfiles_{subtreedir}-{ancestor}.txt'.format(**vars(wildcards))
+	if os.path.exists(cachefile):
+		print("Loading from cache %r" % cachefile, file=sys.stderr)
+		with open(cachefile) as cache:
+			for line in cache:
+				yield line.rstrip()
+	else:
+		mainpattern = '{{0}}/{subtreedir}/{ancestor}{{0}}*.nwk'.format(**vars(wildcards))
+
+		print("Search on pattern: %r" % mainpattern, file=sys.stderr)
+		patterns = [mainpattern.format(genetree) for genetree in GENETREES]
+		#discarded = 0
+		#discarded_codeml = 0
+		#total_genetrees = len(GENETREES)
+		#fmt_progress = '\r[progress: %5d/' + str(total_genetrees) + ' (%.2f)]'
+		
+		with open(cachefile, 'w') as cache:
+			for processed_genetrees, pattern in enumerate(patterns, start=1):
+				#percentage = float(processed_genetrees) / total_genetrees * 100
+				#print(fmt_progress % (processed_genetrees, percentage),
+				#		end=' ', file=sys.stderr)
+				stricter_pattern = re.compile(pattern.replace('*', '([.`a-zA-Z])*'))
+				for f in iglob(pattern):
+					if stricter_pattern.match(f):
+						yield f
+						cache.write(f + '\n')
+		#print(file=sys.stderr)
+				#else:
+				#	discarded += 1
+				#	if re.search(r'_codeml', f):
+				#		discarded_codeml += 1
+				#	else:
+				#		print(f, end=',', file=sys.stderr)
+		#print("Discarded: %d (codeml: %d). " % (discarded, discarded_codeml),
+		#	  end=' ', file=sys.stderr)
 
 def get_ctl_ancestor_pre(wildcards):
 	print("get_ctl_ancestor_pre...", file=sys.stderr)
