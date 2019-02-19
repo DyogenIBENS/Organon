@@ -397,7 +397,8 @@ def convert_gene2species(modernID, ensembl_version=ENSEMBL_VERSION):
             try:
                 return gene2sp[modernID[0]]
             except KeyError:
-                raise KeyError("%s can't be assigned to a species" % modernID)
+                raise KeyError("%s can't be assigned to a species (from "
+                               "Ensembl %d)" % (modernID, ensembl_version))
 
 
 def grep_prot(filename, protID, cprot=2, cgene=0):

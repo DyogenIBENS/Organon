@@ -40,24 +40,24 @@ def get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version=ENSEMBL_VERSION
 def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
                             subtreesdir='subtreesCleanO2', exclude=None):
     countlines = 0
-    countalfiles = 0
+    countfiles = 0
     for line in genetreelistfile:
         countlines += 1
         genetree = line.rstrip()
-        alfiles_pattern = op.join(rootdir, genetree, subtreesdir,
+        files_pattern = op.join(rootdir, genetree, subtreesdir,
                                   ancestor + genetree + '*' + filesuffix)
-        alfiles_reg = re.compile(re.escape(alfiles_pattern).replace('\\*', '(.*)'))
+        files_reg = re.compile(re.escape(files_pattern).replace('\\*', '(.*)'))
         exclude_reg = exclude if exclude is None else re.compile(exclude)
 
-        print(alfiles_pattern, alfiles_reg.pattern, file=stderr)
-        for subtreefile in glob(alfiles_pattern):
+        print('INFO:', files_pattern, files_reg.pattern, file=stderr)
+        for subtreefile in glob(files_pattern):
             if exclude is None or not exclude_reg.search(subtreefile):
-                countalfiles += 1
-                subtreesuffix = alfiles_reg.search(subtreefile).group(1)
+                countfiles += 1
+                subtreesuffix = files_reg.search(subtreefile).group(1)
                 subtree = ancestor + genetree + subtreesuffix
                 yield subtreefile, subtree, genetree
 
-    print('%d lines, %d subtrees' % (countlines, countalfiles), file=stderr)
+    print('INFO: %d lines, %d subtrees' % (countlines, countfiles), file=stderr)
 
 
 def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
@@ -113,16 +113,19 @@ def simple_robustness_test(tree, expected_species, ensembl_version=ENSEMBL_VERSI
 
 def any_get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
     try:
-        return get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION)
+        return get_taxon(node, ancgene2sp, ensembl_version=ensembl_version)
     except ValueError:
         return get_taxon_treebest(node)
 
 
+# Move to dendron.reconciled
 def per_node_events(tree, phyltree, aberrant_dist=10000,
-                    get_taxon=any_get_taxon, *args):
+                    get_taxon=any_get_taxon, *args, **kwargs):
     """Check each node and its type (duplication, deletion, speciation).
     """
     aberrant_dists = 0
+    rebuilt_topo   = 0  # If the tree was created with myProteinTree.ProteinTree.flattenTree
+    # and .rebuildTree, with the option "indicator=True".
     wrong_duptypes = 0  # NotImplemented (where duplication != 0 or 2 or 3)
 
     leaves = 0
@@ -136,6 +139,8 @@ def per_node_events(tree, phyltree, aberrant_dist=10000,
     for node in tree.traverse('preorder'):
         if node.dist >= aberrant_dist:
             aberrant_dists += 1
+        if getattr(node, '_r', None):
+            rebuilt_topo += 1
 
         if node.is_leaf():
             leaves += 1
@@ -143,9 +148,9 @@ def per_node_events(tree, phyltree, aberrant_dist=10000,
 
         treebest_isdup = getattr(node, 'D', None)
 
-        taxon = get_taxon(node, *args)
+        taxon = get_taxon(node, *args, **kwargs)
         expected_speciated_taxa = set(t[0] for t in phyltree.items.get(taxon, []))
-        children_taxa = set(get_taxon(ch, *args) for ch in node.children)
+        children_taxa = set(get_taxon(ch, *args, **kwargs) for ch in node.children)
 
         event = infer_gene_event_taxa(node, taxon, children_taxa)
 
@@ -169,20 +174,21 @@ def per_node_events(tree, phyltree, aberrant_dist=10000,
 
     #return tuple(sure_events[e] for e in events) + \
     #       tuple(only_treebest_events[e] for e in events)
-    return sure_events, only_treebest_events, aberrant_dists
+    return sure_events, only_treebest_events, aberrant_dists, rebuilt_topo
 
 
 def make_ancgene2sp(ancestor, phyltree):
-    return re.compile(r'('
-                      + r'|'.join(list(phyltree.species[ancestor]) +
+    return re.compile('('
+                      + '|'.join(re.escape(s) for s in
+                                  list(phyltree.species[ancestor]) +
                                   sorted(phyltree.getTargetsAnc(ancestor),
                                          key=lambda a:len(a),
-                                         reverse=True)).replace(' ','\.')
-                      + r')(.*)$')
+                                         reverse=True)).replace(r' ', r'.')
+                      + ')(.*)$')
 
 
-def get_childdist_ete3(tree, node):
-    return [(ch, ch.dist) for ch in node.children]
+def get_childdist_ete3(tree, nodedist):
+    return [(ch, ch.dist) for ch in nodedist[0].children]
 
 def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                    subtreesdir='subtreesCleanO2',
@@ -195,8 +201,9 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
     phyltree = PhylTree.PhylogeneticTree(phyltreefile)
     #ensembl_ids_anc = get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version)
-    print('subtree\tgenetree\troot_location\tleaves_robust\tsingle_child_nodes\troot2tip_sd'
-          + ('\tnodes_robust\tonly_treebest_spe\taberrant_dists' if extended else ''))
+    print('subtree\tgenetree\troot_location\tleaves_robust\tsingle_child_nodes'
+          '\troot2tip_mean\troot2tip_sd'
+          + ('\tnodes_robust\tonly_treebest_spe\taberrant_dists\trebuilt_topo' if extended else ''))
 
     ancgene2sp = make_ancgene2sp(ancestor, phyltree)
     all_ancgene2sp = make_ancgene2sp(phyltree.root, phyltree)
@@ -227,32 +234,34 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
         expected_species = phyltree.species[root_taxon or ancestor]
         try:
             leaves_robust, single_child_nodes = simple_robustness_test(tree,
-                                                            expected_species)
+                                                            expected_species,
+                                                            ensembl_version)
         except KeyError as err:  # Error while converting genename to species
             err.args += (subtreefile,)
             raise
 
         root_to_tips = np.array([leafdist for _, leafdist in
-                                 iter_distleaves(tree, tree.root,
+                                 iter_distleaves(tree, tree.get_tree_root(),
                                                  get_childdist_ete3)])
 
-        output = (int(leaves_robust), int(single_child_nodes), root_to_tips.std())
+        output = (int(leaves_robust), int(single_child_nodes),
+                  root_to_tips.mean(), root_to_tips.std())
 
         if extended:
-            sure_events, only_treebest_events, aberrant_dists = \
+            sure_events, only_treebest_events, aberrant_dists, rebuilt_topo = \
                     per_node_events(tree,
                                     phyltree,
                                     10000,
                                     any_get_taxon,
-                                    all_ancgene2sp,
-                                    ensembl_version)
+                                    ancgene2sp=all_ancgene2sp,
+                                    ensembl_version=ensembl_version)
             nodes_robust = not any((sure_events['dup'],
                                     sure_events['speloss'],
                                     sure_events['duploss'],
                                     only_treebest_events['dup'],
                                     only_treebest_events['speloss'],
                                     only_treebest_events['duploss']))
-            output += (int(nodes_robust), only_treebest_events['spe'], aberrant_dists)
+            output += (int(nodes_robust), only_treebest_events['spe'], aberrant_dists, rebuilt_topo)
 
         print('\t'.join((subtree, genetree, root_location) +
                          tuple(str(x) for x in output)))
