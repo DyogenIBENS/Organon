@@ -11,7 +11,7 @@
 import sys
 import argparse
 #from dendron.climber import dfw_descendants_generalized
-from itertools import zip_longest
+from itertools import zip_longest, product
 import logging
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,14 @@ def name_similarity(name1, name2):
     minlen = min(l1, l2)
     if lclade1words <= lclade2words or lclade1words >= lclade2words:
         return len(lclade1words & lclade2words)
+    elif lclade1words & lclade2words:
+        score = len(lclade1words & lclade2words)
+        words1 = lclade1words - lclade2words
+        words2 = lclade2words - lclade1words
+        for w1, w2 in product(words1, words2):
+            if w1 in w2 or w2 in w1:
+                score += float(min(len(w1), len(w2))) / max(len(w1), len(w2))
+        return score
     elif (lclade2 in lclade1 or lclade1 in lclade2) and minlen>5:
         return float(minlen) / max(l1, l2)
     else:
@@ -101,14 +109,13 @@ def match_clades(tree1, tree2, exact=False):
             matching_clades.append((leaf2name, leaf2name))
         elif not exact:
             # Find a 'close-enough' clade name.
-            #if 'Cebus capucinus' in leaf2name:
-            #    import ipdb; ipdb.set_trace()
+            #if 'Heterocephalus glaber' in leaf2name: import ipdb; ipdb.set_trace()
             similars = sorted([(clade1, name_similarity(leaf2name, clade1))
                                for clade1,_ in clades1],
                               key=lambda x: x[1],
                               reverse=True)
             most_sim, sim = similars[0]
-            if sim and sim > similars[1][1]:  # Unambiguous name match
+            if sim and len(similars)>1 and sim > similars[1][1]:  # Unambiguous name match
                 logger.info('Fuzzy matching %r ~ %r (score=%g)',
                             leaf2name, most_sim, sim)
                 lmost_sim = str(most_sim).lower()
@@ -134,6 +141,11 @@ def match_clades(tree1, tree2, exact=False):
                     matching_clades.append((most_sim, leaf2name))
                     leaf2.name = most_sim  # All clades2 will use this species name.
             else:
+                if sim:
+                    logger.warning('Ambiguous fuzzy matching %r ~ %s (score=%g)',
+                                   leaf2name,
+                                   [name for name,score in similars if score>=sim],
+                                   sim)
                 matching_clades.append(('', leaf2name))
                 unmatched_sp2.add(leaf2name)
                 #clades1.insert(0, (None, set((leaf2name,))))
