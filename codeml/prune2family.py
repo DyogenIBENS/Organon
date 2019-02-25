@@ -379,14 +379,14 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
             # 1 and 3 can be grouped as duplication: ""
 
             # Compare the parent with its descendants
-            compare_vertical = [parent_sp == sp for sp in child_sp]
+            same_taxa_vertically = [parent_sp == sp for sp in child_sp]
             # compare each pair of children (True if at least one pair)
-            compare_horizontal = len(child_sp) > len(set(child_sp))
+            same_taxa_horizontally = len(child_sp) > len(set(child_sp))
 
-            # 1. all(compare_vertical) and all(compare_horiz)
-            # 2. not any(compare_vertical) and not any(compare_horiz)
-            # 3. any(compare_vertical) and not all(compare_vertical)
-            # 4. any(compare_horizontal) and not any(compare_vertical)
+            # 1. all(same_taxa_vertically) and all(compare_horiz)
+            # 2. not any(same_taxa_vertically) and not any(compare_horiz)
+            # 3. any(same_taxa_vertically) and not all(same_taxa_vertically)
+            # 4. any(same_taxa_horizontally) and not any(same_taxa_vertically)
 
             #if all(test_same_species):
             #    # duplication.
@@ -396,7 +396,7 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
             #    # speciation
             #    # check suffixes
             #    event = 'spe'
-            if any(compare_vertical):
+            if any(same_taxa_vertically):
                 event = 'dup'
             else:
                 event = 'spe'
@@ -460,8 +460,8 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
                         node = mrca_node
                         parent_sp = mrca
 
-                if compare_horizontal:
-                    #if all(compare_horizontal):
+                if same_taxa_horizontally:
+                    #if all(same_taxa_horizontally):
                     #    raise AssertionError("Descendants are duplicates, but "
                     #                         "the parent node species differs.")
                     #    # Same as the previous assertion (i.e. is not MRCA)
@@ -470,7 +470,7 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
                                          "all descendants are duplicates.")
 
             if event == 'dup':
-                if not all(compare_vertical):
+                if not all(same_taxa_vertically):
                     print_if_verbose("implicit dup+spe")
                     # there is a dup + a spe. Need to add nodes
                     ### TODO: check this missing node **before** this node:
@@ -578,6 +578,7 @@ def with_dup(leafnames):
     return (len(leafspecies) > len(set(leafspecies)))
 
 
+#def get_mostdivergent(nodes, maxsize)
 def get_basal(nodes, maxsize):  # ~~> dendron.
     """Identify `maxsize` most basal nodes from a list of sister nodes.
 
