@@ -73,6 +73,19 @@ def split_species_gene(nodename, ancgene2sp):
     return taxon, genename
 
 
+def parse_species_genename(child, get_species, split_ancestor):
+    if child.is_leaf():
+        try:
+            ancestor, genename = get_species(child)
+        except KeyError as err:
+            logger.warning("Leaf %r not in an *extant* species",
+                           child.name)
+            ancestor, genename = split_ancestor(child)
+    else:
+        ancestor, genename = split_ancestor(child)
+    return ancestor, genename
+
+
 def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
                      diclinks, ages=None): #, event='spe'):
     # ~~> dendron.reconciled
@@ -291,18 +304,8 @@ def get_mrca(parent_sp, children_sp, diclinks): # ~~> a myPhylTree annex?.
     #return phyltree.lastCommonAncestor(children_sp)
 
 
-def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
-                              fix_suffix=True, force_mrca=False,
-                              ensembl_version=ENSEMBL_VERSION, treebest=False):
-    # ~~> dendron.reconciled
-    if treebest:
-        print_if_verbose("  Reading from TreeBest format")
-        get_species    = lambda node: (node.S.replace('.', ' '), node.name.split('_')[0])
-        split_ancestor = lambda node: (node.S.replace('.', ' '), node.name) 
-    else:
-        get_species = lambda node: (ultimate_seq2sp(node.name, ensembl_version),
-                                    node.name)
-        split_ancestor = lambda node: split_species_gene(node.name, ancgene2sp)
+def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
+                              fix_suffix=True, force_mrca=False):
 
     print_if_verbose("* Insert missing nodes:")
     ### Insert childs *while* iterating.
@@ -312,15 +315,18 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
         print_if_verbose(" * %r" % node.name)
         # Copying this list is CRUCIAL: children get inserted in node.children,
         # so you will iterate over your inserted children otherwise.
-        node_children = copy(node.children)
+        node_children = node.get_children()
         if node_children:
-            parent_sp, parent_gn = split_ancestor(node)
+            parent_sp, parent_gn = parse_species_genename(node)
             ### Delete this node if species is not recognized
             if parent_sp is None:
                 logger.warning("Taxon not found in (%r, %r). Deleting node.",
                                parent_sp, parent_gn)
+                for child in node.children:
+                    child.dist += node.dist
                 node.delete(prevent_nondicotomic=False,
-                            preserve_branch_length=True)
+                            preserve_branch_length=False)
+
                 continue
 
             child_sp = []
@@ -338,11 +344,13 @@ def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
                 else:
                     ancestor, genename = split_ancestor(child)
                 if ancestor not in diclinks:
-                    logger.warning("WARNING: taxon %r absent from phylogeny. "
+                    logger.warning("Taxon %r absent from phylogeny. "
                                    "Deleting node %r.", ancestor, genename)
                     nodes_without_taxon.append(child)
+                    for nextchild in child.children:
+                        nextchild.dist += child.dist
                     child.delete(prevent_nondicotomic=False,
-                                 preserve_branch_length=True)
+                                 preserve_branch_length=False)
                 else:#    continue
                     child_sp.append(ancestor)
                     child_gn.append(genename)
