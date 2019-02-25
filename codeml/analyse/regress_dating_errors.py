@@ -5,6 +5,7 @@
 # jupyter nbconvert --to python \
 #   ~/ws2/DUPLI_data85/alignments_analysis/subtrees_stats/subtrees_stats.ipynb
 
+import sys
 import warnings
 from io import StringIO
 from collections import OrderedDict
@@ -46,9 +47,25 @@ import statsmodels.api as sm
 
 from IPython.display import display_html
 import logging
-logger=logging.getLogger(__name__)
-logging.basicConfig()
+
+logfmt = "%(levelname)-7s:l.%(lineno)3s:%(funcName)-20s:%(message)s"
+logf = logging.Formatter(logfmt)
+
+try:
+    from UItools import colorlog
+    #clogfmt = "$LVL%(levelname)-7s:$RESET${white}l.%(lineno)3s:%(funcName)-20s:$RESET%(message)s"
+    clogfmt = "$LVL%(levelname)-7s:$RESET${white}l.%(lineno)2s:$RESET%(message)s"
+    colorlogf = colorlog.ColoredFormatter(clogfmt)
+except ImportError:
+    colorlogf = logf
+
+sh = logging.StreamHandler(sys.stdout)
+sh.setFormatter(colorlogf)
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+logger.handlers = []
+logger.addHandler(sh)
+#logging.basicConfig(handlers=[sh])
 
 
 # Convert "time used" into seconds.
@@ -72,9 +89,9 @@ def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
     treefile = template.format(stattype='tree')
     codemlfile = template.format(stattype='codeml')
 
-    print('Load', alfile)
+    logger.info('Load %s', alfile)
     aS = pd.read_table(alfile, index_col=0)
-    print('Load', treefile)
+    logger.info('Load %s', treefile)
     ts = pd.read_table(treefile, index_col=0,
                        dtype={'leaves_robust':      bool,
                               'single_child_nodes': bool,
@@ -85,28 +102,28 @@ def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
     ts['really_robust'] = ts.leaves_robust & ts.nodes_robust & ~ts.only_treebest_spe
 
     # ## Load codeml output statistics
-    print('Load', codemlfile)
+    logger.info('Load %s', codemlfile)
     cs = pd.read_table(codemlfile, index_col=0)
     cs['seconds'] = cs['time used'].apply(time2seconds)
 
     return aS, ts, cs
 
 def check_load_subtree_stats(aS, ts, cs):
-    print("shapes: aS %s, ts %s, cs %s" % (aS.shape, ts.shape, cs.shape))
-    print("aS has dup:", aS.index.has_duplicates)
-    print("ts has dup:", ts.index.has_duplicates)
-    print("cs has dup:", cs.index.has_duplicates)
+    logger.info("shapes: aS %s, ts %s, cs %s" % (aS.shape, ts.shape, cs.shape))
+    logger.info("aS has dup: %s", aS.index.has_duplicates)
+    logger.info("ts has dup: %s", ts.index.has_duplicates)
+    logger.info("cs has dup: %s", cs.index.has_duplicates)
     common_subtrees = set(aS.index) & set(ts.index) & set(cs.index)
-    print("%d common subtrees" % len(common_subtrees))
+    logger.info("%d common subtrees" % len(common_subtrees))
     only_al = aS.index.difference(ts.index.union(cs.index))
     only_tr = ts.index.difference(aS.index.union(cs.index))
     only_co = cs.index.difference(aS.index.union(ts.index))
     l_al = len(only_al)
     l_tr = len(only_tr)
     l_co = len(only_co)
-    print("%d only in al stats: %s" % (l_al, list(only_al)[:min(5, l_al)]))
-    print("%d only in tree stats: %s" % (l_tr, list(only_tr)[:min(5, l_tr)]))
-    print("%d only in codeml stats: %s" % (l_co, list(only_co)[:min(5, l_co)]))
+    logger.warning("%d only in al stats: %s" % (l_al, list(only_al)[:min(5, l_al)]))
+    logger.warning("%d only in tree stats: %s" % (l_tr, list(only_tr)[:min(5, l_tr)]))
+    logger.warning("%d only in codeml stats: %s" % (l_co, list(only_co)[:min(5, l_co)]))
     # Todo: pyupset plot
 
 
@@ -120,13 +137,13 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
     if ages is None:
         ages = pd.read_table(ages_file, sep='\t')
     
-    print("Input shape:", ages.shape)
+    logger.info("Input shape: %s", ages.shape)
     criterion = criterion_serie.name if not criterion_name else criterion_name
     ages_subgenetrees = ages.subgenetree.unique()
     
-    assert len(criterion_serie) >= ages_subgenetrees.size, \
-            "Not all genetrees have a criterion value: %d < %d" % (len(criterion_serie), ages_subgenetrees.size)
-    assert set(criterion_serie.index) >= set(ages_subgenetrees)
+    if len(criterion_serie) < ages_subgenetrees.size \
+            or set(criterion_serie.index) < set(ages_subgenetrees):
+        logger.error("Not all genetrees have a criterion value: %d < %d" % (len(criterion_serie), ages_subgenetrees.size))
     
     #criterion_df = pd.DataFrame({criterion: criterion_serie})
     criterion_df = criterion_serie.to_frame(criterion)
@@ -154,7 +171,8 @@ def add_robust_info(ages_p, ts):
                                         join='outer', sort=False),
                               how='left', left_on='subgenetree', right_index=True,
                               indicator=True, validate='many_to_one')
-    print("Ndup", Ndup.shape, "Nspe", Nspe.shape, "ages_treestats", ages_treestats.shape)
+    logger.info("Ndup %s; Nspe %s; ages_treestats %s",
+                Ndup.shape, Nspe.shape, ages_treestats.shape)
     print(ages_treestats.groupby('_merge')['_merge'].count())
     return ages_treestats, Ndup, Nspe
     
@@ -162,9 +180,12 @@ def add_robust_info(ages_p, ts):
 def load_prepare_ages(ages_file, ts):
     ages = pd.read_table(ages_file, sep='\t', index_col=0)
 
-    print("Shape ages: %s; has dup: %s" % (ages.shape, ages.index.has_duplicates))
+    logger.info("Shape ages: %s; has dup: %s" % (ages.shape, ages.index.has_duplicates))
     n_nodes = ages.shape[0]
-    print("Shape ages internal nodes:", ages[ages.type != 'leaf'].shape)
+    ages_int = ages[ages.type != 'leaf']
+    logger.info("Shape ages internal nodes: %s; has dup: %s",
+                ages_int.shape,
+                ages_int.index.has_duplicates)
     n_nodes_int = (ages.type != 'leaf').sum()
 
     # Fetch parent node info
@@ -174,7 +195,7 @@ def load_prepare_ages(ages_file, ts):
                       how="left", left_on="parent", right_index=True,
                       suffixes=('', '_parent'), indicator=True,
                       validate='many_to_one')
-    print("Shape ages with parent info: %s" % (ages_p.shape,))
+    logger.info("Shape ages with parent info: %s" % (ages_p.shape,))
     n_nodes_p = ages_p.shape[0]
 
     if n_nodes_p < n_nodes:
@@ -260,7 +281,7 @@ def add_control_dates_lengths(ages, ages_robust, phyltree, timetree_ages_CI=None
         assert (ages_controled[invalid_taxon_parent].parent == \
                 ages_controled[invalid_taxon_parent].root).all()
         debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age']
-        logger.error("%d invalid 'taxon_parent':\n%s\n"
+        logger.warning("%d invalid 'taxon_parent':head:\n%s\n"
                      "The following taxa have no parent taxa information, "
                      "please check:\n%s\n**DROPPING** this data!",
                        invalid_taxon_parent.sum(),
@@ -472,27 +493,31 @@ def annot_quantiles_on_criterion(ages, criterion_serie, criterion_name=None,
 
 
 def _violin_spe_ages_vs_criterion_quantiles(annot_df, criterion_name, isin=None,
-                                           split=True):
+                                           split=True, order=None):
     Q_col = "Q_" + criterion_name
     if isin is None:
         # Look at extreme quantiles only
         isin = (annot_df[Q_col].min(), annot_df[Q_col].max())
         print(isin)
         
-    ax = sb.violinplot(x="taxon", y="age_dS", hue=Q_col, data=annot_df[(annot_df.type == "spe") & annot_df[Q_col].isin(isin)], split=split)
+    ax = sb.violinplot(x="taxon", y="age_dS", hue=Q_col,
+                       data=annot_df[(annot_df.type == "spe")
+                                     & annot_df[Q_col].isin(isin)],
+                       split=split,
+                       order=order)
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
     return ax
 
 
 def violin_spe_ages_vs_criterion(ages, criterion_serie, criterion_name=None,
-                                 nquantiles=10, split=False):
+                                 nquantiles=10, split=False, order=None):
     criterion_name = criterion_name or criterion_serie.name
     annot_ages = annot_quantiles_on_criterion(ages, criterion_serie,
                                               criterion_name, nquantiles)
     isin = None if split else list(range(nquantiles))
     ax = _violin_spe_ages_vs_criterion_quantiles(
                                 annot_ages[annot_ages.taxon != 'Simiiformes'],
-                                criterion_name, isin, split)
+                                criterion_name, isin, split, order)
 
 
 # Functions to check if variables need transformation
@@ -615,12 +640,15 @@ def all_test_transforms(alls, variables):
 
 # Variable transformation
 
-notransform = lambda x: x
+def notransform(x):
+    return x
+
 #notransform.__name__ = "%s"
 sqrt = np.sqrt
 log = np.log10
 
-logneg = lambda x: np.log10(-x)
+def logneg(x):
+    return np.log10(-x)
 logneg.__name__ = "log10(-%s)"
 
 def make_logtransform_inc(inc=0):
@@ -1590,7 +1618,7 @@ if __name__ == '__main__':
                    "Niter":             notransform,
                    "seconds":           log}
 
-    new_feature_names = {ft: (func.__name__ + ("" if "%s" in func.__name__ else "(%s)")) % ft for ft, func in totransform.items() if func.__name__ != "<lambda>"}
+    new_feature_names = {ft: (func.__name__ + ("" if "%s" in func.__name__ else "(%s)")) % ft for ft, func in totransform.items() if func.__name__ != "notransform"}
 
     alls_transformed = alls.transform(totransform)
     assert not alls_transformed.isna().sum(axis=0).any()
