@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from sys import stdin, stdout
+from sys import stdin, stdout, stderr
 import argparse
 import re
 
@@ -75,10 +75,16 @@ def main(inputtree, outputfile, inplace=False, indent=INDENT):
 
                 structmatch = RE_STRUCT.search(treetxt)
             out.write(treetxt + ';\n')
-    except:
-        if out.name != '<stdout>':
+    
+    except BrokenPipeError:  # IOError in Python2.7
+        if out is stdout:
+            print('indent_nwk:Caught BrokenPipeError to stdout.', file=stderr)
+        else:
+            raise
+    finally:
+        if out is not stdout:
             out.close()
-        raise
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
