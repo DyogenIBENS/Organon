@@ -11,6 +11,7 @@ from sys import stdin, stderr, exit
 from io import StringIO
 import os.path as op
 import re
+from functools import partial
 
 try:
     import argparse_custom as argparse
@@ -33,9 +34,8 @@ import ete3
 import LibsDyogen.myPhylTree as PhylTree
 
 from dendron.parsers import read_multinewick, iter_from_ete3
-# The 3 following imports are just so messy. TODO: write a unique conversion
-# function, and/or centralize these functions in a single script.
 from genomicustools.identify import convert_gene2species, ultimate_seq2sp
+from dendron.climber import iter_distleaves
 
 logger = logging.getLogger(__name__)
 
@@ -334,15 +334,7 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
             nodes_without_taxon = []
             for child in node_children:
                 print_if_verbose("  - child %r" % child.name)
-                if child.is_leaf():
-                    try:
-                        ancestor, genename = get_species(child)
-                    except KeyError as err:
-                        logger.warning("Leaf %r not in an extant species",
-                                       child.name)
-                        ancestor, genename = split_ancestor(child)
-                else:
-                    ancestor, genename = split_ancestor(child)
+                ancestor, genename = parse_species_genename(child)
                 if ancestor not in diclinks:
                     logger.warning("Taxon %r absent from phylogeny. "
                                    "Deleting node %r.", ancestor, genename)
@@ -544,29 +536,26 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
                                    node, child, diclinks, ages, event=event)
 
 
-def search_by_ancestorlist(tree, ancestorlist, latest_ancestor=False, treebest=False):
+def search_by_ancestorlist(tree, parse_species_genename, descendants,
+                           latest_ancestor=False):
     """Return an iterator over all basal nodes belonging to an ancestor in 
-    ancestorlist. If `latest_ancestor` is True, return the most recent nodes
-    belonging to one of these ancestors."""
-    if treebest:
-        def is_in_taxon(node, anc):
-            return node.S == anc  #.replace(' ', '.')
-    else:
-        def is_in_taxon(node, anc):
-            return node.name.startswith(anc)
+    `descendants`. If `latest_ancestor` is True, return the most recent nodes
+    belonging to one of these ancestors.
+    """
+    def is_in_descendants(node):
+        taxon, _ = parse_species_genename(node)
+        return taxon if taxon in descendants else None
 
     if not latest_ancestor:
         #print("")
-        def stop_at_any_ancestor(node):
-            return any(is_in_taxon(node, anc) for anc in ancestorlist)
+        stop_at_any_ancestor = is_in_descendants
     else:
         def stop_at_any_ancestor(node):
-            match_anc = [anc for anc in ancestorlist if is_in_taxon(anc)]
-            if match_anc:
-                anc = match_anc[0]
+            matched_anc = is_in_descendants(node)
+            if matched_anc is not None:
                 # test for any
                 return node.is_leaf() or \
-                       not all(is_in_taxon(ch, anc) for ch in node.children)
+                       not all(is_in_descendants(ch) for ch in node.children)
             else:
                 return False
     
@@ -586,20 +575,25 @@ def get_basal(nodes, maxsize):  # ~~> dendron.
         - selected basal nodes,
         - excluded nodes (to detach)
     
-    Basal means: closer to the root (topology only, i.e in number of nodes).
+    "Basal" means: divergence closer to the root.
     
     - `nodes`: a *list* of TreeNode instances;
     - `maxsize`: integer.
 
     Return ([],[]) if maxsize >= number of leaves.
+
+    sortkey: the tree will be descended following this order.
+    An alternative sortkey could be 
+        >>> sortkey = lambda n: n.get_closest_leaf(topology_only=False)[1]
     """
     
-    get_dist = lambda n: n.dist
-    nodes.sort(key=get_dist, reverse=True)
+    #get_dist = lambda n: n.dist
+    nodedists = [(node, node.dist) for node in sorted(nodes,key=lambda n:n.dist)]
 
     # Not enough leaves
-    if sum(len(n) for n in nodes) <= maxsize:
-        return [], []
+    if sum(len(n) for n,_ in nodedists) <= maxsize:  #minsize
+        #return [], []
+        return nodedists, []
         #return list(chain(n.get_leaves() for n in nodes))
 
     # Traverse in a `levelorder` strategy (breadth-first-search)
@@ -624,20 +618,65 @@ def get_basal(nodes, maxsize):  # ~~> dendron.
     #    nodes = base
     #    base = []
 
-    kept = 0
-    while len(nodes) < maxsize:
-        nextnodes = nodes[kept].children
+    # Sort by distance from the original root:
+    sortkey = lambda nodedist: nodedist[1]
+
+    kept = []
+    while len(kept) + len(nodedists) < maxsize:
+        try:
+            node, dist = nodedists.pop(0)  # Descend into the closest divergence.
+        except IndexError:
+            break
+
+        nextnodes = node.children
         if nextnodes:
-            nodes.pop(kept)
-            nodes.extend(sorted(nextnodes, key=get_dist, reverse=True))
+            nodedists.extend((nn, nn.dist + dist) for nn in nextnodes)
+            nodedists.sort(key=sortkey)
         else:
-            kept += 1
+            kept.append(node)
 
     #return (to keep, to detach)
-    return nodes[:maxsize], nodes[maxsize:]
+    descended_nodes = kept + [n for n,_ in nodedists]
+    return descended_nodes[:maxsize], descended_nodes[maxsize:]
 
 
-def reroot_with_outgroup(node, maxsize=0):  # ~~> dendron.reconciled
+# dendron.trimmer
+def thin(root, keptleaves):
+    """
+    Thin down a tree to retain the minimal topology keeping the most recent
+    ancestors of the keptleaves.
+
+    Return the latest common ancestor of the found keptleaves if the root
+    supports some keptleaves, else return None.
+
+    This edits the structure (copying might be needed).
+    """
+    if root.is_leaf():
+        return root if root in keptleaves else None
+    for child in root.get_children():
+        if thin(child, keptleaves) is None:
+            root.remove_child(child)
+    if not root.children:
+        return None
+    if len(root.children) == 1:
+        newroot = root.children[0]
+        newroot.dist += root.dist  # Transfer the branch length to the *child*
+        root.delete(prevent_nondicotomic=False, preserve_branch_length=False)
+        root = newroot
+
+    return root
+
+
+def get_data_ete3(tree, nodedist):
+    return [(child, child.dist) for child in nodedist[0].children]
+
+#def is_leaf(node):
+#    return node.is_leaf()
+
+def reroot_with_outgroup(node, maxsize=0, minsize=0,
+                         is_allowed_outgroup=None,
+                         uniq_allowed_value=False,
+                         already_taken=None):  # ~~> dendron.reconciled
     """Goes up the tree (towards the root) until it finds outgroup taxa.
     
     - Only keep at most `maxsize` leaves in the outgroup.
@@ -651,64 +690,131 @@ def reroot_with_outgroup(node, maxsize=0):  # ~~> dendron.reconciled
     (having the most basal latest common ancestor).
 
     Remark: it doesn't go further than the next immediate outgroup. If you
-    wanted to add the two 2 closest outgroups, you would need to call it twice.
+    want to add the two 2 closest outgroups, give a minsize > 0.
+
+    param: uniq_allowed_value:
+    if is_allowed_outgroup return a not False or None value, only one leaf
+    for each value must be returned.
+    Example 1: Use it to exclude paralog sequences.
+    Example 2: In combination with minsize>0, select *mandatory* species.
+    Example 3: In combination with maxsize<0, avoid limiting the search to the 
+              `maxsize` closest nodes.
     """
+    logger.debug('Rerooting %s...', node.name)
+    logger.debug('maxsize=%d, minsize=%d, is_allowed_outgroup=%s,'
+                 'uniq_allowed_value=%s, already_taken=%s',
+                 maxsize, minsize, is_allowed_outgroup, uniq_allowed_value,
+                 already_taken)
     if maxsize == 0:
+        # No need of an outgroup.
         return node
     
     root = node
+    # Ignore single child nodes.
     while len(root) == len(node):
         if root.is_root():
-            logger.warning("No outgroup available for node %r", node.name)
             return
         # Else go to parent node
         node = root
         root = node.up
 
-    # If needed, reduce the size of the outgroup
-    # clade to the specified number.
+    if maxsize < 0 and is_allowed_outgroup is None and not minsize:
+        # We accept the full outgroup subtrees.
+        return root
+
     outgroups = node.get_sisters()
 
-    if maxsize > 0 and \
-            sum(len(outgroup) for outgroup in outgroups) > maxsize:
+    if minsize:
+        realsize = sum(len(sister) for sister in outgroups)
 
+    if maxsize > 0 or is_allowed_outgroup is not None:
+        # Because root will be copied, we set a marker to remember those nodes.
         for outgroup in outgroups:
-            #outgroup.ladderize()
-            # Now the first listed leaves are the closest.
-
-            # Deepcopy slows it down too much. Alternate solution:
-            # Add a uniq mark, because I'm not sure that searching on name
-            # would be unambiguous.
-            outgroup.add_feature('tmpmark', True)
-
-        # MAKE A COPY (because this part could be reused later)
-        # Need to use `deepcopy` to preserve the ancestor information.
-        #outgroup = deepcopy(outgroup)
-        #root = outgroup.up
+            outgroup.add_feature('is_outgroup', True)
+        
+        # MAKE A COPY (because this subtree could be reused in another function)
+        # NOTE: this does *not* preserve the `up` attribute (parent information).
+        orig_root = root
         root = root.copy()
 
-        base, todetach = get_basal(root.search_nodes(tmpmark=True), maxsize)
-        
+        if uniq_allowed_value:
+            assert is_allowed_outgroup is not None, \
+                    "`is_allowed_outgroup` is necessary with `uniq_allowed_value`."
+
+            if already_taken is None: already_taken = set((None, False))
+            def is_allowed_leaf(node):
+                value = is_allowed_outgroup(node)
+                if value not in already_taken:
+                    already_taken.add(value)
+                    return True
+                else:
+                    return False
+        else:
+            is_allowed_leaf = is_allowed_outgroup
+
+        #if maxsize < 0:
+            # We accept all outgroups, but only the allowed species
+        base = root.search_nodes(is_outgroup=True)
+        #else:
+        #    # If requested, reduce the size of the outgroup clade to the specified number.
+        #    base, todetach = get_basal(root.search_nodes(is_outgroup=True), maxsize)
+
         # Now that we know the basal tree:
         # keep only one leaf per identified basal node.
-        for basal in base:
-            basal.prune([basal.get_closest_leaf()[0]], preserve_branch_length=True)
-            # WARN: 'prune' deletes all intermediate nodes leading to the kept leaves
-        
-        # And detach the extraneous basal nodes
-        for nodetodetach in todetach:
-            nodetodetach.detach()
 
-        for outgroup in outgroups:
-            outgroup.del_feature('tmpmark')
+        # Select by proximity
+        outgroup_leaves = [(l, d) for basal in base
+                           for l,d in iter_distleaves(basal, basal, get_data_ete3)]
+        outgroup_leaves.sort(key=lambda leafdist: leafdist[1])
+        # Remove unwanted species
+        outgroup_leaves = [(l, d) for l,d in outgroup_leaves if is_allowed_leaf(l)][:maxsize]
+
+        realsize = 0
+        for basal in base:
+            thinned_child = thin(basal.detach(), [l for l,_ in outgroup_leaves])
+            if thinned_child is None:
+                logger.info('Discard basal node %s without allowed species.',
+                            basal.name)
+            else:
+                #TODO: check the leaf distance. assert outgroup_leaves
+                thinned_child.add_feature('is_outgroup', True)
+                root.add_child(child=thinned_child)
+                realsize += len(thinned_child)
+   
+    if realsize < minsize:  # Untested
+        logger.debug('Recursive reroot because realsize %d < minsize %d.',
+                     realsize, minsize)
+        # Get the orig_root.up, copy (with ancestors), replace the orig_root by root.
+        #nextroot = orig_root.copy()
+
+        next_ingroup = nextroot
+        for nextoutgroup in nextroot.search_nodes(is_outgroup=True):
+            next_ingroup = nextoutgroup.up
+            nextoutgroup.detach()
+        for currentoutgroup in root.search_nodes(is_outgroup=True):
+            next_ingroup.add_child(child=currentoutgroup)
+            currentoutgroup.del_feature('is_outgroup')
+        root = reroot_with_outgroup(nextroot,
+                                    maxsize-realsize,
+                                    minsize-realsize,
+                                    is_allowed_outgroup,
+                                    uniq_allowed_value,
+                                    already_taken)
+
+    for outgroup in outgroups:
+        outgroup.del_feature('is_outgroup')
 
     return root
 
 
-def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
-        diclinks, treebest=False, ages=None, fix_suffix=True, force_mrca=False,
-        latest_ancestor=False, ensembl_version=ENSEMBL_VERSION, outdir='.',
-        only_dup=False, one_leaf=False, outgroups=0, dry_run=False):
+def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
+        parse_species_genename,
+        diclinks, #treebest=False,
+        ages=None, fix_suffix=True, force_mrca=False,
+        latest_ancestor=False, #ensembl_version=ENSEMBL_VERSION,
+        outdir='.',
+        only_dup=False, one_leaf=False, outgroups=0, allowed_outgroups=None,
+        dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
     #print("treebest = %s" % treebest, file=stderr)
     outtrees_set = set() # check whether I write twice the same tree
@@ -719,9 +825,20 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     #    err.args = (err.args[0] + 'ERROR with treefile %r ...' % treefile[:50],)
     #    raise
     if extratrees: logger.warning('Ignoring additional trees from: %s', treefile[:50])
+
+    if allowed_outgroups:
+        def is_allowed_outgroup(leaf):
+            taxon_name = parse_species_genename(leaf)[0]
+            if leaf.is_leaf() and taxon_name in allowed_outgroups:
+                return taxon_name
+            else:
+                return False
+    else:
+        is_allowed_outgroup = None  # This is a valid `is_leaf_fn` argument value in Ete3.
+
+    insert_species_nodes_back(tree, parse_species_genename, diclinks, ages,
+                              fix_suffix, force_mrca)
     
-    insert_species_nodes_back(tree, ancgene2sp, diclinks, ages, fix_suffix,
-                              force_mrca, ensembl_version, treebest)
     # Output all current features.
     output_features = set.union(*(set(n.features) for n in tree.traverse())) \
                       - set(('name', 'dist', 'support'))
@@ -730,9 +847,9 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
         print_if_verbose(ancestor)
         ancestor_regex = ancestor_regexes[ancestor]
         for ancestornodeid, node in enumerate(search_by_ancestorlist(tree,
+                                                        parse_species_genename,
                                                         descendants,
-                                                        latest_ancestor,
-                                                        treebest)):
+                                                        latest_ancestor)):
         #for ancestornodeid, node, root in enumerate(search_by_ancestorlist(tree, ancestorlist, 
         #                                                    latest_ancestor)):
             leafnames = node.get_leaf_names()
@@ -769,7 +886,8 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                     #    raise FileExistsError("Cannot output twice to %r" % outfile)
                     
                     # Add requested outgroups:
-                    root = reroot_with_outgroup(node, outgroups)
+                    root = reroot_with_outgroup(node, outgroups, outgroups,
+                                                is_allowed_outgroup)
                     if not root:
                         logger.warning("No outgroup available for node %r",
                                        node.name)
@@ -852,8 +970,34 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                                             % '|'.join(descendants)\
                                               .replace(' ', r'\.'))
 
-    diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
-    ages = phyltree.ages.common_names_mapper_2_dict()
+    try:
+        diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
+        ages = phyltree.ages.common_names_mapper_2_dict()
+    except AttributeError:
+        # Changed myPhylTree so that those objects can be pickled.
+        diclinks = phyltree.dicLinks
+        ages = phyltree.ages
+
+    # ~~> dendron.reconciled
+    if treebest:
+        print_if_verbose("  Reading from TreeBest reconciliation format ({gene}_{species})")
+        get_species    = lambda node: (node.S.replace('.', ' '), node.name.split('_')[0])
+        split_ancestor = lambda node: (node.S.replace('.', ' '), node.name) 
+    else:
+        get_species = lambda node: (ultimate_seq2sp(node.name, ensembl_version),
+                                    node.name)
+        split_ancestor = lambda node: split_species_gene(node.name, ancgene2sp)
+
+    this_parse_species_genename = partial(parse_species_genename,
+                                          get_species=get_species,
+                                          split_ancestor=split_ancestor)
+
+    try:
+        outgroups = int(outgroups)
+        allowed_outgroups = phyltree.lstEspFull
+    except ValueError:
+        allowed_outgroups = outgroups.split(',')
+        outgroups = len(allowed_outgroups)
 
     if outsub:
         def format_outdir(treefile):
@@ -868,18 +1012,20 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
     generate_args = [[treefile,
                       ancestor_descendants,
                       ancestor_regexes,
-                      ancgene2sp,
+                      this_parse_species_genename,
+                      #ancgene2sp,
                       diclinks,
-                      treebest,
+                      #treebest,
                       ages,
                       fix_suffix,
                       force_mrca,
                       latest_ancestor,
-                      ensembl_version,
+                      #ensembl_version,
                       format_outdir(treefile),
                       only_dup,
                       one_leaf,
                       outgroups,
+                      allowed_outgroups,
                       dry_run,
                       ignore_errors] for treefile in treefiles]
 
@@ -971,12 +1117,16 @@ if __name__ == '__main__':
                         "gene, output one tree per paralog and root each tree"\
                         " at the latest gene, (instead of rooting at the " \
                         "ancestral gene)")
-    parser.add_argument("--outgroups", metavar='S', type=int, default=0, 
+    parser.add_argument("-O", "--outgroups", metavar='S', default=0, 
                         help="Save the subtree including the outgroup sister "\
                              "clade of maximum size %(metavar)s. Set to '-1' "\
                              " to keep the full clade [Default S=%(default)s]."\
+                             " Set to a comma-separated list of species to "\
+                             "restrict to a given set of species."
                              "NOTE: with `-l`, the outgroup can be a paralog "\
-                             "tree, otherwise it's necessarily in sister species.")
+                             "tree, otherwise it's necessarily in sister "\
+                             "species. If specified, DO NOT output trees "
+                             "without outgroups.")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="only print out the output files it would produce")
     parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
