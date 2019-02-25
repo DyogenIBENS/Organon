@@ -48,8 +48,8 @@ logger = logging.getLogger(__name__)
 
 ENSEMBL_VERSION = 85
 PHYLTREE_FMT = "/users/ldog/alouis/ws2/GENOMICUS_SVN/data{0}/PhylTree.Ensembl.{0}.conf"
-NEW_DUP_SUFFIX = re.compile(r'\.[a-z][a-z`]*$')  # The backtick is allowed because of a bug in older version of LibsDyogen.myProteinTree.getDupSuffix
-NEW_ROOTDUP_SUFFIX = re.compile(r'\.[A-Z]+$')
+NEW_DUP_SUFFIX = re.compile(r'\.([A-Z@]+|[a-z`@]+)$')  # The backtick is allowed because of a bug in older version of LibsDyogen.myProteinTree.getDupSuffix
+NEW_ROOTDUP_SUFFIX = re.compile(r'\.[A-Z@]+$')
 ANCGENE_START = 'ENSGT'
 ANCGENE2SP_PATTERN = r'([A-Z][A-Za-z_.-]+)(%s.*)$'
 ANCGENE2SP = re.compile(ANCGENE2SP_PATTERN % ANCGENE_START)
@@ -272,11 +272,12 @@ def suffix_list(parent, child):
     return suffixes
 
 
-def get_mrca(parent_sp, children_sp, diclinks): # ~~> a myPhylTree annex?
+def get_mrca(parent_sp, children_sp, diclinks): # ~~> a myPhylTree annex?.
+    # Already in dicParents
     """Get most recent common ancestor of all children species, given a root
     'parent_sp'."""
     children_anc = [diclinks[parent_sp][ch_sp] for ch_sp in children_sp]
-    for next_parents in zip(*children_anc):
+    for next_parents in zip(*children_anc):  #FIXME NOT OK
         #print(parent_sp, next_parents)
         if len(set(next_parents)) > 1:
             break
@@ -287,6 +288,7 @@ def get_mrca(parent_sp, children_sp, diclinks): # ~~> a myPhylTree annex?
     except UnboundLocalError as err:
         err.args = (err.args[0] + " (%s, %s)" %(parent_sp, children_sp), )
         raise
+    #return phyltree.lastCommonAncestor(children_sp)
 
 
 def insert_species_nodes_back(tree, ancgene2sp, diclinks, ages=None,
@@ -715,11 +717,11 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     output_features = (tree.features | tree.get_leaves()[0].features) - set(
                         ('name', 'dist', 'support'))
     print_if_verbose("* Searching for ancestors:")
-    for ancestor, ancestorlist in ancestorlists.items():
+    for ancestor, descendants in ancestor_descendants.items():
         print_if_verbose(ancestor)
         ancestor_regex = ancestor_regexes[ancestor]
         for ancestornodeid, node in enumerate(search_by_ancestorlist(tree,
-                                                        ancestorlist,
+                                                        descendants,
                                                         latest_ancestor,
                                                         treebest)):
         #for ancestornodeid, node, root in enumerate(search_by_ancestorlist(tree, ancestorlist, 
@@ -745,8 +747,9 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                     #                                  ancestor,
                     #                                  outname))
                     if outname in outtrees_set:
-                        raise RuntimeError("Cannot output twice the same tree" 
-                                           % outname)
+                        #raise RuntimeError("Cannot output twice the same tree (%s)"
+                        #                   % outname)
+                        logger.error("Should not output twice the same tree (%s)" % outname)
 
                     
                     outfile = None if outdir == '-' else op.join(outdir, outname + '.nwk')
@@ -759,6 +762,9 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
                     # Add requested outgroups:
                     root = reroot_with_outgroup(node, outgroups)
                     if not root:
+                        logger.warning("No outgroup available for node %r",
+                                       node.name)
+                        # NOT OUTPUTTED!
                         continue
 
                     if dry_run:
@@ -799,7 +805,10 @@ def save_subtrees_process(params):
             logger.info("Ignore %r: %r", params[0], err)
             return 0, set(), process_stdout.getvalue()
         else:
-            raise
+            # Allow the loop to finish and compute the summary.
+            logger.exception(str(err))
+            raise StopIteration()
+
     # return a value to let Pool.map count the number of results.
     sys.stdout = sys.__stdout__
     return 1, outtrees, process_stdout.getvalue()
@@ -822,15 +831,17 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                                                key=lambda a:len(a),
                                                reverse=True)).replace(' ','\.')
                             + r')(.*)$')
-    ancestorlists = {}
+    ancestor_descendants = {}  # Lists of descendants of each given ancestor.
     ancestor_regexes = {}
     for anc_lowercase in ancestors:
         ancestor = anc_lowercase.capitalize()
-        ancestorlist = sorted(phyltree.allDescendants[ancestor],
-                              key=lambda anc: -phyltree.ages[anc])
-        ancestorlists[anc_lowercase] = ancestorlist
-        ancestor_regexes[anc_lowercase] = re.compile('^(%s)' % \
-                                    '|'.join(ancestorlist).replace(' ', '.'))
+        descendants = sorted(phyltree.allDescendants[ancestor],
+                             key=lambda anc: -phyltree.ages[anc])
+        # Put oldest descendants first.
+        ancestor_descendants[anc_lowercase] = descendants
+        ancestor_regexes[anc_lowercase] = re.compile(r'^(%s)(?=ENSGT|\b)'
+                                            % '|'.join(descendants)\
+                                              .replace(' ', r'\.'))
 
     diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
     ages = phyltree.ages.common_names_mapper_2_dict()
@@ -846,7 +857,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
     # NOTE: each arg should be a *list* (because need the .pop() method),
     #       and `ignore_errors` should be the last arg.
     generate_args = [[treefile,
-                      ancestorlists,
+                      ancestor_descendants,
                       ancestor_regexes,
                       ancgene2sp,
                       diclinks,
@@ -883,8 +894,9 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
     for return_value, outtrees, stdout_txt in iter_outputs():
         print(stdout_txt, end='')
         progress += return_value
-        assert not all_outtrees & outtrees, \
-                "Duplicated outtrees from different input trees."
+        dup_outtrees = all_outtrees & outtrees
+        assert not dup_outtrees, \
+            "Duplicated outtrees from different input trees: %s" % dup_outtrees
         all_outtrees |= outtrees
         matching_inputs += bool(outtrees)  # +1 if not empty.
 
