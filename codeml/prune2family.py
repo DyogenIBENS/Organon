@@ -722,9 +722,9 @@ def save_subtrees(treefile, ancestorlists, ancestor_regexes, ancgene2sp,
     
     insert_species_nodes_back(tree, ancgene2sp, diclinks, ages, fix_suffix,
                               force_mrca, ensembl_version, treebest)
-    # Output the features as detected in the root and one leaf.
-    output_features = (tree.features | tree.get_leaves()[0].features) - set(
-                        ('name', 'dist', 'support'))
+    # Output all current features.
+    output_features = set.union(*(set(n.features) for n in tree.traverse())) \
+                      - set(('name', 'dist', 'support'))
     print_if_verbose("* Searching for ancestors:")
     for ancestor, descendants in ancestor_descendants.items():
         print_if_verbose(ancestor)
