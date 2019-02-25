@@ -90,7 +90,7 @@ def edit_subtree(node_dist, tree, what_how):
     return n_edits, n_included
 
 
-def tree_edit_toolong(tree, maxdist=MAXDIST):
+def tree_detach_toolong(tree, maxdist=MAXDIST):
     initial_Nleaves = len(list(iter_leaves(tree, get_children)))
 
     counts_by_child = {}
@@ -154,6 +154,9 @@ def tree_edit_toolong(tree, maxdist=MAXDIST):
                                                 detached_info,
                                                 child))
                     ### TODO: add a 'tree_name' at the subtree.info[subtree.root]
+                    ### TODO: add a new suffix to the family_name
+                    ### (pour ne pas faire planter prune2family qui pourrait
+                    ### sortir plusieurs subtrees avec le même nom).
                 else:
                     node_counts[0] += child_counts[0]
                     node_counts[1] += child_counts[1]
@@ -209,7 +212,7 @@ def edit_toolong(proteintrees, maxdist=MAXDIST):
     n_leaves_detached_distrib = defaultdict(int)
 
     for tree in proteintrees:
-        root_counts, detached_subtrees = tree_edit_toolong(tree, maxdist)
+        root_counts, detached_subtrees = tree_detach_toolong(tree, maxdist)
 
         n_detached += root_counts[0]
         n_included += root_counts[1]
@@ -232,7 +235,7 @@ def edit_toolong_flagged(flagged_proteintrees, maxdist=MAXDIST):
     n_leaves_detached_distrib = defaultdict(int)
 
     for flag, tree in flagged_proteintrees:
-        root_counts, detached_subtrees = tree_edit_toolong(tree, maxdist)
+        root_counts, detached_subtrees = tree_detach_toolong(tree, maxdist)
 
         n_detached += root_counts[0]
         n_included += root_counts[1]
