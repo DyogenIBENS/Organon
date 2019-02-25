@@ -256,12 +256,13 @@ class GenetreeDrawer(object):
                 self.colorize_species.update(**{sp: cmap(i) for sp in 
                                                 self.phyltree.species[clade]})
 
-        self.ancgene2sp = re.compile(r'(' + r'root|'
-                        + r'|'.join(list(self.phyltree.listSpecies) +
+        self.ancgene2sp = re.compile('(' + 'root|'
+                        + '|'.join(re.escape(s) for s in
+                                    list(self.phyltree.listSpecies) +
                                     sorted(self.phyltree.listAncestr,
                                            key=lambda a: len(a),
-                                           reverse=True)).replace(' ','\.')
-                        + r')(.*)$')
+                                           reverse=True)).replace(r' ', r'.')
+                        + ')(.*)$')
         
         self.taxa = set(self.phyltree.allNames)
         # Cleared and refilled if a genetree is given
