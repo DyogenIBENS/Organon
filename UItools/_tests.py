@@ -23,8 +23,10 @@ for i, colname in zip(range(8),
 logger = logging.getLogger('UItools.colorlog._tests')
 logger.setLevel(logging.DEBUG)
 
+#coloredfmt = '$BGLVL%(levelname)s$RESET:$BLACK$BOLD%(name)s$RESET:$LVL%(message)s$RESET'
+coloredfmt = colorlog.BASIC_FORMAT
 
-fmtter = colorlog.ColoredFormatter(logging.BASIC_FORMAT + ' (Should be colored).')
+fmtter = colorlog.ColoredFormatter(coloredfmt + ' (Should be colored).')
 sh = logging.StreamHandler(sys.stdout)
 sh.setFormatter(fmtter)
 fhc = logging.FileHandler('colorlog_test_withcolor.txt', 'w')
