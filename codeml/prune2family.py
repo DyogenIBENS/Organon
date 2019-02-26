@@ -658,6 +658,7 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
                          uniq_allowed_value=False,
                          already_taken=None):  # ~~> dendron.reconciled
     """Goes up the tree (towards the root) until it finds outgroup taxa.
+    Return (new formatted root (thinned), number of outgroup leaves).
     
     - Only keep at most `maxsize` leaves in the outgroup.
     - Keep all leaves if maxsize < 0.
@@ -680,37 +681,36 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
     Example 3: In combination with maxsize<0, avoid limiting the search to the 
               `maxsize` closest nodes.
     """
-    logger.debug('Rerooting %s...', node.name)
+    logger.debug('Rerooting %r:\n%s...', node, node.get_ascii())
     logger.debug('maxsize=%d, minsize=%d, is_allowed_outgroup=%s,'
                  'uniq_allowed_value=%s, already_taken=%s',
                  maxsize, minsize, is_allowed_outgroup, uniq_allowed_value,
                  already_taken)
     if maxsize == 0:
         # No need of an outgroup.
-        return node
+        return node, 0
     
     root = node
     # Ignore single child nodes.
     while len(root) == len(node):
         if root.is_root():
-            return
+            return None, 0
         # Else go to parent node
         node = root
         root = node.up
 
+    orig_outgroups = node.get_sisters()
+    realsize = sum(len(sister) for sister in orig_outgroups)
+
     if maxsize < 0 and is_allowed_outgroup is None and not minsize:
         # We accept the full outgroup subtrees.
-        return root
+        return root, realsize
 
-    outgroups = node.get_sisters()
-
-    if minsize:
-        realsize = sum(len(sister) for sister in outgroups)
 
     if maxsize > 0 or is_allowed_outgroup is not None:
         # Because root will be copied, we set a marker to remember those nodes.
-        for outgroup in outgroups:
-            outgroup.add_feature('is_outgroup', True)
+        for outgroup in orig_outgroups:
+            outgroup.add_feature('is_outgroup', 1)
         
         # MAKE A COPY (because this subtree could be reused in another function)
         # NOTE: this does *not* preserve the `up` attribute (parent information).
@@ -734,10 +734,11 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
 
         #if maxsize < 0:
             # We accept all outgroups, but only the allowed species
-        base = root.search_nodes(is_outgroup=True)
+        base = [node for node in root.children
+                if getattr(node, 'is_outgroup', False)]
         #else:
         #    # If requested, reduce the size of the outgroup clade to the specified number.
-        #    base, todetach = get_basal(root.search_nodes(is_outgroup=True), maxsize)
+        #    base, todetach = get_basal(base, maxsize)
 
         # Now that we know the basal tree:
         # keep only one leaf per identified basal node.
@@ -750,6 +751,7 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
         outgroup_leaves = [(l, d) for l,d in outgroup_leaves if is_allowed_leaf(l)][:maxsize]
 
         realsize = 0
+        current_outgroups = []
         for basal in base:
             thinned_child = thin(basal.detach(), [l for l,_ in outgroup_leaves])
             if thinned_child is None:
@@ -757,34 +759,48 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
                             basal.name)
             else:
                 #TODO: check the leaf distance. assert outgroup_leaves
-                thinned_child.add_feature('is_outgroup', True)
+                thinned_child.add_feature('is_outgroup', 1)
                 root.add_child(child=thinned_child)
+                current_outgroups.append(thinned_child)
                 realsize += len(thinned_child)
    
-    if realsize < minsize:  # Untested
+    while realsize < minsize:  # Untested
         logger.debug('Recursive reroot because realsize %d < minsize %d.',
                      realsize, minsize)
         # Get the orig_root.up, copy (with ancestors), replace the orig_root by root.
-        #nextroot = orig_root.copy()
+        orig_root.add_feature('has_ingroup', True)
 
-        next_ingroup = nextroot
-        for nextoutgroup in nextroot.search_nodes(is_outgroup=True):
-            next_ingroup = nextoutgroup.up
-            nextoutgroup.detach()
-        for currentoutgroup in root.search_nodes(is_outgroup=True):
-            next_ingroup.add_child(child=currentoutgroup)
-            currentoutgroup.del_feature('is_outgroup')
-        root = reroot_with_outgroup(nextroot,
-                                    maxsize-realsize,
-                                    minsize-realsize,
-                                    is_allowed_outgroup,
-                                    uniq_allowed_value,
-                                    already_taken)
+        try:
+            nextroot = orig_root.up.copy()
+        except AttributeError:
+            return None, realsize
 
-    for outgroup in outgroups:
+        nextnode = [node for node in nextroot.children
+                    if getattr(node, 'has_ingroup', False)][0]
+        orig_root.del_feature('has_ingroup')
+        orig_root = orig_root.up
+
+        # `root` is the next node.
+        # Update to the thinned version
+        if maxsize > 0 or is_allowed_outgroup is not None or uniq_allowed_value:
+            nextroot.remove_child(nextnode)
+            nextroot.add_child(root)
+            nextnode = root
+
+        root, nextsize = reroot_with_outgroup(nextnode,
+                                              maxsize-realsize,
+                                              0,
+                                              is_allowed_outgroup,
+                                              uniq_allowed_value,
+                                              already_taken)
+        realsize += nextsize
+        if root is None:
+            return root, realsize
+
+    for o_outgroup in orig_outgroups:
         outgroup.del_feature('is_outgroup')
 
-    return root
+    return root, realsize
 
 
 def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
@@ -867,8 +883,8 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
                     #    raise FileExistsError("Cannot output twice to %r" % outfile)
                     
                     # Add requested outgroups:
-                    root = reroot_with_outgroup(node, outgroups, outgroups,
-                                                is_allowed_outgroup)
+                    root, outsize = reroot_with_outgroup(node, outgroups, outgroups,
+                                                         is_allowed_outgroup)
                     if not root:
                         logger.warning("No outgroup available for node %r",
                                        node.name)
