@@ -54,3 +54,40 @@ def thin_ete3(root, keptleaves):
     return root
 
 
+def thin_prottree(tree, root, rootdist, keptleaves):
+    """
+    Thin down a tree to retain the minimal topology keeping the most recent
+    ancestors of the keptleaves.
+
+    Return the latest common ancestor of the found keptleaves if the root
+    supports some keptleaves, else return None.
+
+    This edits the structure (copying might be needed).
+    """
+    if root not in tree.data:
+        if root in keptleaves:
+            return root, rootdist
+        else:
+            del tree.info[root]
+            return None, None
+    
+    newnodedata = []
+    for child,dist in tree.data[root]:
+        thinned_child, thinned_dist = thin_prottree(tree, child, dist, keptleaves)
+        if thinned_child is not None:
+            newnodedata.append((thinned_child, thinned_dist))
+    
+    if not newnodedata:
+        del tree.data[root]
+        del tree.info[root]
+        return None, None
+
+    if len(newnodedata) == 1:
+        del tree.data[root]
+        del tree.info[root]
+        root, newdist = newnodedata[0]
+        rootdist += newdist  # Transfer the branch length to the *child*
+    else:
+        tree.data[root] = newnodedata
+
+    return root, rootdist
