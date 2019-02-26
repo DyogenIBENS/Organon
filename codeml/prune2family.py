@@ -36,6 +36,7 @@ import LibsDyogen.myPhylTree as PhylTree
 from dendron.parsers import read_multinewick, iter_from_ete3
 from genomicustools.identify import ultimate_seq2sp
 from dendron.climber import iter_distleaves
+from dendron.trimmer import thin_ete3 as thin
 
 logger = logging.getLogger(__name__)
 
@@ -644,33 +645,6 @@ def get_basal(nodes, maxsize):  # ~~> dendron.
     #return (to keep, to detach)
     descended_nodes = kept + [n for n,_ in nodedists]
     return descended_nodes[:maxsize], descended_nodes[maxsize:]
-
-
-# dendron.trimmer
-def thin(root, keptleaves):
-    """
-    Thin down a tree to retain the minimal topology keeping the most recent
-    ancestors of the keptleaves.
-
-    Return the latest common ancestor of the found keptleaves if the root
-    supports some keptleaves, else return None.
-
-    This edits the structure (copying might be needed).
-    """
-    if root.is_leaf():
-        return root if root in keptleaves else None
-    for child in root.get_children():
-        if thin(child, keptleaves) is None:
-            root.remove_child(child)
-    if not root.children:
-        return None
-    if len(root.children) == 1:
-        newroot = root.children[0]
-        newroot.dist += root.dist  # Transfer the branch length to the *child*
-        root.delete(prevent_nondicotomic=False, preserve_branch_length=False)
-        root = newroot
-
-    return root
 
 
 def get_data_ete3(tree, nodedist):
