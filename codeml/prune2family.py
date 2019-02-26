@@ -34,7 +34,7 @@ import ete3
 import LibsDyogen.myPhylTree as PhylTree
 
 from dendron.parsers import read_multinewick, iter_from_ete3
-from genomicustools.identify import convert_gene2species, ultimate_seq2sp
+from genomicustools.identify import ultimate_seq2sp
 from dendron.climber import iter_distleaves
 
 logger = logging.getLogger(__name__)
@@ -373,7 +373,7 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
             # Compare the parent with its descendants
             same_taxa_vertically = [parent_sp == sp for sp in child_sp]
             # compare each pair of children (True if at least one pair)
-            same_taxa_horizontally = len(child_sp) > len(set(child_sp))
+            any_same_taxa_horizontally = len(child_sp) > len(set(child_sp))
 
             # 1. all(same_taxa_vertically) and all(compare_horiz)
             # 2. not any(same_taxa_vertically) and not any(compare_horiz)
@@ -388,6 +388,7 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
             #    # speciation
             #    # check suffixes
             #    event = 'spe'
+            #event = infer_gene_event(node, parent_sp, child_sp)
             if any(same_taxa_vertically):
                 event = 'dup'
             else:
@@ -452,14 +453,19 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
                         node = mrca_node
                         parent_sp = mrca
 
-                if same_taxa_horizontally:
+                # We detect a speciation. Double-check
+                if any_same_taxa_horizontally:
+                    msg = "Unexpected case: some but not all descendants are "\
+                          "duplicates: %s: %s (%s)" % \
+                                (node.name, node_children, event)
+                    logger.error(msg)
+                    #raise RuntimeError(msg)
                     #if all(same_taxa_horizontally):
                     #    raise AssertionError("Descendants are duplicates, but "
                     #                         "the parent node species differs.")
                     #    # Same as the previous assertion (i.e. is not MRCA)
                     #else:
-                    raise AssertionError("Unexpected case: some but not "
-                                         "all descendants are duplicates.")
+                    #raise AssertionError()
 
             if event == 'dup':
                 if not all(same_taxa_vertically):
@@ -840,8 +846,9 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
                               fix_suffix, force_mrca)
     
     # Output all current features.
-    output_features = set.union(*(set(n.features) for n in tree.traverse())) \
-                      - set(('name', 'dist', 'support'))
+    output_features = set.union(set(('is_outgroup')),
+                                *(set(n.features) for n in tree.traverse()))\
+                      .difference(('name', 'dist', 'support'))
     print_if_verbose("* Searching for ancestors:")
     for ancestor, descendants in ancestor_descendants.items():
         print_if_verbose(ancestor)
@@ -915,30 +922,34 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
     return outtrees_set
 
 
-def save_subtrees_process(params):
+def save_subtrees_process(params, catch_stdout=True):
     logger.info("* Input tree: '%s%s'",
                 '...' if len(params[0])>80 else '',
                 params[0][-60:])
     ignore_errors = params.pop()
     # Setup the stdout replacement for this subprocess
     #global stdout
-    process_stdout = StringIO()
-    #params += (process_stdout,)
-    sys.stdout = process_stdout
+    if catch_stdout:
+        process_stdout = StringIO()
+        #params += (process_stdout,)
+        sys.stdout = process_stdout
+        get_stdout = process_stdout.get_value()
+    else:
+        get_stdout = lambda: ''
     try:
         outtrees = save_subtrees(*params)
     except BaseException as err:
         if ignore_errors:
             logger.info("Ignore %r: %r", params[0], err)
-            return 0, set(), process_stdout.getvalue()
+            return 0, set(), get_stdout()
         else:
             # Allow the loop to finish and compute the summary.
             logger.exception(str(err))
             raise StopIteration()
 
     # return a value to let Pool.map count the number of results.
-    sys.stdout = sys.__stdout__
-    return 1, outtrees, process_stdout.getvalue()
+    if catch_stdout: sys.stdout = sys.__stdout__
+    return 1, outtrees, get_stdout()
 
 
 def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
@@ -1041,7 +1052,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                                                chunksize)
     else:
         def iter_outputs():
-            return (save_subtrees_process(args) for args in generate_args)
+            return (save_subtrees_process(args, catch_stdout=False) for args in generate_args)
 
     progress = 0
     all_outtrees = set()
