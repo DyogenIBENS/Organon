@@ -33,18 +33,19 @@ GENETREES = config.setdefault('genetrees', ['ENSGT00850000133333'])
 SUBTREEDIR = config.setdefault('subtreedir', 'subtrees')
 #BASE_CTL = config.setdefault('base_ctl', 'base0.ctl')
 REDO = config.setdefault('redo', False)
-if isinstance(REDO, str) and REDO in ('True', 'False'):
-	REDO = eval(REDO)
-
+if isinstance(REDO, str) and REDO.lower() in ('true', 'false', '1', '0'):
+	REDO = True if REDO.lower() in ('true' ,'1') else False
+elif isinstance(REDO, int):
+	REDO = bool(REDO)
+else:
+	print("Error: config option 'redo' must be bool-like (True/False/1/0)",
+			file=sys.stderr)
+	sys.exit(1)
 
 #rule one_subtree:
 #    input: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.ctl"
 
 
-if not isinstance(REDO, bool):
-	print("Error: config option 'redo' must be a bool (True/False)",
-			file=sys.stderr)
-	sys.exit(1)
 
 #def get_subtrees(wildcards):
 #	pattern = '{genetree}/%s/{ancestor}{genetree}*.nwk' % SUBTREEDIR
