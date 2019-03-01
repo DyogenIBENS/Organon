@@ -210,9 +210,12 @@ from collections import defaultdict
 from dendron.climber import dfw_pairs_generalized, iter_leaves
 
 def prottree_extract_genecounts(proteintrees, ancestor, phyltree,
-                                speciesset=set(('Homo sapiens',)), onlybasal=False):
+                                speciesset=set(('Homo sapiens',)),
+                                keeponly=None):
     """Walk each tree to find the ancestor taxon, then output the gene counts
     per descendant species, as well as the list of human genes.
+
+    Param: `keeponly` should be None, "stem" or "crown".
     """
     
     # for myProteinTree class
@@ -242,10 +245,12 @@ def prottree_extract_genecounts(proteintrees, ancestor, phyltree,
                 taxon_node = info[node]['taxon_name']
                 if parent is not None:
                     taxon_parent = info[parent]['taxon_name']
+                    isdup = (info[parent]['Duplication'] > 1)
                 else:
                     # then the child node (i.e the root) should be kept if it
                     # is exactly equal to ancestor.
                     taxon_parent = taxon_node  # We know it's before (or equal).
+                    isdup = False
 
                 if taxon_parent in clades_before_ancestor and \
                         taxon_node in clades_after_ancestor:
@@ -256,14 +261,20 @@ def prottree_extract_genecounts(proteintrees, ancestor, phyltree,
                         #node = parent
                         #taxon_node = taxon_parent
                         pass
-                    elif taxon_node != ancestor:
-                        # The parent is Amniota and this node should already 
+                    elif taxon_node != ancestor and not isdup:
+                        # The parent is an 'ancestor' speciation so this node should already 
                         # have been taken into account.
                         # Except if the parent is the root.
                         #assert info[parent]['family_name'] in ancestor_ancgenes,\
                         #    "At %d->%d: %s %s ->..." % (parent, node,
                         #                            taxon_parent,
                         #                            info[parent]['family_name'])
+                        #
+                        continue
+
+                    if keeponly == 'crown' and info[node]['Duplication']>1:
+                        # node is at the ancestor.
+                        # We don't want to keep it if it is a duplication.
                         continue
                     
                     nodename = info[node]['family_name']
@@ -275,14 +286,16 @@ def prottree_extract_genecounts(proteintrees, ancestor, phyltree,
                     gene_counts = defaultdict(int)
                     for leaf in iter_leaves(tree, get_children, queue=[node]):
                         taxon_leaf = phyltree.officialName[info[leaf]['taxon_name']]
-                        if not taxon_leaf in phyltree.listSpecies:
+                        if taxon_leaf not in phyltree.listSpecies:
                             # Error because of tree.data.pop
                             #import ipdb; ipdb.set_trace()
-                            if onlybasal and taxon_leaf in phyltree.allNames:
+                            errmsg = "%d '%s' is not a species! (tree %d, node %d)"\
+                                          % (leaf, taxon_leaf, tree.root, node)
+                            if taxon_leaf in phyltree.allNames:
+                                if keeponly != 'stem':
+                                    logger.error(errmsg)
                                 continue
                             else:
-                                errmsg = "%d '%s' is not a species! (tree %d, node %d)"\
-                                          % (leaf, taxon_leaf, tree.root, node)
                                 raise RuntimeError(errmsg)
                         gene_counts[taxon_leaf] += 1
                         #if taxon_leaf == 'Homo sapiens':
@@ -296,7 +309,7 @@ def prottree_extract_genecounts(proteintrees, ancestor, phyltree,
                                              spgenes.items()})
 
                     # Now do we wan't to score descendant ancestor nodes?
-                    if onlybasal:
+                    if keeponly == 'stem':
                         try:
                             tree.data.pop(node)
                         except KeyError:
