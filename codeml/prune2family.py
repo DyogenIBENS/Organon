@@ -7,7 +7,7 @@ Also add missing speciation nodes."""
 
 
 import sys  # Changing stdout for all the interpreter only works when using sys.stdout
-from sys import stdin, stderr, exit
+from sys import stdin, stderr, exit, setrecursionlimit
 from io import StringIO
 import os.path as op
 import re
@@ -546,8 +546,8 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
 def search_by_ancestorlist(tree, parse_species_genename, descendants,
                            latest_ancestor=False):
     """Return an iterator over all basal nodes belonging to an ancestor in 
-    `descendants`. If `latest_ancestor` is True, return the most recent nodes
-    belonging to one of these ancestors.
+    `descendants`. If `latest_ancestor` is True, return the *speciation* nodes
+    where this clade begins.
     """
     def is_in_descendants(node):
         taxon, _ = parse_species_genename(node)
@@ -555,18 +555,18 @@ def search_by_ancestorlist(tree, parse_species_genename, descendants,
 
     if not latest_ancestor:
         #print("")
-        stop_at_any_ancestor = is_in_descendants
+        stop_at_clade = is_in_descendants
     else:
-        def stop_at_any_ancestor(node):
+        def stop_at_clade(node):
             matched_anc = is_in_descendants(node)
             if matched_anc is not None:
                 # test for any
                 return node.is_leaf() or \
-                       not all(is_in_descendants(ch) for ch in node.children)
+                       not all(is_in_descendants(ch)==matched_anc for ch in node.children)
             else:
                 return False
     
-    return tree.iter_leaves(is_leaf_fn=stop_at_any_ancestor)
+    return tree.iter_leaves(is_leaf_fn=stop_at_clade)
 
 
 def with_dup(leafnames):
@@ -923,7 +923,7 @@ def save_subtrees_process(params, catch_stdout=True):
         process_stdout = StringIO()
         #params += (process_stdout,)
         sys.stdout = process_stdout
-        get_stdout = process_stdout.get_value()
+        get_stdout = process_stdout.getvalue
     else:
         get_stdout = lambda: ''
     try:
@@ -935,7 +935,7 @@ def save_subtrees_process(params, catch_stdout=True):
         else:
             # Allow the loop to finish and compute the summary.
             logger.exception(str(err))
-            raise StopIteration()
+            raise StopIteration()  ## NOT good as the main loop will see this as a normal return...
 
     # return a value to let Pool.map count the number of results.
     if catch_stdout: sys.stdout = sys.__stdout__
@@ -958,7 +958,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                                         sorted(phyltree.listAncestr,
                                                key=lambda a:len(a),
                                                reverse=True)).replace(' ','\.')
-                            + r')(.*)$')
+                            + r')([^a-z].*|)$')
     ancestor_descendants = {}  # Lists of descendants of each given ancestor.
     ancestor_regexes = {}
     for anc_lowercase in ancestors:
@@ -969,7 +969,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
         ancestor_descendants[anc_lowercase] = descendants
         ancestor_regexes[anc_lowercase] = re.compile(r'^(%s)(?=ENSGT|\b)'
                                             % '|'.join(descendants)\
-                                              .replace(' ', r'\.'))
+                                              .replace(' ', r'.'))
 
     try:
         diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
@@ -979,15 +979,23 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
         diclinks = phyltree.dicLinks
         ages = phyltree.ages
 
+    # Because of multiprocessing
+    global get_species, split_ancestor
+
     # ~~> dendron.reconciled
     if treebest:
         print_if_verbose("  Reading from TreeBest reconciliation format ({gene}_{species})")
-        get_species    = lambda node: (node.S.replace('.', ' '), node.name.split('_')[0])
-        split_ancestor = lambda node: (node.S.replace('.', ' '), node.name) 
+
+        def get_species_treebest(node):
+            return node.S.replace('.', ' '), node.name.split('_')[0]
+        def split_ancestor_treebest(node):
+            return node.S.replace('.', ' '), node.name
     else:
-        get_species = lambda node: (ultimate_seq2sp(node.name, ensembl_version),
-                                    node.name)
-        split_ancestor = lambda node: split_species_gene(node.name, ancgene2sp)
+
+        def get_species(node):
+            return ultimate_seq2sp(node.name, ensembl_version), node.name
+        def split_ancestor(node):
+            return split_species_gene(node.name, ancgene2sp)
 
     this_parse_species_genename = partial(parse_species_genename,
                                           get_species=get_species,
@@ -1162,5 +1170,7 @@ if __name__ == '__main__':
             logger.warning('Broken pipe.')
     else:
         treefiles = [dargs.pop("treefile")]
+
+    setrecursionlimit(50000)
     parallel_save_subtrees(treefiles, **dargs)
 
