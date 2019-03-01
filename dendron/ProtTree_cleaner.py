@@ -93,7 +93,10 @@ def edit_subtree(node_dist, tree, what_how):
 def tree_detach_toolong(tree, maxdist=MAXDIST):
     initial_Nleaves = len(list(iter_leaves(tree, get_children)))
 
+    # Contains `node_counts` for the last visited children.
+    # Recursively updated while moving from the leaves to the root.
     counts_by_child = {}
+    
     #detached_leaves = set()
     leafset = set()
     detached_ids = set()
@@ -113,6 +116,7 @@ def tree_detach_toolong(tree, maxdist=MAXDIST):
                                                          include_leaves=True,
                                                          queue=[(tree.root, 0)]):
         # (detached, included, detached_leaves, leaves) #, detached_leafset_sizes
+        # TODO: namedtuple
         node_counts = [0, 0, 0, 0, []]
         if not children_dists:
             # Add 1 to the leaf count.
@@ -128,19 +132,24 @@ def tree_detach_toolong(tree, maxdist=MAXDIST):
                 
                 # Conditionally on this child being detached, update the counts.
                 if dist >= maxdist or child in new_leaves:
+
+                    node_counts[0] += 1  # directly detached descendants
+                    node_counts[1] += sum(child_counts[:2])  # detached included
+                    node_counts[2] += child_counts[3] # child_leaves -> detached_leaves
+                    node_counts[4].append(child_counts[3])  # detached_leafset_size
+                    detached_ids.add(child)
+
                     if child in new_leaves:
                         new_leaves.remove(child)
                         included_new_leaves.add(child)
-
-                    node_counts[0] += 1
-                    node_counts[1] += sum(child_counts[:2])
-                    node_counts[2] += child_counts[3]
-                    #node_counts[3] += len(list(iter_leaves(tree, get_children, child)))
-                    node_counts[4].append(child_counts[3])
-                    detached_ids.add(child)
+                        if dist >= maxdist:
+                            continue  # Do not yield this subtree, go to next child.
 
                     detached_data = {}
                     detached_info = {}
+                    # This edits the tree inplace, but the outer iteration
+                    # does not change because it is already precomputed
+                    # (rev_dfw_ uses a list).
                     for (n,d),ndata in dfw_descendants_generalized(tree,
                                                     get_data,
                                                     include_leaves=True,
@@ -172,6 +181,7 @@ def tree_detach_toolong(tree, maxdist=MAXDIST):
                 logger.warning("All children detached at node %d from tree %d.",
                                node_dist[0], tree.root)
                 new_leaves.add(node_dist[0])
+                ### DO NOT output this tree if the root supports no extant species.
 
             tree.data[node_dist[0]] = newdata
 
@@ -193,15 +203,21 @@ def tree_detach_toolong(tree, maxdist=MAXDIST):
                  tree.root, root_counts, ' '.join(str(i) for i in detached_ids))
     
     root_Nleaves = len(list(iter_leaves(tree, get_children, [tree.root])))
-    assert len(leafset) == initial_Nleaves, "leafset %d != initial_Nleaves %d" %(len(leafset), initial_Nleaves)
+    assert len(leafset) == initial_Nleaves, \
+            "leafset %d != initial_Nleaves %d" %(len(leafset), initial_Nleaves)
     assert len(leafset) == root_Nleaves - len(new_leaves) + root_counts[2], \
-        "Tree %d: leafset %d != %d root_Nleaves - %d new_leaves + %d detached_leaves" %\
-            (tree.root, len(leafset), root_Nleaves, len(new_leaves), root_counts[2])
+            "Tree %d: leafset %d != %d root_Nleaves - %d new_leaves + %d detached_leaves" %\
+                (tree.root, len(leafset), root_Nleaves, len(new_leaves), root_counts[2])
     
     assert initial_Nleaves == root_counts[3], "%d != %d, %s" %(initial_Nleaves,
                                                                root_counts[3],
                                                                root_counts)
     assert len(root_counts[4]) == root_counts[0]
+
+    if tree.root in new_leaves:
+        # We should not output this tree: mark it:
+        logger.warning("The root %d does not support any tree.", tree.root)
+        tree.root = None
     return root_counts, detached_subtrees
 
 
@@ -222,9 +238,10 @@ def edit_toolong(proteintrees, maxdist=MAXDIST):
         
         yield root_counts[0] > 0, tree
         for subtree in detached_subtrees:
+            #TODO: actually accurately flag if subtree has an inner change
             yield True, subtree
 
-    logger.info("%d detached; +%d included; %d leaves_detached.",
+    logger.info("%d detached; +%d included; %d leaves_detached; %d discarded roots.",
                 n_detached, n_included, n_leaves_detached)
         
 
@@ -364,6 +381,7 @@ def main(badnodelistfile, forestfile, badnode_col=0, maxdist=MAXDIST,
                 return 0
 
     n_edited_trees = 0
+    n_discarded_roots = 0
     n_edited_trees_fromsel = 0
     n_edited_trees_toolong = 0
 
@@ -372,12 +390,15 @@ def main(badnodelistfile, forestfile, badnode_col=0, maxdist=MAXDIST,
                                     maxdist=maxdist):
         n_edited_trees_fromsel += int(change1)
         n_edited_trees_toolong += int(change2)
-        n_edited_trees += output(tree, change1, change2)
+        if tree.root is None:
+            n_discarded_roots += 1
+        else:
+            n_edited_trees += output(tree, change1, change2)
 
-    logger.info('\n%9d edited trees. %d unprinted trees.\n'
+    logger.info('\n%9d edited output trees. %d unprinted trees. %d discarded roots.\n'
                 ' -> %9d from node selection,\n'
                 ' -> %9d because of too long branches.\n',
-                n_edited_trees, n_unprinted,
+                n_edited_trees, n_unprinted, n_discarded_roots,
                 n_edited_trees_fromsel, n_edited_trees_toolong)
 
 
@@ -392,7 +413,7 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--dryrun', action='store_true')
     parser.add_argument('-c', '--changed-only', action='store_false',
                         dest='print_unchanged',
-                        help='Output only tree that were changed.')
+                        help='Output only trees that were changed.')
 
     dictargs = vars(parser.parse_args())
 
