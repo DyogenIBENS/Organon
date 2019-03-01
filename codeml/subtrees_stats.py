@@ -178,13 +178,13 @@ def per_node_events(tree, phyltree, aberrant_dist=10000,
 
 
 def make_ancgene2sp(ancestor, phyltree):
-    return re.compile('('
-                      + '|'.join(re.escape(s) for s in
+    return re.compile(r'('
+                      + r'|'.join(re.escape(s) for s in
                                   list(phyltree.species[ancestor]) +
                                   sorted(phyltree.getTargetsAnc(ancestor),
                                          key=lambda a:len(a),
-                                         reverse=True)).replace(r' ', r'.')
-                      + ')(.*)$')
+                                         reverse=True)).replace(' ', '.')
+                      + r')([^a-z].*|)$')
 
 
 def get_childdist_ete3(tree, nodedist):
@@ -224,13 +224,19 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
         if root_location == 'O':
             if ignore_outgroups:
+                # Go to the ingroup root.
                 for node in tree.traverse('levelorder'):
                     if split_species_gene(node.name, ancgene2sp)[0] is not None:
+                        #print('DEBUG:split_species_gene: %s'
+                        #        % ( split_species_gene(node.name, ancgene2sp),),
+                        #      file=stderr)
                         tree = node
                         break
             else:
                 root_taxon, _ = split_species_gene(tree.name, all_ancgene2sp)
 
+        #print('DEBUG:Considered genetree root: %s; root taxon: %s; original: %s'
+        #      %(tree.name, root_taxon or ancestor, ancestor), file=stderr)
         expected_species = phyltree.species[root_taxon or ancestor]
         try:
             leaves_robust, single_child_nodes = simple_robustness_test(tree,
@@ -381,6 +387,9 @@ if __name__ == '__main__':
                                   default=ENSEMBL_VERSION, help="[%(default)s]")
     treestats_parser.add_argument('-E', '--extended', action='store_true',
                                   help='Perform robustness test on nodes (instead of leaves VS root)')
+    treestats_parser.add_argument('-i', '--ignore-outgroups', action='store_true',
+                                  help='Do not take outgroup species into '\
+                                       'account determine robustness')
     treestats_parser.set_defaults(func=make_subparser_func(get_tree_stats))
 
     args = parser.parse_args()
