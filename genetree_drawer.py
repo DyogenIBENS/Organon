@@ -253,8 +253,8 @@ class GenetreeDrawer(object):
             for i, clade in enumerate(colorize_clades):
                 self.legend_clades.append(patches.Patch(color=cmap(i),
                                                          label=clade))
-                self.colorize_species.update(**{sp: cmap(i) for sp in 
-                                                self.phyltree.species[clade]})
+                self.colorize_species.update({sp: cmap(i) for sp in
+                                              self.phyltree.species[clade]})
 
         self.ancgene2sp = re.compile('(' + 'root|'
                         + '|'.join(re.escape(s) for s in
@@ -415,7 +415,7 @@ class GenetreeDrawer(object):
 
             ax0.text(cx, cy, child, ha=ha, va=va, fontsize='x-small',
                      fontstyle='italic', family='serif', alpha=alpha,
-                     backgroundcolor=bgcolor)
+                     bbox={'facecolor': bgcolor, 'pad':0, 'edgecolor': 'none'})
 
         # include root.
         self.species_coords[parent] = (px, py)
