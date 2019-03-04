@@ -8,10 +8,14 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
 import pandas as pd
+from collections import namedtuple
 
 import pandas as pd
 import seaborn as sns
 
+import matplotlib.patches as patches
+from matplotlib.path import Path
+MOVETO, CURVE3, LINETO = Path.MOVETO, Path.CURVE3, Path.LINETO
 ### Plotting style in matplotlib ###
 
 # Prefered_style: put in ~/.config/matplotlib/smoother
@@ -146,6 +150,87 @@ def dendrogram():
     ax.spines['top'].set_visible(False)
     ax.spines['bottom'].set_visible(False)
     ax.spines['right'].set_visible(False)
+
+
+def plottree(tree, ax=None, *args, invert=True, topology_only=False, label_params=None, **kwargs):
+    """Plot an ete3 tree, from left to right."""
+    coord = namedtuple('coord', 'x y')
+
+    leafloc, leafstep = (0, 1) if invert is False else (len(tree)-1, -1)
+    depth = tree.get_farthest_leaf()[1]
+
+    child_coords = {}  # x (node depth), y (leaf number)
+    x = []
+    y = []
+    ticklabels = []
+
+    extended_x = []  # Dashed lines to the right when tree is not ultrametric
+    extended_y = []
+
+    for node in tree.traverse('postorder'):
+        if node.is_leaf():
+            child_coords[node] = coord(tree.get_distance(node), leafloc)
+            ticklabels.append(node.name)
+            if child_coords[node].x < depth:
+                extended_x.extend((depth, child_coords[node].x, None))
+                extended_y.extend((leafloc, leafloc, None))
+            leafloc += leafstep
+        else:
+            
+            if len(node.children) == 1:
+                ch, = node.children
+                child_coords[node] = nodecoord = coord(child_coords[ch].x - ch.dist,
+                                                       child_coords[ch].y)
+                x.extend((child_coords[ch].x, nodecoord.x, None))
+                y.extend((child_coords[ch].y, nodecoord.y, None))
+            else:
+                sorted_children = sorted(node.children,
+                                         key=lambda ch: child_coords[ch].y)
+                ch0 = sorted_children[0]
+                ch1 = sorted_children[-1]
+                child_coords[node] = nodecoord = coord(
+                        child_coords[ch0].x - ch0.dist,
+                        (child_coords[ch0].y + child_coords[ch1].y)/2.)
+                x.extend((child_coords[ch0].x,
+                          nodecoord.x,
+                          nodecoord.x,
+                          child_coords[ch1].x, None))
+                y.extend((child_coords[ch0].y,
+                          child_coords[ch0].y,
+                          child_coords[ch1].y,
+                          child_coords[ch1].y, None))
+                #forkwidth = child_coords[ch1] - child_coords[ch0].y
+                #forkstep = forkwidth / (len(node.children) - 1.0)
+                for extra_ch in sorted_children[1:-1]:
+                    x.extend((child_coords[extra_ch].x, nodecoord.x, None))
+                    y.extend((child_coords[extra_ch].y,)*2)
+    if tree.dist > 0:
+        x.extend((0, -tree.dist))
+        y.extend((nodecoord.y, nodecoord.y))
+
+    plot = plt.plot if ax is None else ax.plot
+    if not kwargs.get('color') and (not args or not args[0][0] in 'bgrcmykw'):
+        kwargs['color'] = mpl.rcParams['text.color']  # Default color to black.
+    lines = plot(x, y, *args, **kwargs)
+    if ax is None:
+        ax = plt.gca()
+    ax.plot(extended_x, extended_y, 'k--', alpha=0.4,
+            linewidth=kwargs.get('linewidth', mpl.rcParams['lines.linewidth'])/2.)
+    ax.set_xlim(min(0, 0-tree.dist), depth)
+    ax.spines['top'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.yaxis.tick_right()
+    ax.tick_params('y', which='both', right=False)
+    ax.set_yticks(range(len(ticklabels)))
+    if label_params is None: label_params = {}
+    if invert: ticklabels.reverse()
+    ax.set_yticklabels(ticklabels, **label_params)
+    return lines
+                            
+                
+
+
 
 
 # Or joypy.joyplot
