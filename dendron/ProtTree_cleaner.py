@@ -28,12 +28,14 @@ def get_children(tree, child):
     return [x for x, _ in tree.data.get(child, [])]
 
 
-def keep_closest_leaf(tree, node):
+def keep_closest_leaf(tree, node, indicator=False):
     leafdists = sorted(iter_distleaves(tree, get_data, root=node),
                        key=lambda datum: datum[1])
     # This does not keep intermediate nodes.
     tree.data[node] = [leafdists[0]]
     # WARNING: the info of deleted nodes is kept, so don't rely on it!!!
+    if indicator:
+        tree.info[node]['Duplication'] = 10
 
 
 def detach_toolongbranch(tree, node, maxdist=MAXDIST):
@@ -317,7 +319,7 @@ def edit_from_selection(proteintrees, badnodes):
             # Edit only if no ancestral node has already been edited.
             if not any((leaves & edited_l) for edited_l in edited_leafsets[:larger_size_i]):
                 edited_leafsets.append(leaves)
-                keep_closest_leaf(tree, badnode)
+                keep_closest_leaf(tree, badnode, indicator=True)
                 n_edits += 1
             else:
                 n_included += 1
