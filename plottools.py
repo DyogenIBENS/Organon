@@ -13,6 +13,7 @@ from collections import namedtuple
 import pandas as pd
 import seaborn as sns
 
+from dendron.climber import rev_dfw_descendants, iter_distleaves
 import matplotlib.patches as patches
 from matplotlib.path import Path
 MOVETO, CURVE3, LINETO = Path.MOVETO, Path.CURVE3, Path.LINETO
@@ -152,12 +153,30 @@ def dendrogram():
     ax.spines['right'].set_visible(False)
 
 
-def plottree(tree, ax=None, *args, invert=True, topology_only=False, label_params=None, **kwargs):
+def plottree(tree, get_items, ax=None, *args, invert=True, topology_only=False, label_params=None, **kwargs):
     """Plot an ete3 tree, from left to right."""
     coord = namedtuple('coord', 'x y')
 
-    leafloc, leafstep = (0, 1) if invert is False else (len(tree)-1, -1)
-    depth = tree.get_farthest_leaf()[1]
+    try:
+        root = tree.clade  # .root
+    except AttributeError:
+        root = tree  # .get_tree_root (ete3) but you usually want to take the current node.
+
+    if topology_only:
+        get_items_withdist = get_items
+        def get_items(tree, nodedist):
+            return [(child, 1) for child, _ in get_items_withdist(tree, nodedist)]
+
+    #depth = tree.get_farthest_leaf()[1]
+    leafdists = sorted(iter_distleaves(tree, get_items, root), key=lambda x: x[1])
+    depth = leafdists[-1][1]  # furthest leaf.
+    leafloc, leafstep = (0, 1) if invert is False else (len(leafdists)-1, -1)
+    leafdists = dict(leafdists)
+    try:
+        rootdist = tree.dist  # ete3 instance
+    except AttributeError:
+        rootdist = tree.clade.branch_length  # Bio.Phylo
+    if rootdist is None: rootdist = 0
 
     child_coords = {}  # x (node depth), y (leaf number)
     x = []
@@ -167,9 +186,12 @@ def plottree(tree, ax=None, *args, invert=True, topology_only=False, label_param
     extended_x = []  # Dashed lines to the right when tree is not ultrametric
     extended_y = []
 
-    for node in tree.traverse('postorder'):
-        if node.is_leaf():
-            child_coords[node] = coord(tree.get_distance(node), leafloc)
+    for (node,dist), items in rev_dfw_descendants(tree, get_items,
+                                                  include_leaves=True,
+                                                  queue=[(root, rootdist)]):
+        if not items:
+            # Is a leaf.
+            child_coords[node] = coord(leafdists[node], leafloc)
             ticklabels.append(node.name)
             if child_coords[node].x < depth:
                 extended_x.extend((depth, child_coords[node].x, None))
@@ -177,19 +199,19 @@ def plottree(tree, ax=None, *args, invert=True, topology_only=False, label_param
             leafloc += leafstep
         else:
             
-            if len(node.children) == 1:
-                ch, = node.children
-                child_coords[node] = nodecoord = coord(child_coords[ch].x - ch.dist,
+            if len(items) == 1:
+                (ch, chdist), = items
+                child_coords[node] = nodecoord = coord(child_coords[ch].x - chdist,
                                                        child_coords[ch].y)
                 x.extend((child_coords[ch].x, nodecoord.x, None))
                 y.extend((child_coords[ch].y, nodecoord.y, None))
             else:
-                sorted_children = sorted(node.children,
-                                         key=lambda ch: child_coords[ch].y)
-                ch0 = sorted_children[0]
-                ch1 = sorted_children[-1]
+                sorted_items = sorted(items,
+                                         key=lambda item: child_coords[item[0]].y)
+                ch0, ch0dist = sorted_items[0]
+                ch1, ch1dist = sorted_items[-1]
                 child_coords[node] = nodecoord = coord(
-                        child_coords[ch0].x - ch0.dist,
+                        child_coords[ch0].x - ch0dist,
                         (child_coords[ch0].y + child_coords[ch1].y)/2.)
                 x.extend((child_coords[ch0].x,
                           nodecoord.x,
@@ -201,22 +223,27 @@ def plottree(tree, ax=None, *args, invert=True, topology_only=False, label_param
                           child_coords[ch1].y, None))
                 #forkwidth = child_coords[ch1] - child_coords[ch0].y
                 #forkstep = forkwidth / (len(node.children) - 1.0)
-                for extra_ch in sorted_children[1:-1]:
+                for extra_ch, _ in sorted_items[1:-1]:
                     x.extend((child_coords[extra_ch].x, nodecoord.x, None))
                     y.extend((child_coords[extra_ch].y,)*2)
-    if tree.dist > 0:
-        x.extend((0, -tree.dist))
+    if rootdist > 0:
+        x.extend((0, -rootdist))
         y.extend((nodecoord.y, nodecoord.y))
 
     plot = plt.plot if ax is None else ax.plot
+
     if not kwargs.get('color') and (not args or not args[0][0] in 'bgrcmykw'):
         kwargs['color'] = mpl.rcParams['text.color']  # Default color to black.
-    lines = plot(x, y, *args, **kwargs)
+    
+    default_kwargs = {'clip_on': False}
+    default_kwargs.update(kwargs)
+
+    lines = plot(x, y, *args, **default_kwargs)
     if ax is None:
         ax = plt.gca()
     ax.plot(extended_x, extended_y, 'k--', alpha=0.4,
             linewidth=kwargs.get('linewidth', mpl.rcParams['lines.linewidth'])/2.)
-    ax.set_xlim(min(0, 0-tree.dist), depth)
+    ax.set_xlim(min(0, 0-rootdist), depth)
     ax.spines['top'].set_visible(False)
     ax.spines['left'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -226,10 +253,8 @@ def plottree(tree, ax=None, *args, invert=True, topology_only=False, label_param
     if label_params is None: label_params = {}
     if invert: ticklabels.reverse()
     ax.set_yticklabels(ticklabels, **label_params)
+    ax.get_figure().tight_layout()  # extend interactive view to see labels.
     return lines
-                            
-                
-
 
 
 
