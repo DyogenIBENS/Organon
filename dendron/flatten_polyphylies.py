@@ -43,7 +43,7 @@ def delete_polyphylies(tree, conversion):
             
             # Memorize the original distances to leaves, to check if it preserves lengths
             parent = node.up if node.up else node
-            distleaves0 = sorted(iter_distleaves(parent, parent, get_data),
+            distleaves0 = sorted(iter_distleaves(parent, get_data),
                                  key=lambda dl: dl[0].name)
 
             # Propagate the deleted branch length to its children.
@@ -53,7 +53,7 @@ def delete_polyphylies(tree, conversion):
             #TODO: check that newname.split('+') matches the node.children.
             logger.info("Delete node %r:%g (%s)", node.name, node.dist, newname)
 
-            distleaves = sorted(iter_distleaves(parent, parent, get_data),
+            distleaves = sorted(iter_distleaves(parent, get_data),
                                 key=lambda dl: dl[0].name)
 
             assert all((l0 == l) for (l0, dl0), (l, dl) in zip(distleaves0, distleaves)), \

@@ -406,10 +406,15 @@ def iter_leaves(tree, get_children, queue=None):
             yield node
 
 
-def iter_distleaves(tree, root, get_data, root_dist=0):
+def iter_distleaves(tree, get_data, root=None, root_dist=0):
     """Iterate over the pairs (leaf, distance from the root).
     param: `get_data` takes a tuple (tree, node) and return a
                tuple (child, dist) for each child of the given node (as a list)."""
+    if root is None:
+        try:
+            root = tree.root
+        except AttributeError:
+            root = tree
     for leafpath in iter_leaf_paths(tree, get_data, [(root, root_dist)]):
         leaf = leafpath[-1][0]
         leafdist = sum(dist for node, dist in leafpath[1:])

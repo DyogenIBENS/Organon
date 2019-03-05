@@ -82,7 +82,8 @@ def fuse_subspecies(forest, species2seq, delete_distant_orthologs=False):
                         for ch_i, (ch, chdist) in enumerate(childrendists):
                             gene_names, gene_dists = zip(*(
                                 (info[tip]['gene_name'], gdist)
-                                for tip, gdist in iter_distleaves(tree, ch, get_data)
+                                for tip, gdist in iter_distleaves(tree, get_data,
+                                                                  root=ch)
                                           ))
 
                             if len(gene_names) > 1:

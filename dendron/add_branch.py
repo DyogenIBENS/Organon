@@ -38,7 +38,7 @@ def main(infile, subtreesfile=None, check_ultrametricity=-1,
         from dendron.climber import iter_distleaves
         get_data = lambda tree,dat: [(ch, ch.dist) for ch in dat[0].children]
         def is_ultrametric(tree, thresh=0.01):
-            leaf_dists = [d for _,d in iter_distleaves(tree, tree, get_data)]
+            leaf_dists = [d for _,d in iter_distleaves(tree, get_data)]
             return max(leaf_dists) - min(leaf_dists) < thresh
 
     tree = ete3.Tree(infile, format=format)
@@ -68,7 +68,7 @@ def main(infile, subtreesfile=None, check_ultrametricity=-1,
             age_via_anchor = age_anchor + anchor_node.dist
             inserted_leafdists = [ch.dist + d
                                   for ch in newsubtree.children[1:]
-                                  for _,d in iter_distleaves(ch, ch, get_data)]
+                                  for _,d in iter_distleaves(ch, get_data)]
             if max(inserted_leafdists) - min(inserted_leafdists) >= check_ultrametricity:
                 logger.error("Requested ultrametricity but an input subtree is not ultrametric.")
             age_via_inserted = max(inserted_leafdists)

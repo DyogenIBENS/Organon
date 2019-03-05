@@ -29,7 +29,8 @@ def get_children(tree, child):
 
 
 def keep_closest_leaf(tree, node):
-    leafdists = sorted(iter_distleaves(tree, node, get_data), key=lambda datum: datum[1])
+    leafdists = sorted(iter_distleaves(tree, get_data, root=node),
+                       key=lambda datum: datum[1])
     # This does not keep intermediate nodes.
     tree.data[node] = [leafdists[0]]
     # WARNING: the info of deleted nodes is kept, so don't rely on it!!!

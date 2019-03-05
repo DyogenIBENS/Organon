@@ -745,7 +745,7 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
 
         # Select by proximity
         outgroup_leaves = [(l, d) for basal in base
-                           for l,d in iter_distleaves(basal, basal, get_data_ete3)]
+                           for l,d in iter_distleaves(basal, get_data_ete3)]
         outgroup_leaves.sort(key=lambda leafdist: leafdist[1])
         # Remove unwanted species
         outgroup_leaves = [(l, d) for l,d in outgroup_leaves if is_allowed_leaf(l)][:maxsize]

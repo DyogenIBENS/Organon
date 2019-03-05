@@ -247,8 +247,9 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
             raise
 
         root_to_tips = np.array([leafdist for _, leafdist in
-                                 iter_distleaves(tree, tree.get_tree_root(),
-                                                 get_childdist_ete3)])
+                                 iter_distleaves(tree,
+                                                 get_childdist_ete3,
+                                                 tree.get_tree_root())])
 
         output = (int(leaves_robust), int(single_child_nodes),
                   root_to_tips.mean(), root_to_tips.std())
