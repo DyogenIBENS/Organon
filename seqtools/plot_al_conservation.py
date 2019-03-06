@@ -26,8 +26,8 @@ except ImportError:
 
 from functools import reduce
 
-from plottools import stackedbar
-from dendron.climber import dfw_descendants_generalized
+from plottools import stackedbar, plottree
+from dendron.climber import rev_dfw_descendants
 
 import logging
 logger = logging.getLogger(__name__)
@@ -278,12 +278,16 @@ def comp_parts(alint, compare_parts=None):
     return np.stack((manh_dist, split_sc,))
 
 
-def parsimony_score(alint, tree, seqlabels, minlength=66):
+def parsimony_score(alint, tree, seqlabels, minlength=66, get_children=None):
     """Computes the column-wise parsimony score based on the provided tree."""
 
-    get_children = lambda tree, node: node.clades
-    iter_tree = dfw_descendants_generalized(tree, get_children,
-                                            include_leaves=True)
+    if get_children is None: get_children = lambda tree, node: node.clades
+    try:
+        root = tree.clade
+    except AttributeError:
+        root = tree
+    iter_tree = rev_dfw_descendants(tree, get_children, include_leaves=True,
+                                    queue=[root])
 
     # Holds the currently seen nodes, and their parsimony score and sequence.
     process_sequences = {}
@@ -296,7 +300,7 @@ def parsimony_score(alint, tree, seqlabels, minlength=66):
     score = np.zeros(alint.shape[1], dtype=int)
 
     branch_nb = 0
-    for parent, children in reversed(list(iter_tree)):
+    for parent, children in iter_tree:
         #print('*', parent, children)
         if len(children) > 2:
             logger.warning("More than 2 children at %s", parent.name)
@@ -368,6 +372,10 @@ def al_stats(align, nucl=False, allow_N=False):
     return gap_prop, al_entropy, alint
 
 
+def get_items_biophylo(tree, nodedist):
+    return [(child, child.branch_length) for child in nodedist[0].clades]
+
+
 def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
                   outfile=None):
     """"""
@@ -405,12 +413,12 @@ def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
     axes[3].set_ylabel("Alignment")
     if seqlabels is not None:
         axes[3].set_yticks(np.arange(alint.shape[0]))
-        axes[3].set_yticklabels(seqlabels, fontsize='xx-small')
+        axes[3].set_yticklabels(seqlabels, fontsize='x-small')
     axes[-1].set_xlabel("Residue position")
 
     if dist_array is not None:
         axes[4].step(x, dist_array.T, where='post', alpha=0.7)
-        axes[4].legend(('pearson_corr', 'manhattan dist'), fontsize='xx-small')
+        axes[4].legend(('pearson_corr', 'manhattan dist'), fontsize='x-small')
     
     if outfile is None:
         plt.show()
@@ -437,7 +445,8 @@ class AlignPlotter(object):
                        'manh': {'title': 'Difference scoring between parts',
                                 'ylabel': 'manhattan distance'},
                        'pearson': {'ylabel': "Pearson's correlation coefficient"},
-                       'part_sp': {'ylabel': 'sum of pair differences'}}
+                       'part_sp': {'ylabel': 'sum of pair differences'},
+                       'tree': {}}
 
     default_step = [('step', {'where': 'mid', 'alpha': 0.65})]
     default_bar = [('bar', {'width': 1})]
@@ -453,7 +462,11 @@ class AlignPlotter(object):
                   'sp':          default_bar,
                   'manh':        default_step,
                   'pearson':     default_step,
-                  'part_sp':     default_step}
+                  'part_sp':     default_step,
+                  'tree':        [(plottree, {'get_items': get_items_biophylo,
+                                              'label_params': {'fontsize': 'x-small'}}),
+                                  ('tick_params', {'labelright': False}),
+                                  ('grid', {'b': False})]}
 
 
     def __init__(self, alint, seqlabels=None, valid_range=(1,64), tree=None):
@@ -473,6 +486,9 @@ class AlignPlotter(object):
         #print(np.unique(self.malint - self.malint.max()))
         self.valid_range = valid_range
         self.tree = tree
+        if tree is not None:
+            self.plotlist.insert(0, 'tree')
+            self.plotdata['tree'] = (tree,)
 
         #cmap_size = valid_range[1] - valid_range[0] # If len(valid_range) > 1
         # Dark2, tab20b, tab20, Set1
@@ -495,8 +511,8 @@ class AlignPlotter(object):
         if seqlabels is not None:
             self.plot_funcs['al'].append(('set_yticklabels',
                                           {'labels': seqlabels,
-                                           'fontsize': 'xx-small'}))
-        
+                                           'fontsize': 'x-small'}))
+
     @classmethod
     def fromfile(cls, infile, format=None, nucl=False, allow_N=False,
                  slice=None, records=None, recordsfile=None, treefile=None):
@@ -520,10 +536,15 @@ class AlignPlotter(object):
                     with open(recordsfile) as recf:
                         records = [recnames.index(line.rstrip()) for line in recf]
                 elif treefile:
-                    #try: alternative with ete3
+                    #try:
+                    #    import ete3
+                    #    tree = ete3.Tree(treefile, format=1)
+                    #    get_leaves = tree.get_leaves
+                    #except ImportError:
                     from Bio.Phylo import read as phyloread
                     tree = phyloread(treefile, 'newick')
-                    records = [recnames.index(leaf.name) for leaf in tree.get_terminals()]
+                    get_leaves = tree.get_terminals
+                    records = [recnames.index(leaf.name) for leaf in get_leaves()]
 
             align = Align.MultipleSeqAlignment([align[r] for r in records])
 
@@ -594,9 +615,14 @@ class AlignPlotter(object):
                              sp=(self.x, self.sp_score,))
 
         if self.tree is not None:
+            if hasattr(self.tree, 'children'):
+                get_children = lambda tree, node: node.children
+            else:
+                get_children = lambda tree, node: node.clades
             self.parsimony_score = parsimony_score(self.alint, self.tree,
                                                    minlength=(max_valid+2),
-                                                   seqlabels=self.seqlabels)
+                                                   seqlabels=self.seqlabels,
+                                                   get_children=get_children)
             self.plotlist.insert(1, 'pars')
             self.plotdata['pars'] = (self.x, self.parsimony_score)
 
@@ -656,13 +682,39 @@ class AlignPlotter(object):
 
         self.plot_funcs['al'].append((self.annotate_parts, {}))
 
+
     def makefig(self, figwidth=16, plotlist=None):
 
         plotlist = plotlist if plotlist is not None else self.plotlist
         nplots = len(plotlist)
-        fig, axes = plt.subplots(nplots, sharex=True,
-                                 figsize=(figwidth, 4*nplots), squeeze=False)
-        for plot, ax in zip(plotlist, axes[:,0]):
+        fig = plt.figure(figsize=(figwidth, 4*nplots))
+
+        print('Nplots: ', nplots, plotlist)
+        #fig, axes = plt.subplots(nplots, sharex=True,
+        #                         figsize=(figwidth, 4*nplots), squeeze=False)
+        
+        if 'tree' in plotlist:
+            rows = nplots - 1
+            cols = 5  # tree plot spans 1 col, alignment spans 4.
+            colspan = cols - 1
+            gridspec_kw = {'width_ratios': [1, 4]}
+            # And hide alignment labels
+            #self.plot_funcs['al'].append(('tick_params', {'label_left'}))
+        else:
+            rows = nplots
+            cols = 1
+            colspan = 0
+            gridspec_kw = {}
+        print("subplots: %d, %d" % (rows, cols))
+        pos = (0,0)
+        #ax = fig.add_subplot(rows, cols, pos, gridspec_kw=gridspec_kw)
+        ax = plt.subplot2grid((rows,cols), pos, colspan=1, fig=fig)
+        axes = [ax]
+
+        for plot in plotlist:
+            print('Plot:', plot, 'pos:', pos)
+            print('len(axes):', len(axes))
+
             plotfuncname, plot_kwargs = self.plot_funcs[plot][0]
             try:
                 plotfunc = getattr(ax, plotfuncname)
@@ -685,6 +737,21 @@ class AlignPlotter(object):
             plot_prop = self.plot_properties[plot]
             ax.set(**plot_prop)
 
+            # Next ax:
+            if len(axes) < nplots:
+                if plot == 'tree':
+                    #pos += 1
+                    #ax = fig.add_subplot(rows, cols, pos, sharey=ax)
+                    pos = (pos[0], pos[1]+1)
+                    ax = plt.subplot2grid((rows,cols), pos, colspan=colspan, fig=fig, sharey=ax)
+                else:
+                    #pos += 2 if 'tree' in plotlist else 1
+                    #ax = fig.add_subplot(rows, cols, pos, sharex=ax)
+                    pos = (pos[0]+1, pos[1])
+                    ax = plt.subplot2grid((rows,cols), pos, colspan=colspan, fig=fig, sharex=ax)
+            axes.append(ax)
+
+        # On the last plot:
         if self.slstart:
             # Update the displayed xticklabels if start position > 0
             slstart = self.slstart // 3 if not self.nucl else self.slstart
@@ -692,10 +759,12 @@ class AlignPlotter(object):
             ax.set_xticklabels([(slstart + int(xt)) for xt in \
                                 ax.get_xticks()])
 
+        fig.tight_layout()
         self.fig, self.axes = fig, axes
 
 
     def display(self, outfile=None):
+        print('Displaying')
         if outfile is None:
             plt.show(block=True)
             #print(clock())
@@ -735,8 +804,11 @@ def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
         align_plot.comp_parts(compare_parts)
     if plotlist is not None:
         plotlist = plotlist.split(',')
-        if 'pars' in plotlist:
-            assert treefile is not None, "A treefile must be given to compute parsimony score."
+        if 'pars' in plotlist or 'tree' in plotlist:
+            assert treefile is not None, \
+                    "A treefile must be given to compute parsimony score or plot a tree."
+            if 'tree' not in plotlist and 'al' in plotlist:
+                plotlist.insert(plotlist.index('al'), 'tree')
     align_plot.makefig(figwidth, plotlist)
     align_plot.display(outfile)
 
