@@ -30,7 +30,7 @@ pd.set_option("display.width", 115)
 pd.set_option("display.max_colwidth", 50)
 pd.set_option("display.show_dimensions", True)  # even on non truncated dataframes
 
-mpl.rcParams['figure.figsize'] = (22, 14) # width, height
+mpl.rcParams['figure.figsize'] = (14, 10) # width, height
 
 from scipy import stats
 import scipy.cluster.hierarchy as hclust
@@ -100,6 +100,10 @@ def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
                               'aberrant_dists':     int})
                               #'root2tip_var': float
     ts['really_robust'] = ts.leaves_robust & ts.nodes_robust & ~ts.only_treebest_spe
+    try:
+        ts['unlike_clock'] = ts.root2tip_sd / ts.root2tip_mean
+    except AttributeError:
+        logger.warning('"root2tip_mean" or "root2tip_sd" not in treestats columns.')
 
     # ## Load codeml output statistics
     logger.info('Load %s', codemlfile)
@@ -166,7 +170,9 @@ def add_robust_info(ages_p, ts):
     # merge tree stats to select robust trees
     ages_treestats = pd.merge(ages_p.drop('_merge', axis=1),
                               pd.concat((Ndup, Nspe,
-                                         ts[['really_robust','aberrant_dists']]),
+                                         ts[['really_robust',
+                                             'aberrant_dists',
+                                             'rebuilt_topo']]),
                                         axis=1,
                                         join='outer', sort=False),
                               how='left', left_on='subgenetree', right_index=True,
@@ -205,20 +211,21 @@ def load_prepare_ages(ages_file, ts):
     orphans = ages_p._merge=='left_only'
     ages_orphans = ages_p[orphans]
 
-    print("\nOrphans: %d\n" % ((orphans).sum()))
+    logger.info("\nOrphans: %d\n" % (orphans.sum()))
     #display_html(ages_orphans.head())
 
-    assert ((ages_orphans.parent == ages_orphans.root) |
-            (ages_orphans.type == 'leaf')).all()
-    print("All orphans are expected (leaf, or child of the root).")
+    orphan_taxa = ages_orphans.taxon.unique()
+    #print("All orphans are expected (leaf, or child of the root).")
+    logger.warning('CHECK those orphan taxa (should all be outgroups sequences (could be duplicates from the ingroup taxa): %s.',
+                   ', '.join(orphan_taxa))
     
     e_nochild = set(ages.index) - set(ages.parent)  # expected
     parent_nodata = set(ages[ages.type!='leaf'].parent) - set(ages_p.index)
     n_nochild = len(e_nochild)
-    print("\nExpected nodes without children (leaves): %d" % (n_nochild,))
-    print("Observed nodes not found as parents: %d" % \
+    logger.info("\nExpected nodes without children (leaves): %d" % (n_nochild,))
+    logger.info("Observed nodes not found as parents: %d" % \
             len(set(ages.index) - set(ages_p[ages_p._merge=='both'].index)))
-    print("Parent nodes without data: %d" % (len(parent_nodata),))
+    logger.info("Parent nodes without data: %d" % (len(parent_nodata),))
     #assert len(nochild) == n_nochild, \
     #    "Found %d unexpected nodes without child:\n%s" % \
     #        (len(nochild) - n_nochild,
@@ -278,8 +285,8 @@ def add_control_dates_lengths(ages, ages_robust, phyltree, timetree_ages_CI=None
     invalid_taxon_parent = ages_controled.taxon_parent.isna()
     # Should be nodes whose parent node is the root.
     if invalid_taxon_parent.any():
-        assert (ages_controled[invalid_taxon_parent].parent == \
-                ages_controled[invalid_taxon_parent].root).all()
+        #assert (ages_controled[invalid_taxon_parent].parent == \
+        #        ages_controled[invalid_taxon_parent].root).all()
         debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age']
         logger.warning("%d invalid 'taxon_parent':head:\n%s\n"
                      "The following taxa have no parent taxa information, "
@@ -664,7 +671,8 @@ def make_logpostransform_inc(inc=0):
 
 # Functions for the PCA
 
-def plot_cov(ft_cov, features, cmap='seismic', figax=None, cax=None):
+def plot_cov(ft_cov, features, cmap='seismic', figax=None, cax=None,
+             ylabel="Features", cb_kw=None):
     cmap = plt.get_cmap(cmap)
     norm = mpl.colors.Normalize(-1, 1)
     fig, ax = plt.subplots() if figax is None else figax
@@ -673,9 +681,14 @@ def plot_cov(ft_cov, features, cmap='seismic', figax=None, cax=None):
     ax.set_yticks(np.arange(len(features)))
     ax.set_yticklabels(features)
     ax.set_xticklabels(features, rotation=45, ha='right')
-    ax.set_ylabel("Features")
+    if ylabel:
+        ax.set_ylabel(ylabel)
     ax.set_title("Feature covariance")
-    fig.colorbar(img, ax=ax, cax=cax, aspect=ft_cov.shape[0])
+    if cb_kw is None: cb_kw = {}
+    logger.debug('add heatmap colorbar')
+    fig.colorbar(img, ax=None, #(ax if cax is None else None),
+                 cax=cax, aspect=ft_cov.shape[0], **cb_kw)
+    return img
 
 def cov2cor(cov):
     """Converts covariance matrix into correlation matrix"""
@@ -683,24 +696,35 @@ def cov2cor(cov):
     return cov / np.sqrt(var.dot(var.T))
 
 
-def heatmap_cov(ft_cov, features, cmap='seismic',
-                dendro_ratio=0.20, dendro_pad=0.1, cb_ratio=0.025, cb_pad=0.025):
+def heatmap_cov(ft_cov, features=None, cmap='seismic',
+                dendro_ratio=0.20, dendro_pad=0.1, cb_ratio=0.05, cb_pad=0.025):
     """plot_cov, but with hierarchical clustering on the side"""
     # Tested with figsize=(20, 12)
-    fig, ax = plt.subplots()
-    (x0, y0), (w, h) = ax.get_position().get_points()
-    # absolute padding (in figure coordinate)
-    # correct ratio by taking pad into account
+    if features is None:
+        features = ft_cov.index.tolist()
+        ft_cov = ft_cov.values
+    fig, (ax_ddg, ax, ax_cb) = plt.subplots(1,3,
+                                    subplot_kw={'facecolor': 'none'},
+                                    gridspec_kw={'width_ratios': [
+                                                  dendro_ratio,
+                                                  1,
+                                                  cb_ratio]})
+    #(x0, y0), (w, h) = ax.get_position().get_points()
+    ## absolute padding (in figure coordinate)
+    ## correct ratio by taking pad into account
     
-    # position relatively to figure (percentages)
-    ax.set_position([x0 + (dendro_ratio+dendro_pad)*w, y0,
-                     w*(1-dendro_ratio-dendro_pad-cb_ratio-cb_pad), h])
-    #width2 = width*ratio - float(pad)/w
-    ax_ddg = fig.add_axes([x0, y0, w*dendro_ratio, h], frameon=False)
-    #ax_ddg.set_title("hierarchical clustering (euclidean)")
-    #ax_ddg.axis('off')
+    ## position relatively to figure (percentages)
+    #ax.set_position([x0 + (dendro_ratio+dendro_pad)*w, y0,
+    #                 w*(1-dendro_ratio-dendro_pad-cb_ratio-cb_pad), h])
+    ##width2 = width*ratio - float(pad)/w
+    #ax_ddg = fig.add_axes([x0, y0, w*dendro_ratio, h], frameon=False,
+    #                      sharey=ax)
+    ax_ddg.get_shared_y_axes().join(ax)
+    #ax_cb.get_shared_x_axes().join(ax)
+    ax_ddg.set_title("hierarchical clustering (euclidean)")
+    ax_ddg.axis('off')
     ax_ddg.xaxis.set_visible(False)
-    ax_cb = fig.add_axes([x0 + w*(1-cb_ratio), y0, w*cb_ratio, h])
+    #ax_cb = fig.add_axes([x0 + w*(1-cb_ratio), y0, w*cb_ratio, h])
 
     distmat = 1 - np.abs(cov2cor(ft_cov))
     tol=1e-15
@@ -717,9 +741,27 @@ def heatmap_cov(ft_cov, features, cmap='seismic',
     #print(ddg['leaves'], ft_cov.shape)
     #print(clustered_ft_cov)
     logger.debug(np.array(features)[ddg['leaves']])
-    plot_cov(clustered_ft_cov,
-             np.array(features)[ddg['leaves']], cmap, (fig, ax), ax_cb)
-    plt.show()
+    logger.debug('%d artists: %s', len(ax_cb.get_children()), ax_cb.get_children())
+    img = plot_cov(clustered_ft_cov,
+             np.array(features)[ddg['leaves']], cmap, (fig, ax), ax_cb, '')#,
+             #cb_kw={'fraction': cb_ratio/(1. - dendro_ratio), 'shrink': 0.5})
+    #fig.colorbar(img, ax=None, #(ax if cax is None else None),
+    #             cax=ax_cb, aspect=ft_cov.shape[0])
+    logger.debug('%d artists: %s', len(ax_cb.get_children()), ax_cb.get_children())
+    #ax_cb.xaxis.set_visible(True)
+    ax_cb.set_ylabel('Correlation coefficient')
+    box_cb = ax_cb.get_position()
+    w_cb, h_cb = box_cb.size
+    ax_cb.set_position(box_cb.translated(w_cb/2., h_cb/4.).shrunk(0.5,0.5).shrunk_to_aspect(ft_cov.shape[0]))
+
+    #xmin_ylabel = min(yt.get_window_extent().x0 / fig.dpi for yt in ax.get_yticklabels())
+    #logger.debug('xmin_ylabel: %s VS xmin (ax): %s', xmin_label,
+    #             ax.get_position().x0)
+    ax.set_position(ax.get_position().translated(1.5*w_cb, 0))
+    ax_ddg.set_position(ax_ddg.get_position().translated(-w_cb, 0))
+    #plt.tight_layout(pad=0)
+    #plt.show()
+    #return fig
 
 
 def centered_background_gradient(s, cmap='PRGn', center=0, extend=0):
@@ -772,7 +814,7 @@ def plot_features_PCspace(components, features, PCs=["PC1", "PC2"], ax=None):
     quiver = plt.quiver if ax is None else ax.quiver 
     quiver(0, 0, components[PCs[0]], components[PCs[1]], units='dots', width=1,
           scale_units='width')
-    ax = ax or plt.gca()
+    if ax is None: ax = plt.gca()
     
     for ft in features:
         ft_vect = components.loc[ft][PCs] * 0.1
@@ -902,11 +944,10 @@ def sm_ols_summary(olsfit):
     r_coefs.sort_values("abs_coef", ascending=False, inplace=True)
     r_coefs.drop("abs_coef", axis=1, inplace=True)
     #r_coefs_styled = r_coefs.style.apply(centered_background_gradient, axis=0, subset="coef")
+    param_names = [n for n in olsfit.model.exog_names
+                   if n not in ('Intercept', 'const')]
     r_coefs_styled = r_coefs.style.bar(
-                        subset=pd.IndexSlice[
-                            olsfit.params.index.drop(["Intercept", "const"],
-                                                     errors="ignore"),
-                            "coef"],
+                        subset=pd.IndexSlice[param_names, "coef"],
                         axis=0,
                         align="zero")
     return r_coefs_styled
@@ -1645,7 +1686,7 @@ if __name__ == '__main__':
 
     # colinearity?
 
-    mpl.rcParams['figure.figsize'] = (16, 8) # width, height
+    #mpl.rcParams['figure.figsize'] = (16, 8) # width, height
 
     from sklearn.decomposition import PCA
     #import sklearn_panda

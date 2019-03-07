@@ -31,9 +31,6 @@ from dendron.climber import rev_dfw_descendants
 
 import logging
 logger = logging.getLogger(__name__)
-ch = logging.StreamHandler()
-ch.setFormatter(logging.Formatter("%(levelname)s:%(funcName)s:%(message)s"))
-logger.addHandler(ch)
 
 #try:
 #    mpl.style.use('softer')
@@ -368,13 +365,15 @@ def al_stats(align, nucl=False, allow_N=False):
     al_freqs[al_freqs == 0] = 1
     al_entropy = - (al_freqs * np.log2(al_freqs)).sum(axis=0)
 
-    print(alint.shape)
+    logger.info(alint.shape)
     return gap_prop, al_entropy, alint
 
 
 def get_items_biophylo(tree, nodedist):
     return [(child, child.branch_length) for child in nodedist[0].clades]
 
+def get_label_biophylo(node):
+    return node.name
 
 def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
                   outfile=None):
@@ -391,7 +390,7 @@ def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
 
     nvalues = alint.max()
     #nvalues = 
-    print(nvalues)
+    logger.info(nvalues)
     alcmap = plt.get_cmap('Dark2', nvalues)
 
     masked_al = np.ma.array(alint, mask=(alint==0))
@@ -434,8 +433,8 @@ class AlignPlotter(object):
 
     #colorcycle = plt.rcParams['axes.prop_cycle']
 
-    plot_properties = {'al': {'title': 'Global scoring (all sequences)',
-                              'ylabel': 'Alignment'},
+    plot_properties = {'al': {'title': 'Global scoring (all sequences)'},
+                              #'ylabel': 'Alignment'},
                        'gap': {'ylabel': 'Proportion of gaps\n(G)'},
                                #'ylim': (-0.05,1.05)},
                        'pars': {'ylabel': 'Parsimony score\n(min number of changes per branch)'},
@@ -464,6 +463,7 @@ class AlignPlotter(object):
                   'pearson':     default_step,
                   'part_sp':     default_step,
                   'tree':        [(plottree, {'get_items': get_items_biophylo,
+                                              'get_label': get_label_biophylo,
                                               'label_params': {'fontsize': 'x-small'}}),
                                   ('tick_params', {'labelright': False}),
                                   ('grid', {'b': False})]}
@@ -477,6 +477,7 @@ class AlignPlotter(object):
         """
         self.alint = alint
         self.x = np.arange(self.alint.shape[1]) # X values for plotting
+        logger.debug('Alignment shape: %s', alint.shape)
         
         self.malint = np.ma.array(alint, mask=(alint==0))
         self.seqlabels = seqlabels
@@ -689,7 +690,7 @@ class AlignPlotter(object):
         nplots = len(plotlist)
         fig = plt.figure(figsize=(figwidth, 4*nplots))
 
-        print('Nplots: ', nplots, plotlist)
+        logger.debug('Nplots: %s, %s', nplots, plotlist)
         #fig, axes = plt.subplots(nplots, sharex=True,
         #                         figsize=(figwidth, 4*nplots), squeeze=False)
         
@@ -705,15 +706,15 @@ class AlignPlotter(object):
             cols = 1
             colspan = 0
             gridspec_kw = {}
-        print("subplots: %d, %d" % (rows, cols))
+        logger.debug("subplots: %d, %d" % (rows, cols))
         pos = (0,0)
         #ax = fig.add_subplot(rows, cols, pos, gridspec_kw=gridspec_kw)
         ax = plt.subplot2grid((rows,cols), pos, colspan=1, fig=fig)
         axes = [ax]
 
         for plot in plotlist:
-            print('Plot:', plot, 'pos:', pos)
-            print('len(axes):', len(axes))
+            logger.debug('Plot=%r; pos=%s', plot, pos)
+            logger.debug('len(axes): %d', len(axes))
 
             plotfuncname, plot_kwargs = self.plot_funcs[plot][0]
             try:
@@ -743,12 +744,12 @@ class AlignPlotter(object):
                     #pos += 1
                     #ax = fig.add_subplot(rows, cols, pos, sharey=ax)
                     pos = (pos[0], pos[1]+1)
-                    ax = plt.subplot2grid((rows,cols), pos, colspan=colspan, fig=fig, sharey=ax)
+                    ax = plt.subplot2grid((rows,cols), pos, colspan=colspan, fig=fig, sharey=ax, autoscalex_on=False)
                 else:
                     #pos += 2 if 'tree' in plotlist else 1
                     #ax = fig.add_subplot(rows, cols, pos, sharex=ax)
                     pos = (pos[0]+1, pos[1])
-                    ax = plt.subplot2grid((rows,cols), pos, colspan=colspan, fig=fig, sharex=ax)
+                    ax = plt.subplot2grid((rows,cols), pos, colspan=colspan, fig=fig, sharex=ax, autoscalex_on=False)
             axes.append(ax)
 
         # On the last plot:
@@ -764,7 +765,7 @@ class AlignPlotter(object):
 
 
     def display(self, outfile=None):
-        print('Displaying')
+        logger.debug('Displaying')
         if outfile is None:
             plt.show(block=True)
             #print(clock())
@@ -814,6 +815,7 @@ def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
 
 
 if __name__ == '__main__':
+    logging.basicConfig(format="%(levelname)s:%(funcName)s:%(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('infile', nargs='?', default=stdin,
                         type=argparse.FileType('r'))
@@ -846,7 +848,14 @@ if __name__ == '__main__':
                         help='comma-sep list of plots. Valid values are: '\
                              'al,gap,pars,entropy,gap_entropy,sp,manh,pearson,'
                              'part_sp. [%(default)s]')
+    parser.add_argument('-v', '--verbose', action='count', default=0)
     
     args = parser.parse_args()
+
+    if args.verbose > 1:
+        logger.setLevel(logging.DEBUG)
+    elif args.verbose > 0:
+        logger.setLevel(logging.INFO)
+    delattr(args, 'verbose')
 
     main(**vars(args))

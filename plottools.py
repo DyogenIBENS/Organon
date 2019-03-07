@@ -153,14 +153,18 @@ def dendrogram():
     ax.spines['right'].set_visible(False)
 
 
-def plottree(tree, get_items, ax=None, *args, invert=True, topology_only=False, label_params=None, **kwargs):
+def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True, topology_only=False, label_params=None, **kwargs):
     """Plot an ete3 tree, from left to right."""
     coord = namedtuple('coord', 'x y')
 
-    try:
-        root = tree.clade  # .root
-    except AttributeError:
-        root = tree  # .get_tree_root (ete3) but you usually want to take the current node.
+    if root is None:
+        try:
+            root = tree.clade  # .root
+        except AttributeError:
+            try:
+                root = tree.root
+            except AttributeError:
+                root = tree  # .get_tree_root (ete3) but you usually want to take the current node.
 
     if topology_only:
         get_items_withdist = get_items
@@ -175,7 +179,10 @@ def plottree(tree, get_items, ax=None, *args, invert=True, topology_only=False, 
     try:
         rootdist = tree.dist  # ete3 instance
     except AttributeError:
-        rootdist = tree.clade.branch_length  # Bio.Phylo
+        try:
+            rootdist = tree.clade.branch_length  # Bio.Phylo
+        except AttributeError:
+            rootdist = getattr(tree, 'rootdist', None)  # myPhylTree
     if rootdist is None: rootdist = 0
 
     child_coords = {}  # x (node depth), y (leaf number)
@@ -192,7 +199,7 @@ def plottree(tree, get_items, ax=None, *args, invert=True, topology_only=False, 
         if not items:
             # Is a leaf.
             child_coords[node] = coord(leafdists[node], leafloc)
-            ticklabels.append(node.name)
+            ticklabels.append(get_label(node))
             if child_coords[node].x < depth:
                 extended_x.extend((depth, child_coords[node].x, None))
                 extended_y.extend((leafloc, leafloc, None))
@@ -225,7 +232,7 @@ def plottree(tree, get_items, ax=None, *args, invert=True, topology_only=False, 
                 #forkstep = forkwidth / (len(node.children) - 1.0)
                 for extra_ch, _ in sorted_items[1:-1]:
                     x.extend((child_coords[extra_ch].x, nodecoord.x, None))
-                    y.extend((child_coords[extra_ch].y,)*2)
+                    y.extend((child_coords[extra_ch].y,)*2 + (None,))
     if rootdist > 0:
         x.extend((0, -rootdist))
         y.extend((nodecoord.y, nodecoord.y))
