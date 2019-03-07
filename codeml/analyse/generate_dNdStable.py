@@ -582,11 +582,14 @@ def get_tocalibrate(key):
     
     Syntax:
         - any whitespace means AND.
-        - '|' means OR. AND takes precedences over OR.
+        - '|' means OR. AND takes precedence over OR.
         - tests may be any of: 'isdup', 'isinternal', 'taxon'.
            The 'taxon' test must be written with taxa as arguments:
                'taxon:mytaxon1,mytaxon2'.
         - tests can be negated by prefixing with '!'.
+
+    Example to date all internal nodes except a calibrated speciation:
+    'isdup | isinternal !taxon:Simiiformes'
     """
     tocalibrate_funcs = {'isdup': isdup, 'd': isdup,
             'isinternal': isinternal, 'isint': isinternal, 'i': isinternal,
