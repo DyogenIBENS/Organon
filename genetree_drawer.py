@@ -854,6 +854,7 @@ class GenetreeDrawer(object):
         self.set_gene_coords(asymmetric=asymmetric)
         self.draw_gene_tree(extratitle, genenames=genenames, tags=tags,
                             fork_style=("square" if asymmetric else "curved"))
+        self.fig.tight_layout()
 
 
 ###
@@ -963,9 +964,12 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
     display = lambda: plt.show() # Display function for shell or notebook usage
     if __name__=='__main__' and outfile == '-':
         try:
-            plt.switch_backend('Qt4Agg')
+            plt.switch_backend('Qt5Agg')
         except ImportError:
-            plt.switch_backend('TkAgg')
+            try:
+                plt.switch_backend('Qt4Agg')
+            except ImportError:
+                plt.switch_backend('TkAgg')
         #mpl.use('Qt4Agg')
         #from importlib import reload; reload(plt)
     elif outfile.endswith('.pdf'):
