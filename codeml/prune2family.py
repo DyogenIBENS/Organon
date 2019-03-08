@@ -798,7 +798,7 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
             return root, realsize
 
     for o_outgroup in orig_outgroups:
-        outgroup.del_feature('is_outgroup')
+        o_outgroup.del_feature('is_outgroup')
 
     return root, realsize
 
@@ -836,7 +836,7 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
                               fix_suffix, force_mrca)
     
     # Output all current features.
-    output_features = set.union(set(('is_outgroup')),
+    output_features = set.union(set(('is_outgroup',)),
                                 *(set(n.features) for n in tree.traverse()))\
                       .difference(('name', 'dist', 'support'))
     print_if_verbose("* Searching for ancestors:")
