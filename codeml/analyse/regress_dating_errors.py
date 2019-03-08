@@ -535,7 +535,7 @@ def normal_fit(var):
     return sorted_var, stats.norm.pdf(sorted_var, sorted_var.mean(), sorted_var.std()) # * np.isfinite(sorted_var).sum()
 
 
-def all_test_transforms(alls, variables):
+def all_test_transforms(alls, variables, figsize=(14, 5)):
     #fig, axes = plt.subplots(len(variables),3, figsize=(22, 5*len(variables)))
     nbins = 50
 
@@ -550,7 +550,7 @@ def all_test_transforms(alls, variables):
                 print("Variable %r does not seem to be numeric. Skipping" % ft)
                 continue
         
-        fig, axes = plt.subplots(1, 3, figsize=(22, 5))
+        fig, axes = plt.subplots(1, 3, figsize=figsize)
         #axes[i, 0].set_ylabel(ft)
         axes[0].set_ylabel(ft)
 
@@ -810,21 +810,74 @@ def plot_loadings(components, cmap="PRGn"):
     ax.set_title("Feature contribution")
 
 
+def car2pol(x,y):
+    """Convert cartesian coordinates to polar (angle in radians)."""
+    a = np.arctan2(x, y)
+    r = np.sqrt(x*x + y*y)
+    return a, r
+
+def car2pol_deg(x,y):
+    """Convert cartesian coordinates to polar (angle in degrees)."""
+    a = np.arctan2(x, y) / (2*np.pi) * 360
+    r = np.sqrt(x*x + y*y)
+    return a, r
+
+
+def annotate_features_radar(ax, components, features, PCs):
+
+    rtxt = ax.get_rmax()
+    seen_coords = np.zeros((components.shape[0], len(PCs)))
+    tooclose = np.pi / 36  # 10 degrees.
+
+    coords = pd.concat(car2pol(components[PCs[0]], components[PCs[1]]),
+                       axis=1, keys=['a', 'r']).sort_values(['a', 'r'])
+
+    # Get the density of the point angles:
+    adensity = stats.gaussian_kde(coords.a, lambda gk: np.pi/18)(coords.a)
+    # Spread angles
+
+    for ft, coord in coords.iterrows():
+        #ft_vect = components.loc[ft][PCs] * 0.1
+        a, r = coord
+        angle = a / (2*np.pi) * 360
+        ha = 'left' if (-90 < angle <= 90) else 'right'
+        va = 'bottom' if (angle>0) else 'top'
+        # Text should not be upside down.
+        rotation = angle if (-90 < angle <= 90) else angle-180
+        ax.annotate(s=ft, xy=(a, r*1.05), xytext=(a, (r*1.05 + rtxt)/2), #xycoords='polar',
+                    arrowprops={'arrowstyle':'->',
+                                'linestyle':'dashed',
+                                'alpha':0.5},
+                    rotation=rotation, verticalalignment=va,
+                    horizontalalignment=ha, alpha=0.8)
+        #plt.text(ft_vect[0], ft_vect[1], ft)
+
+    #ax.set_xlabel(PCs[0])
+    #ax.set_ylabel(PCs[1])
+
+
 def plot_features_PCspace(components, features, PCs=["PC1", "PC2"], ax=None):
     quiver = plt.quiver if ax is None else ax.quiver 
-    quiver(0, 0, components[PCs[0]], components[PCs[1]], units='dots', width=1,
-          scale_units='width')
+    quiver(0, 0, components[PCs[0]], components[PCs[1]],
+           units='dots', width=1, scale_units='width')
+           #units='xy', 
     if ax is None: ax = plt.gca()
-    
-    for ft in features:
-        ft_vect = components.loc[ft][PCs] * 0.1
-        angle = ((np.arctan2(ft_vect[1], ft_vect[0]) / (2*np.pi)) * 360)
-        ax.annotate(s=ft, xy=ft_vect, xytext=1.25*ft_vect, rotation=angle)
-        #plt.text(ft_vect[0], ft_vect[1], ft)
-    
-    ax.set_xlabel(PCs[0])
-    ax.set_ylabel(PCs[1])
+    annotate_features_radar(ax, components, features, PCs)
     return ax
+
+
+def plot_features_radar(components, features, PCs=['PC1', 'PC2'], ax=None):
+    if ax is not None:
+        assert ax.name == 'polar'
+        polar = ax.plot
+    else:
+        polar = plt.polar
+    polar(*car2pol(components[PCs[0]], components[PCs[1]]), '.')
+    if ax is None: ax = plt.gca()
+    annotate_features_radar(ax, components, features, PCs)
+    return ax
+
+
 
 
 def detailed_pca(alls_normed, features):
@@ -867,7 +920,20 @@ def detailed_pca(alls_normed, features):
                               columns=["PC%d" % (i+1) for i in
                                            range(ft_pca.components_.shape[0])])
 
-    styled_components = components.sort_values(["PC1", "PC2"]).style.\
+    # Just so that the features with similar component values are grouped together.
+    # TO give more weight in the clustering to the first PC, multiply the PC
+    # by their eigenvalue.
+    ft_dendro = hclust.dendrogram(
+                            hclust.linkage(components*ft_pca.explained_variance_,
+                                           'average'),
+                            labels=features,
+                            count_sort='descending',
+                            no_plot=True)
+    ordered_ft = ft_dendro['ivl']
+    ft_order = ft_dendro['leaves']
+
+    #.sort_values(["PC1", "PC2"])
+    styled_components = components.loc[ordered_ft].style.\
             apply(centered_background_gradient, cmap="PRGn", extend=0.15).\
             set_caption("Principal Components loadings").\
             set_properties(**{'max-width': '80px', 'font-size': '1pt'}).\
@@ -879,14 +945,15 @@ def detailed_pca(alls_normed, features):
 
     ft_cov = ft_pca.get_covariance()
     print("Covariance dimensions:", ft_cov.shape)
-    plot_cov(ft_cov, features, cmap='seismic')
+    plot_cov(ft_cov[ft_order,:][:,ft_order], ordered_ft, cmap='seismic')
     plt.show()
 
     # Plot feature vectors in the PC space
-    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(18,9))
+    fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(10, 20),
+                                   subplot_kw={'projection': 'polar'})
 
-    plot_features_PCspace(components, features, ax=ax0)
-    plot_features_PCspace(components, features, PCs=["PC1", "PC3"], ax=ax1)
+    plot_features_radar(components, features, ax=ax0)
+    plot_features_radar(components, features, PCs=["PC1", "PC3"], ax=ax1)
     fig.suptitle("Features in Principal Component space"); 
     plt.show()
     return ft_pca
