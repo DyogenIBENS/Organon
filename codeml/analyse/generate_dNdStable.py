@@ -868,16 +868,12 @@ def save_fulltree(fulltree, opened_outfile):
     #print(fulltree.get_ascii())
     fulltree = del_singletons(fulltree)  # Move that outside the script (unix philosophy)
 
+    features = (set.union(*(set(n.features) for n in fulltree.traverse()))
+                - set(('name', 'dist', 'support', 'treename', 'N*dN', 'S*dS')))
+    # features = ['nb', 'cal', 'type', 'branch_dist', 't', 'dS', 'dN',
+    #             'age_dist', 'age_t', 'age_dS', 'age_dN'],
     if fulltree.children:
-        opened_outfile.write(fulltree.write(features=['cal', 'type',
-                                                      'branch_dist',
-                                                      't',
-                                                      'dS',
-                                                      'dN',
-                                                      'age_dist',
-                                                      'age_t',
-                                                      'age_dS',
-                                                      'age_dN'],
+        opened_outfile.write(fulltree.write(features=features,
                                             format=1,
                                             format_root_node=True) + '\n')
 
