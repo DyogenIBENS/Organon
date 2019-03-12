@@ -22,8 +22,13 @@ import os.path as op
 
 from codeml.analyse.dSvisualizor import splitname2taxongenetree
 from seqtools.compo_freq import weighted_std
-from plottools import scatter_density
 from dendron.climber import dfw_pairs_generalized
+from datasci.graphtools import scatter_density, \
+                               plot_cov, \
+                               heatmap_cov, \
+                               plot_loadings, \
+                               plot_features_radar
+from datasci.stattools import normal_fit, cov2cor
 
 mpl.style.use("softer")
 pd.set_option("display.max_columns", 50)
@@ -31,6 +36,7 @@ pd.set_option("display.width", 115)
 pd.set_option("display.max_colwidth", 50)
 pd.set_option("display.show_dimensions", True)  # even on non truncated dataframes
 
+# wide_screen_style
 mpl.rcParams['figure.figsize'] = (14, 10) # width, height
 
 from scipy import stats
@@ -60,6 +66,7 @@ try:
 except ImportError:
     colorlogf = logf
 
+# Notebook setup
 sh = logging.StreamHandler(sys.stdout)
 sh.setFormatter(colorlogf)
 logger = logging.getLogger(__name__)
@@ -69,7 +76,7 @@ logger.addHandler(sh)
 #logging.basicConfig(handlers=[sh])
 
 
-# Convert "time used" into seconds.
+# Convert "time used" into seconds.  # ~~> numbertools? timetools? converters?
 def time2seconds(time_str):
     factors = [1, 60, 3600, 3600*24]
     s = 0
@@ -530,11 +537,6 @@ def violin_spe_ages_vs_criterion(ages, criterion_serie, criterion_name=None,
 
 # Functions to check if variables need transformation
 
-def normal_fit(var):
-    """Return normal density curve with same mean and variance as the given distribution"""
-    sorted_var = var.sort_values()
-    return sorted_var, stats.norm.pdf(sorted_var, sorted_var.mean(), sorted_var.std()) # * np.isfinite(sorted_var).sum()
-
 
 def all_test_transforms(alls, variables, figsize=(14, 5)):
     #fig, axes = plt.subplots(len(variables),3, figsize=(22, 5*len(variables)))
@@ -670,217 +672,7 @@ def make_logpostransform_inc(inc=0):
     return loginc
 
 
-# Functions for the PCA
-
-def plot_cov(ft_cov, features, cmap='seismic', figax=None, cax=None,
-             ylabel="Features", cb_kw=None):
-    cmap = plt.get_cmap(cmap)
-    norm = mpl.colors.Normalize(-1, 1)
-    fig, ax = plt.subplots() if figax is None else figax
-    img = ax.imshow(ft_cov, cmap=cmap, norm=norm, aspect='auto', origin='lower') #plt.pcolormesh
-    ax.set_xticks(np.arange(len(features)))
-    ax.set_yticks(np.arange(len(features)))
-    ax.set_yticklabels(features)
-    ax.set_xticklabels(features, rotation=45, ha='right')
-    if ylabel:
-        ax.set_ylabel(ylabel)
-    ax.set_title("Feature covariance")
-    if cb_kw is None: cb_kw = {}
-    logger.debug('add heatmap colorbar')
-    fig.colorbar(img, ax=None, #(ax if cax is None else None),
-                 cax=cax, aspect=ft_cov.shape[0], **cb_kw)
-    return img
-
-def cov2cor(cov):
-    """Converts covariance matrix into correlation matrix"""
-    var = np.diagonal(cov)[:,np.newaxis]
-    return cov / np.sqrt(var.dot(var.T))
-
-
-def heatmap_cov(ft_cov, features=None, cmap='seismic',
-                dendro_ratio=0.20, dendro_pad=0.1, cb_ratio=0.05, cb_pad=0.025):
-    """plot_cov, but with hierarchical clustering on the side"""
-    # Tested with figsize=(20, 12)
-    if features is None:
-        features = ft_cov.index.tolist()
-        ft_cov = ft_cov.values
-    fig, (ax_ddg, ax, ax_cb) = plt.subplots(1,3,
-                                    subplot_kw={'facecolor': 'none'},
-                                    gridspec_kw={'width_ratios': [
-                                                  dendro_ratio,
-                                                  1,
-                                                  cb_ratio]})
-    #(x0, y0), (w, h) = ax.get_position().get_points()
-    ## absolute padding (in figure coordinate)
-    ## correct ratio by taking pad into account
-    
-    ## position relatively to figure (percentages)
-    #ax.set_position([x0 + (dendro_ratio+dendro_pad)*w, y0,
-    #                 w*(1-dendro_ratio-dendro_pad-cb_ratio-cb_pad), h])
-    ##width2 = width*ratio - float(pad)/w
-    #ax_ddg = fig.add_axes([x0, y0, w*dendro_ratio, h], frameon=False,
-    #                      sharey=ax)
-    ax_ddg.get_shared_y_axes().join(ax)
-    #ax_cb.get_shared_x_axes().join(ax)
-    ax_ddg.set_title("hierarchical clustering (euclidean)")
-    ax_ddg.axis('off')
-    ax_ddg.xaxis.set_visible(False)
-    #ax_cb = fig.add_axes([x0 + w*(1-cb_ratio), y0, w*cb_ratio, h])
-
-    distmat = 1 - np.abs(cov2cor(ft_cov))
-    tol=1e-15
-    #assert (np.diag(distmat) < tol).all()
-    #assert (np.abs(distmat - distmat.T) < tol).all()
-    spdist.is_valid_dm(distmat, tol, throw=True)
-
-    flatdist = spdist.squareform(distmat, force='tovector', checks=False)
-    Z = hclust.linkage(flatdist, method='average', metric='euclidean')
-    ddg = hclust.dendrogram(Z, orientation='left', no_labels=True, #labels=features,
-                            ax=ax_ddg)
-
-    clustered_ft_cov = ft_cov[ddg['leaves'],:][:,ddg['leaves']]
-    #print(ddg['leaves'], ft_cov.shape)
-    #print(clustered_ft_cov)
-    logger.debug(np.array(features)[ddg['leaves']])
-    logger.debug('%d artists: %s', len(ax_cb.get_children()), ax_cb.get_children())
-    img = plot_cov(clustered_ft_cov,
-             np.array(features)[ddg['leaves']], cmap, (fig, ax), ax_cb, '')#,
-             #cb_kw={'fraction': cb_ratio/(1. - dendro_ratio), 'shrink': 0.5})
-    #fig.colorbar(img, ax=None, #(ax if cax is None else None),
-    #             cax=ax_cb, aspect=ft_cov.shape[0])
-    logger.debug('%d artists: %s', len(ax_cb.get_children()), ax_cb.get_children())
-    #ax_cb.xaxis.set_visible(True)
-    ax_cb.set_ylabel('Correlation coefficient')
-    box_cb = ax_cb.get_position()
-    w_cb, h_cb = box_cb.size
-    ax_cb.set_position(box_cb.translated(w_cb/2., h_cb/4.).shrunk(0.5,0.5).shrunk_to_aspect(ft_cov.shape[0]))
-
-    #xmin_ylabel = min(yt.get_window_extent().x0 / fig.dpi for yt in ax.get_yticklabels())
-    #logger.debug('xmin_ylabel: %s VS xmin (ax): %s', xmin_label,
-    #             ax.get_position().x0)
-    ax.set_position(ax.get_position().translated(1.5*w_cb, 0))
-    ax_ddg.set_position(ax_ddg.get_position().translated(-w_cb, 0))
-    #plt.tight_layout(pad=0)
-    #plt.show()
-    #return fig
-
-
-def centered_background_gradient(s, cmap='PRGn', center=0, extend=0):
-    """Color background in a range according to the data, centered around the given value.
-    Adapted from pandas.io.formats.style.Styler.background_gradient()"""
-    smin, smax = s.min(), s.max()
-    assert smin <= center and center <= smax
-    most_distant_absval = max(center - smin, smax - center)
-    rng = 2 * most_distant_absval
-    # extend lower / upper bounds, compresses color range
-    norm = mpl.colors.Normalize(center - most_distant_absval - (rng * extend),
-                                center + most_distant_absval + (rng * extend))
-    # matplotlib modifies inplace?
-    # https://github.com/matplotlib/matplotlib/issues/5427
-    normed = norm(s.values)
-    c = [mpl.colors.rgb2hex(x) for x in plt.cm.get_cmap(cmap)(normed)]
-    return ['background-color: {color}'.format(color=color) for color in c]
-
-
-def magnify():
-    """Increase the size of the table cells."""
-    return [dict(selector="th",
-                 props=[("font-size", "12pt")]),
-            dict(selector="td",
-                 props=[('padding', "0em 0em")]),
-            dict(selector="th:hover",
-                 props=[("font-size", "12pt")]),
-            dict(selector="tr:hover td:hover",
-                 props=[('max-width', '200px'),
-                        ('font-size', '12pt')])
-            ]
-
-
-def plot_loadings(components, cmap="PRGn"):
-    """Not as great as the pandas dataframe styling, because the scale is on
-    the entire image here."""
-    cmap = plt.get_cmap(cmap)
-    norm = mpl.colors.Normalize(components.min().min(), components.max().max())
-    plt.imshow(components, cmap=cmap, norm=norm)
-    ax = plt.gca()
-    ax.set_xticks(np.arange(components.shape[1]))
-    ax.set_yticks(np.arange(components.shape[0]))
-    ax.set_yticklabels(components.index)
-    ax.set_xticklabels(components.columns)
-    plt.colorbar()
-    ax.set_title("Feature contribution")
-
-
-def car2pol(x,y):
-    """Convert cartesian coordinates to polar (angle in radians)."""
-    a = np.arctan2(x, y)
-    r = np.sqrt(x*x + y*y)
-    return a, r
-
-def car2pol_deg(x,y):
-    """Convert cartesian coordinates to polar (angle in degrees)."""
-    a = np.arctan2(x, y) / (2*np.pi) * 360
-    r = np.sqrt(x*x + y*y)
-    return a, r
-
-
-def annotate_features_radar(ax, components, features, PCs):
-
-    rtxt = ax.get_rmax()
-    seen_coords = np.zeros((components.shape[0], len(PCs)))
-    tooclose = np.pi / 36  # 10 degrees.
-
-    coords = pd.concat(car2pol(components[PCs[0]], components[PCs[1]]),
-                       axis=1, keys=['a', 'r']).sort_values(['a', 'r'])
-
-    # Get the density of the point angles:
-    adensity = stats.gaussian_kde(coords.a, lambda gk: np.pi/18)(coords.a)
-    # Spread angles
-
-    for ft, coord in coords.iterrows():
-        #ft_vect = components.loc[ft][PCs] * 0.1
-        a, r = coord
-        angle = a / (2*np.pi) * 360
-        ha = 'left' if (-90 < angle <= 90) else 'right'
-        va = 'bottom' if (angle>0) else 'top'
-        # Text should not be upside down.
-        rotation = angle if (-90 < angle <= 90) else angle-180
-        ax.annotate(s=ft, xy=(a, r*1.05), xytext=(a, (r*1.05 + rtxt)/2), #xycoords='polar',
-                    arrowprops={'arrowstyle':'->',
-                                'linestyle':'dashed',
-                                'alpha':0.5},
-                    rotation=rotation, verticalalignment=va,
-                    horizontalalignment=ha, alpha=0.8)
-        #plt.text(ft_vect[0], ft_vect[1], ft)
-
-    #ax.set_xlabel(PCs[0])
-    #ax.set_ylabel(PCs[1])
-
-
-def plot_features_PCspace(components, features, PCs=["PC1", "PC2"], ax=None):
-    quiver = plt.quiver if ax is None else ax.quiver 
-    quiver(0, 0, components[PCs[0]], components[PCs[1]],
-           units='dots', width=1, scale_units='width')
-           #units='xy', 
-    if ax is None: ax = plt.gca()
-    annotate_features_radar(ax, components, features, PCs)
-    return ax
-
-
-def plot_features_radar(components, features, PCs=['PC1', 'PC2'], ax=None):
-    if ax is not None:
-        assert ax.name == 'polar'
-        polar = ax.plot
-    else:
-        polar = plt.polar
-    polar(*car2pol(components[PCs[0]], components[PCs[1]]), '.')
-    if ax is None: ax = plt.gca()
-    annotate_features_radar(ax, components, features, PCs)
-    return ax
-
-
-
-
+# ~~> datasci.routines ?
 def detailed_pca(alls_normed, features):
 
     ft_pca = PCA(n_components=15)
@@ -962,6 +754,7 @@ def detailed_pca(alls_normed, features):
 
 # Functions for checking colinearity between variables
 
+# ~~> datasci.routine ?
 def check_decorrelate(var, correlated_var, data, logdata=None):
     _, axes = plt.subplots(2, 1 if logdata is None else 2)
     axes = axes.flat
@@ -994,6 +787,7 @@ def check_decorrelate(var, correlated_var, data, logdata=None):
 
 # Functions for linear models
 
+# ~~> datasci.stattools ?
 def lm_summary(lm, features, response, data):
     """Display the summary statistics of the sklearn multiple linear regression."""
     print("R^2       =", lm.score(data[features], data[response]))
