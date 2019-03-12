@@ -7,6 +7,7 @@
 
 import sys
 import warnings
+from copy import copy, deepcopy
 from io import StringIO
 from collections import OrderedDict
 import numpy as np
@@ -973,7 +974,10 @@ def check_decorrelate(var, correlated_var, data, logdata=None):
     scatter_density(correlated_var, var, alpha=0.5, s=9, data=data, ax=ax0)
     
     # Plot the uncorrelated variables
-    scatter_density(data[correlated_var], data[var] / data[correlated_var], s=9, alpha=0.5, ax=ax2)
+    uncor_var = data[var] / data[correlated_var]
+    uncor_null = (data[var] == 0) & (data[correlated_var] == 0)
+    uncor_var[uncor_null] = 0
+    scatter_density(data[correlated_var], uncor_var, s=9, alpha=0.5, ax=ax2)
     
     ax0.set_title("Original scale")
     ax0.set_ylabel("Original %s" % var)
