@@ -23,12 +23,14 @@ import os.path as op
 from codeml.analyse.dSvisualizor import splitname2taxongenetree
 from seqtools.compo_freq import weighted_std
 from dendron.climber import dfw_pairs_generalized
-from datasci.graphtools import scatter_density, \
+from datasci.graphs import scatter_density, \
                                plot_cov, \
                                heatmap_cov, \
                                plot_loadings, \
                                plot_features_radar
-from datasci.stattools import normal_fit, cov2cor
+from datasci.stats import normal_fit, cov2cor
+from datasci.dataframe_recipees import centered_background_gradient, magnify
+
 
 mpl.style.use("softer")
 pd.set_option("display.max_columns", 50)

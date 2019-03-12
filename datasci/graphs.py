@@ -15,7 +15,7 @@ from collections import namedtuple
 import pandas as pd
 import seaborn as sns
 
-from .stattools import car2pol, cov2cor
+from .stats import car2pol, cov2cor
 
 from dendron.climber import rev_dfw_descendants, iter_distleaves
 import matplotlib.patches as patches
