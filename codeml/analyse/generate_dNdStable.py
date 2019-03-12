@@ -689,8 +689,10 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
             #ages[scname] = 0
             ages.append([scname] + branch_measures.tolist() +
                         measures_zeros.tolist() +
-                        [1, "leaf", getattr(node.up, 'name', None), taxon,
-                            fulltree.name, fulltree.treename])
+                        [1, "leaf",
+                         getattr(node, 'is_outgroup', 0),
+                         getattr(node.up, 'name', None),
+                         taxon, fulltree.name, fulltree.treename])
             logger.debug(debug_msg + "Leaf")
         else:
             #try:
@@ -742,8 +744,10 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                 ages.append([scname] + branch_measures.tolist() +
                             [node_age] * n_measures +
                             [1, # calibrated
-                             eventtype, getattr(node.up, 'name', None), taxon,
-                             fulltree.name, fulltree.treename])
+                             eventtype,
+                             getattr(node, 'is_outgroup', 0),
+                             getattr(node.up, 'name', None),
+                             taxon, fulltree.name, fulltree.treename])
 
                 
                 node.add_features(**{'age_'+m: node_age for m in measures})
@@ -809,7 +813,9 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                             ages.append([nextnode.name] + nextnode_measures + \
                                         age.tolist() + \
                                         [0, #dated
-                                         nextnode.type, nextnode.up.name,
+                                         nextnode.type,
+                                         getattr(nextnode, 'is_outgroup', 0),
+                                         nextnode.up.name,
                                          subtree[nextnode.name]['taxon'],
                                          #ch_taxon,
                                          fulltree.name,
@@ -989,7 +995,8 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
         if saveas == 'ages':
             header = ['name'] + ['branch_'+m for m in measures] + \
                      ['age_'+m for m in measures] + \
-                     ['calibrated', 'type', 'parent', 'taxon', 'root', 'subgenetree']
+                     ['calibrated', 'type', 'is_outgroup', 'parent', 'taxon',
+                      'root', 'subgenetree']
             out.write('\t'.join(header) + '\n')
 
         for i, mlcfile in enumerate(mlcfiles, start=1):
