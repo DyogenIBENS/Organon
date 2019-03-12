@@ -469,7 +469,8 @@ class AlignPlotter(object):
                                   ('grid', {'b': False})]}
 
 
-    def __init__(self, alint, seqlabels=None, valid_range=(1,64), tree=None):
+    def __init__(self, alint, seqlabels=None, valid_range=(1,64), tree=None,
+                 topology_only=False):
         """Initialize the Plotter instance from a matrix of integers.
         
         - alint: alignment provided as a numpy 2D array of integers.
@@ -490,6 +491,7 @@ class AlignPlotter(object):
         if tree is not None:
             self.plotlist.insert(0, 'tree')
             self.plotdata['tree'] = (tree,)
+            self.plot_funcs['tree'][0][1].update(topology_only=topology_only)
 
         #cmap_size = valid_range[1] - valid_range[0] # If len(valid_range) > 1
         # Dark2, tab20b, tab20, Set1
@@ -516,7 +518,8 @@ class AlignPlotter(object):
 
     @classmethod
     def fromfile(cls, infile, format=None, nucl=False, allow_N=False,
-                 slice=None, records=None, recordsfile=None, treefile=None):
+                 slice=None, records=None, recordsfile=None, treefile=None,
+                 topology_only=False):
         align = AlignIO.read(infile,
                              format=(format or
                                      filename2format(getattr(infile, 'name',
@@ -569,7 +572,7 @@ class AlignPlotter(object):
 
         # Init and setup the class instance
         valid_range = (1, 4) if nucl else (1, 64)
-        instance = cls(alint, seqlabels, valid_range, tree)
+        instance = cls(alint, seqlabels, valid_range, tree, topology_only)
         instance.fromfile_params = {'infile': infile, 'format': format,
                                     'slice': (slstart, slend),
                                     'records': records}
@@ -791,14 +794,16 @@ def main_old(infile, outfile=None, format=None, nucl=False, allow_N=False,
 
 
 def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
-         records=None, recordsfile=None, treefile=None, slice=None, compare_parts=None,
+         records=None, recordsfile=None, treefile=None, slice=None,
+         topology_only=False, compare_parts=None,
          compare_only=False, figwidth=16, plotlist=None):
     
     if not outfile:
         plt.switch_backend('TkAgg')
 
     align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, slice,
-                                       records, recordsfile, treefile)
+                                       records, recordsfile, treefile,
+                                       topology_only)
     if not compare_only:
         align_plot.measure()
     if compare_parts:
@@ -833,6 +838,8 @@ if __name__ == '__main__':
                         help='select records from a file (one record name per line)')
     rec_g.add_argument('-t', '--treefile',
                         help='select records from a newick tree (reorder the sequences)')
+    parser.add_argument('-T', '--topology-only', action='store_true',
+                        help='Plot unit branch lengths instead of the real ones.')
     parser.add_argument('-s', '--slice',
                         help='select positions (start:end). '\
                              '0-based, end excluded, in number of '\
