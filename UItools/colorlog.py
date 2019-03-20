@@ -8,6 +8,7 @@ Taken from: https://stackoverflow.com/a/384125
 """
 
 
+import sys
 import string
 from collections import namedtuple
 import logging
@@ -30,8 +31,8 @@ COLORS_I = colortuple(*range(8))
 
 LVL_I = {
     'WARNING':  COLORS_I.YELLOW,
-    'INFO':     COLORS_I.WHITE,
-    'DEBUG':    COLORS_I.BLUE,
+    'INFO':     COLORS_I.GREEN,
+    'DEBUG':    COLORS_I.WHITE,
     'CRITICAL': COLORS_I.YELLOW,
     'ERROR':    COLORS_I.RED}
 
@@ -73,6 +74,17 @@ class ColoredFormatter(logging.Formatter):
             record.__dict__.update(bglvlcol=BG_LVLCOLOR[levelname],
                                    lvlcol=LVLCOLOR[levelname])
         return super(ColoredFormatter, self).format(record)
+
+
+def install(*loggers, stream=sys.stderr, format=BASIC_FORMAT, **formatter_kwargs):
+    sh = logging.StreamHandler(stream)
+    sh.setFormatter(ColoredFormatter(format, **formatter_kwargs))
+    if not loggers:
+        logging.basicConfig(handlers=[sh])
+    else:
+        for logger in loggers:
+            logger.addHandler(sh)
+
 
 # Pb: if there were width specifications, they aren't visually respected anymore (because ANSI escape codes consume width internally, but not visibly)...
 # Better: using newstyle string formatting, then:
