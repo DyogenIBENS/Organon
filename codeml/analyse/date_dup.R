@@ -10,7 +10,7 @@ library(parallel)
 
 
 load_calibration <- function(agefile) {
-  ages <- read.delim(agefile, row.names=1)
+  #ages <- read.delim(agefile, row.names=1)
   #calib <- ages[ages$type == "spe", c("age_dist", "type")]
   #names(calib) <- c("name", "age.min", "type")
   #calib$age.max <- calib$age.min
@@ -18,6 +18,17 @@ load_calibration <- function(agefile) {
   # calib$soft.bounds
   # calib$node
   #return(calib)
+
+  # Load without row.names, then drop duplicate row names.
+  ages <- read.delim(agefile, row.names=NULL, header=TRUE)
+  dup_rownames <- duplicated(ages[,'name'])
+  if( any(dup_rownames) ) {
+    cat('WARNING: drop', sum(dup_rownames), 'duplicate row.names from ages:\n',
+        paste(head(ages[dup_rownames,'name'], 20), collapse='\n '), '...\n', file=stderr())
+    ages <- ages[!dup_rownames,]
+  }
+  rownames(ages) <- ages[,'name']
+  ages <- ages[,-1]  # Assuming 'name' is the first column
   return(ages)
 }
 
@@ -449,7 +460,7 @@ run <- function(datasetname, agefile, treefile) {
 }
 
 
-date_all_trees_all_methods <- function(datasetname, agefile, treefile, n=-1, ncores=4) {
+date_all_trees_all_methods <- function(datasetname, agefile, treefile, ncores=6, n=-1) {
   calib <- load_calibration(agefile)
   allnewicks <- scan(treefile, what=character(), n=n, sep="\n")
   outfile_ages <- paste0(datasetname, "_chronos-ages.tsv")
@@ -473,7 +484,7 @@ date_all_trees_all_methods <- function(datasetname, agefile, treefile, n=-1, nco
   out_ages <- do.call(rbind, lapply(out, `[[`, "ages"))  # Do not check row names
   out_runs <- do.call(rbind, lapply(out, `[[`, "run"))
   out_logs <- data.frame(do.call(rbind, lapply(out, `[[`, "log")))
-  colnames(out_logs) <- c("action", "name", "test1", "test2", "test3")
+  colnames(out_logs) <- c("name", "action", "test1", "test2", "test3","test4")
   #out_logs$test1 <- as.logical(out_logs$test1)
   #out_logs$test2 <- as.logical(out_logs$test2)
   #out_logs$test3 <- as.logical(out_logs$test3)
@@ -486,7 +497,7 @@ date_all_trees_all_methods <- function(datasetname, agefile, treefile, n=-1, nco
 
 if(!interactive()) {
   args <- commandArgs(trailingOnly=TRUE)
-  if( length(args) != 4 ) {
+  if( length(args) != 5 ) {
     stop("Wrong number of arguments", usage)
   }
   #datasetname <- "Simiiformes_m1w04_ages.subtreesCleanO2-um2-withSG"
@@ -495,6 +506,7 @@ if(!interactive()) {
   agefile <- args[2]
   treefile <- args[3]
   ncores <- as.integer(args[4])
+  nlines <- ifelse(length(args) >= 5, as.integer(args[5]), -1)
 
-  date_all_trees_all_methods(datasetname, agefile, treefile, ncores=ncores)
+  date_all_trees_all_methods(datasetname, agefile, treefile, ncores, nlines)
 }
