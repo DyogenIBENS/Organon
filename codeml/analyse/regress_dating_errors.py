@@ -87,21 +87,10 @@ def time2seconds(time_str):
     return s
 
 
-def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
-    """
-    param: template to the csv/tsv files containing al/tree/codeml stats.
+def load_stats_al(alfile):
+    return pd.read_table(alfile, index_col=0)
 
-    Example template: 'subtreesRawTreeBestO2_{stattype}stats_Simiiformes.tsv'
-    """
-    
-    # ## Load tree/alignment statistics
-    alfile = template.format(stattype='al')
-    treefile = template.format(stattype='tree')
-    codemlfile = template.format(stattype='codeml')
-
-    logger.info('Load %s', alfile)
-    aS = pd.read_table(alfile, index_col=0)
-    logger.info('Load %s', treefile)
+def load_stats_tree(treefile):
     ts = pd.read_table(treefile, index_col=0,
                        dtype={'leaves_robust':      bool,
                               'single_child_nodes': bool,
@@ -114,13 +103,36 @@ def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
         ts['unlike_clock'] = ts.root2tip_sd / ts.root2tip_mean
     except AttributeError:
         logger.warning('"root2tip_mean" or "root2tip_sd" not in treestats columns.')
+    return ts
 
-    # ## Load codeml output statistics
-    logger.info('Load %s', codemlfile)
+def load_stats_codeml(codemlfile):
     cs = pd.read_table(codemlfile, index_col=0)
     cs['seconds'] = cs['time used'].apply(time2seconds)
+    return cs
 
-    return aS, ts, cs
+stat_loaders = {'al':     load_stats_al,
+                'tree':   load_stats_tree,
+                'codeml': load_stats_codeml}
+
+stat_loaders['codemlI'] = stat_loaders['codeml']
+stat_loaders['treeI'] = stat_loaders['tree']
+
+def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
+    """
+    param: template to the csv/tsv files containing al/tree/codeml stats.
+
+    Example template: 'subtreesRawTreeBestO2_{stattype}stats_Simiiformes.tsv'
+    """
+    
+    # ## Load tree/alignment statistics
+    output_tables = []
+    for stattype in stattypes:
+        filename = template.format(stattype=stattype)
+        logger.info('Load %s', filename)
+        output_tables.append(stat_loaders[stattype](filename))
+
+    return tuple(output_tables)
+
 
 def check_load_subtree_stats(aS, ts, cs):
     logger.info("shapes: aS %s, ts %s, cs %s" % (aS.shape, ts.shape, cs.shape))
@@ -370,19 +382,19 @@ def check_control_dates_lengths(control_brlen, phyltree, root):
 
 
 def compute_dating_errors(ages_controled, control='median'):
-    if control == 'timetree':
-        raise NotImplementedError("control ages/brlen with timetree.")
+    age_var = control + '_taxon_age'  # Control value
+    brlen_var = control + '_brlen'    # Control value
 
     ages_controled["abs_age_error"] = \
-                (ages_controled.age_dS - ages_controled.median_taxon_age).abs()
+                (ages_controled.age_dS - ages_controled[age_var]).abs()
     ages_controled["signed_age_error"] = \
-                (ages_controled.age_dS - ages_controled.median_taxon_age)
+                (ages_controled.age_dS - ages_controled[age_var])
     ages_controled["abs_brlen_error"] = \
                 (ages_controled.age_dS_parent - ages_controled.age_dS - \
-                 ages_controled.median_brlen).abs()
+                 ages_controled[brlen_var]).abs()
     ages_controled["signed_brlen_error"] = \
                 (ages_controled.age_dS_parent - ages_controled.age_dS - \
-                 ages_controled.median_brlen)
+                 ages_controled[brlen_var])
 
     mean_errors = ages_controled[
                      ['subgenetree', 'abs_age_error', 'signed_age_error',
@@ -403,6 +415,7 @@ def compute_branchrate_std(ages_controled, dist_measures):
     #     sum of all branch values / sum of branch lengths
 
     # Sum aggregation + division broadcasted on columns
+    # FIXME: actually wouldn't it be simpler dividing before groupby?
     cs_rates = sgg[dist_measures].sum().div(sgg.median_brlen.sum(), axis=0)
     #cs_rates["omega"] = (sgg.branch_dN / sgg.branch_dS).apply() 
     rate_measures = [(m.replace('branch_', '') + '_rate') for m in dist_measures]
