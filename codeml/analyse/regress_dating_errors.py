@@ -24,10 +24,10 @@ from codeml.analyse.dSvisualizor import splitname2taxongenetree
 from seqtools.compo_freq import weighted_std
 from dendron.climber import dfw_pairs_generalized
 from datasci.graphs import scatter_density, \
-                               plot_cov, \
-                               heatmap_cov, \
-                               plot_loadings, \
-                               plot_features_radar
+                           plot_cov, \
+                           heatmap_cov, \
+                           plot_loadings, \
+                           plot_features_radar
 from datasci.stats import normal_fit, cov2cor
 from datasci.dataframe_recipees import centered_background_gradient, magnify
 
@@ -181,31 +181,35 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
     return ages_c
 
 
-def add_robust_info(ages_p, ts):
+def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
     # Compute Number of duplications/speciation per tree.
-    Ndup = ages_p.groupby('subgenetree').type.agg(lambda v: sum(v == "dup"))
-    Ndup.name = 'Ndup'
-    print(Ndup.describe())
-    Nspe = ages_p.groupby('subgenetree').type.agg(lambda v: sum(v == "spe"))
-    Nspe.name = 'Nspe'
-    print(Nspe.describe())
+    sgg = subgenetree_groups = ages_p.groupby('subgenetree')
+    ts['Ndup'] = sgg.type.agg(lambda v: sum(v == "dup"))
+    print(ts.Ndup.describe())
+    ts['Nspe'] = sgg.type.agg(lambda v: sum(v == "spe"))
+    print(ts.Nspe.describe())
+    agg_funcs = {'consecutive_null_%s' %m: 'sum' for m in measures}
+    agg_funcs.update({'branch_%s' %m: lambda v: (v==0).mean()
+                      for m in measures})
+    ts.join(sgg.agg(agg_funcs)).rename(columns={'branch_%s' %m: 'freq_null_%s' %m
+                                                for m in measures})
     # merge tree stats to select robust trees
     ages_treestats = pd.merge(ages_p.drop('_merge', axis=1),
-                              pd.concat((Ndup, Nspe,
-                                         ts[['really_robust',
-                                             'aberrant_dists',
-                                             'rebuilt_topo']]),
-                                        axis=1,
-                                        join='outer', sort=False),
-                              how='left', left_on='subgenetree', right_index=True,
+                              ts[['Ndup', 'Nspe', 'really_robust',
+                                  'aberrant_dists', 'rebuilt_topo']],
+                              how='left',
+                              left_on='subgenetree',
+                              right_index=True,
                               indicator=True, validate='many_to_one')
     logger.info("Ndup %s; Nspe %s; ages_treestats %s",
-                Ndup.shape, Nspe.shape, ages_treestats.shape)
-    print(ages_treestats.groupby('_merge')['_merge'].count())
-    return ages_treestats, Ndup, Nspe
+                (~ts.Ndup.isna()).sum(), (~ts.Nspe.isna()).sum(),
+                ages_treestats.shape)
+    logger.info('merge types:\n%s',
+                ages_treestats.groupby('_merge')['_merge'].count())
+    return ages_treestats
     
 
-def load_prepare_ages(ages_file, ts):
+def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     ages = pd.read_table(ages_file, sep='\t', index_col=0)
 
     logger.info("Shape ages: %s; has dup: %s" % (ages.shape, ages.index.has_duplicates))
@@ -218,8 +222,10 @@ def load_prepare_ages(ages_file, ts):
 
     # Fetch parent node info
     ages_p = pd.merge(ages,
-                      ages[ages.type != 'leaf'][['taxon', 'type', 'age_t',
-                              'age_dS', 'age_dN', 'age_dist', 'calibrated']],
+                      ages.loc[(~ages.is_outgroup) & (ages.type != 'leaf'),
+                            ['taxon', 'type', 'calibrated']
+                            + ['%s_%s' % (s,m) for s in ('age', 'branch')
+                               for m in measures]],
                       how="left", left_on="parent", right_index=True,
                       suffixes=('', '_parent'), indicator=True,
                       validate='many_to_one')
@@ -238,6 +244,10 @@ def load_prepare_ages(ages_file, ts):
 
     orphan_taxa = ages_orphans.taxon.unique()
     #print("All orphans are expected (leaf, or child of the root).")
+    logger.info('Computed ages of orphan taxa:\n%s\n%s',
+                ages_orphans[['age_%s' %m for m in measures]].head(),
+                ages_orphans[['age_%s' %m for m in measures]].isna().sum()\
+                            .rename('Sum of NaNs').to_frame().T)
     logger.warning('CHECK those orphan taxa (should all be outgroups sequences (could be duplicates from the ingroup taxa): %s.',
                    ', '.join(orphan_taxa))
     
@@ -255,13 +265,17 @@ def load_prepare_ages(ages_file, ts):
 
     ages_spe2spe = ages_p[(ages_p.type.isin(('spe', 'leaf'))) & \
                           (ages_p.type_parent == 'spe')]
-    print("\nShape ages speciation to speciation branches (no dup):", ages_spe2spe.shape)
-    ages_treestats, Ndup, Nspe = add_robust_info(ages_p, ts)
-    ages_robust = ages_treestats[ages_treestats.really_robust & \
-                                 (ages_treestats.aberrant_dists == 0)]\
-                            .drop(['really_robust', 'aberrant_dists'], axis=1)
-    print("\n%d nodes from robust trees" % (ages_robust.shape[0],))
-    return ages_treestats, ages_robust, Ndup, Nspe
+    logger.info("\nShape ages speciation to speciation branches (no dup): %s",
+                ages_spe2spe.shape)
+    for m in measures:
+        ages_p['consecutive_null_%s' %m] = \
+                ~ages_p[['branch_%s_parent' %m, 'branch_%s' %m]].any(axis=1)
+    ages_treestats = add_robust_info(ages_p, ts)
+
+    #ages_robust = ages_treestats[ages_treestats.really_robust & \
+    #                             (ages_treestats.aberrant_dists == 0)]\
+    #                        .drop(['really_robust', 'aberrant_dists'], axis=1)
+    return ages_treestats
 
 
 # for averaging by taking into account branch length: with Omega.
@@ -278,71 +292,80 @@ def tree_dist_2_rate(g, dist_var, norm_var="median_brlen"):
     return g[dist_var].sum() / g[norm_var].sum()
 
 
-
-#def add_control_dates_lengths(ages_robust, phyltree, timetree_ages_CI=None):
-#    pass
-#    return ages_controled, median_taxon_ages, median_brlen
-
-def add_control_dates_lengths(ages, ages_robust, phyltree, timetree_ages_CI=None):
+def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
+                              measures=['dist', 'dS', 'dN', 't'],
+                              control_condition='really_robust & aberrant_dists == 0'):
     # Merge control dates
-    median_taxon_ages = ages[ages.type.isin(("spe", "leaf"))]\
-                               .groupby("taxon").age_dS.median()
-                               #& (ages_robust.taxon != 'Simiiformes')]\
-    median_taxon_ages.name = 'median_taxon_age'
+    ages_forcontrol = ages.query(control_condition)
+    logger.info("%d nodes from robust trees", ages_forcontrol.shape[0])
     
-    timetree_ages = median_taxon_ages.index.to_series().apply(phyltree.ages.get)
-    timetree_ages.name = 'timetree_age'
+    median_taxon_ages = ages_forcontrol[ages_forcontrol.type\
+                                                       .isin(("spe", "leaf"))]\
+                                       .groupby("taxon").age_dS.median()\
+                                       .rename('median_taxon_age')
+
+    timetree_ages = median_taxon_ages.index.to_series()\
+                                     .apply(phyltree.ages.get)\
+                                     .rename('timetree_age')
 
     control_ages = pd.concat((median_taxon_ages, timetree_ages,
                               timetree_ages_CI), axis=1, sort=False)
 
-    print(control_ages.sort_values('timetree_age', ascending=False))
+    #print(control_ages.sort_values('timetree_age', ascending=False))
 
-    ages_controled = pd.merge(ages_robust, control_ages,
-                              left_on="taxon", right_index=True, validate="many_to_one")
-    ages_controled_withnonrobust = pd.merge(ages, control_ages,
-                              left_on="taxon", right_index=True, validate="many_to_one")
+    ages_controled = pd.merge(ages, control_ages,
+                              left_on="taxon", right_index=True,
+                              validate="many_to_one")
 
     # Merge control branch lengths
     invalid_taxon_parent = ages_controled.taxon_parent.isna()
+    invalid_measures  = ages_controled[['age_%s' %m for m in measures]].isna().all(1)
+    invalid_nodes = invalid_taxon_parent & ~invalid_measures
+    # calibrated | branch_dS.isna()
     # Should be nodes whose parent node is the root.
-    if invalid_taxon_parent.any():
+    if invalid_nodes.any():
         #assert (ages_controled[invalid_taxon_parent].parent == \
         #        ages_controled[invalid_taxon_parent].root).all()
-        debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age']
+        debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age', 'branch_dS', 'age_dS']
         logger.warning("%d invalid 'taxon_parent':head:\n%s\n"
                      "The following taxa have no parent taxa information, "
                      "please check:\n%s\n**DROPPING** this data!",
-                       invalid_taxon_parent.sum(),
-                       ages_controled[invalid_taxon_parent][
+                       invalid_nodes.sum(),
+                       ages_controled[invalid_nodes][
                            debug_columns
                            ].head(),
-                       ', '.join(ages_controled[invalid_taxon_parent].taxon.unique()))
+                       ', '.join(ages_controled[invalid_nodes].taxon.unique()))
         ages_controled.dropna(subset=['taxon_parent'], inplace=True)
     
+
     ages_controled['median_brlen'] = \
         ages_controled.taxon_parent.apply(control_ages.median_taxon_age.get) \
         - ages_controled.median_taxon_age
+    #control_ages.reindex(ages_controled.taxon_parent)\
+    #        .set_axis(ages_controled.index, inplace=False)
+    # would be more 'Pandas-like'.
 
     ages_controled['timetree_brlen'] = \
         ages_controled.taxon_parent.apply(control_ages.timetree_age.get) \
         - ages_controled.timetree_age
 
     # Resulting branch lengths
-    control_brlen = ages_controled[
-                        ~ages_controled.duplicated(["taxon_parent", "taxon"])
-                        ][
-                           ["taxon_parent", "taxon", "median_brlen",
-                            "median_taxon_age", "timetree_brlen", "timetree_age"]
-                        ].sort_values("taxon_parent", ascending=False)
-
     branch_info = ["taxon_parent", "taxon"]
-    control_brlen.index = pd.MultiIndex.from_arrays(
-                                            control_brlen[branch_info].values.T,
-                                            names=branch_info)
-    control_brlen.drop(branch_info, axis=1, inplace=True)
+    #control_brlen = ages_controled.loc[
+    #                    ~ages_controled.duplicated(branch_info),
+    control_brlen = ages_controled.groupby(branch_info)[
+                ["median_brlen", "median_taxon_age", "timetree_brlen",
+                 "timetree_age"]].agg(lambda s: s[0])
+                #.sort_values('timetree_age')
+                    #].sort_values("taxon_parent", ascending=False)
+                    #.reset_index(branch_info, drop=True)
+                    #.set_axis(pd.MultiIndex.from_arrays(
+                    #                control_brlen[branch_info].values.T,
+                    #                names=branch_info),
+                    #          inplace=False)\
+                    #.drop(branch_info, axis=1)
     display_html(control_brlen)
-    return ages_controled, ages_controled_withnonrobust, control_ages, control_brlen
+    return ages_controled, control_ages, control_brlen
 
 
 def check_control_dates_lengths(control_brlen, phyltree, root):
