@@ -34,3 +34,18 @@ def car2pol_deg(x,y):
     return a, r
 
 
+def f_test(x, y, data=None):
+    """Do not use. Use Levene's test."""
+    if data is not None:
+        x, y = data[x], data[y]
+    F = np.var(x, ddof=1) / np.var(y, ddof=1)
+    dfx = len(x) - 1
+    dfy = len(y) - 1
+    f_mean = stats.f.mean(dfx, dfy)
+    if F >= f_mean:
+        p_further = stats.f.sf(F, dfx, dfy)
+    else:
+        p_further = stats.f.cdf(F, dfx, dfy)
+
+    return p_further
+
