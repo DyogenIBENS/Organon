@@ -333,7 +333,7 @@ def plot_features_radar(components, features, PCs=['PC1', 'PC2'], ax=None):
 
 
 
-def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True, topology_only=False, label_params=None, **kwargs):
+def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True, topology_only=False, label_params=None, edge_colors=None, **kwargs):
     """Plot an ete3 tree, from left to right."""
     coord = namedtuple('coord', 'x y')
 
@@ -366,8 +366,7 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
     if rootdist is None: rootdist = 0
 
     child_coords = {}  # x (node depth), y (leaf number)
-    x = []
-    y = []
+    xy = []
     ticklabels = []
 
     extended_x = []  # Dashed lines to the right when tree is not ultrametric
@@ -390,8 +389,11 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
                 (ch, chdist), = items
                 child_coords[node] = nodecoord = coord(child_coords[ch].x - chdist,
                                                        child_coords[ch].y)
-                x.extend((child_coords[ch].x, nodecoord.x, None))
-                y.extend((child_coords[ch].y, nodecoord.y, None))
+                xy += [(child_coords[ch].x, nodecoord.x)
+                       (child_coords[ch].y, nodecoord.y)]
+
+                if edge_colors is not None:
+                    xy.append(edge_colors[ch])
             else:
                 sorted_items = sorted(items,
                                       key=lambda item: child_coords[item[0]].y)
@@ -400,32 +402,28 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
                 child_coords[node] = nodecoord = coord(
                         child_coords[ch0].x - ch0dist,
                         (child_coords[ch0].y + child_coords[ch1].y)/2.)
-                x.extend((child_coords[ch0].x,
-                          nodecoord.x,
-                          nodecoord.x,
-                          child_coords[ch1].x, None))
-                y.extend((child_coords[ch0].y,
-                          child_coords[ch0].y,
-                          child_coords[ch1].y,
-                          child_coords[ch1].y, None))
-                #forkwidth = child_coords[ch1] - child_coords[ch0].y
-                #forkstep = forkwidth / (len(node.children) - 1.0)
-                for extra_ch, _ in sorted_items[1:-1]:
-                    x.extend((child_coords[extra_ch].x, nodecoord.x, None))
-                    y.extend((child_coords[extra_ch].y,)*2 + (None,))
+                for ch,_ in sorted_items:
+                    xy += [(child_coords[ch].x, nodecoord.x, nodecoord.x),
+                           (child_coords[ch].y, child_coords[ch].y, nodecoord.y)]
+                    if edge_colors is not None:
+                        xy.append(edge_colors[ch])
     if rootdist > 0:
-        x.extend((0, -rootdist))
-        y.extend((nodecoord.y, nodecoord.y))
+        xy += [(0, -rootdist),
+               (nodecoord.y, nodecoord.y)]
+        if edge_colors is not None:
+            xy.append(edge_color.get(root))
 
     plot = plt.plot if ax is None else ax.plot
 
-    if not kwargs.get('color') and (not args or not args[0][0] in 'bgrcmykw'):
+    if not kwargs.get('color') and not args and edge_colors is None:
+        # or not args[0][0] in 'bgrcmykw'):
         kwargs['color'] = mpl.rcParams['text.color']  # Default color to black.
-    
+
     default_kwargs = {'clip_on': False}
     default_kwargs.update(kwargs)
 
-    lines = plot(x, y, *args, **default_kwargs)
+    #lines = plot(x, y, *args, **default_kwargs)
+    lines = plot(*xy, **default_kwargs)
     if ax is None:
         ax = plt.gca()
     ax.plot(extended_x, extended_y, 'k--', alpha=0.4,
