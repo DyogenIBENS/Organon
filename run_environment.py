@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Module to display various informations about files and local environment"""
+"""Module to display various informations about files and local environment."""
+# Alternative module name: silicotope
 
 
 import sys
+import os
 import os.path as op
 import subprocess
 import inspect
@@ -49,3 +51,14 @@ def get_git_commit(module=None, modulepath=None, withfile=False, timeout=10):
 
 def print_git_commit(*args, sep='\n', **kwargs):
     print(sep.join(get_git_commit(*args, **kwargs)))
+
+
+def redisplay():
+    """Reset the correct DISPLAY environment variable, when using `tmux` over
+    `ssh`."""
+    correct_localhost = subprocess.check_output(['tmux', 'show-env', 'DISPLAY'])\
+                            .decode()\
+                            .replace('DISPLAY=', '')\
+                            .rstrip()
+    print('%s -> %s' % (os.environ['DISPLAY'], correct_localhost))
+    os.environ['DISPLAY'] = correct_localhost
