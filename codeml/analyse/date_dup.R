@@ -40,11 +40,12 @@ subset_calibration <- function(ages, tree, age_col="age_dist", leaf_age=0) {
   subcalib_nodes <- seq_along(subcalib_names) + ntips
   subcalib_agemin <- ages[subcalib_names, age_col] - leaf_age
   
-  # handle NA type nodes (not found in ages: duplication as root)
   calibrated <- ages[subcalib_names, "calibrated"] == 1
-  calibrated[is.na(calibrated)] <- TRUE
+  # handle NA type nodes (not found in ages: duplication as root)
+  # Or it is the outgroup # Better to export the subtrees with generate_dNdStable.py
   max_age <- max(subcalib_agemin, na.rm=TRUE)
   subcalib_agemin[is.na(calibrated)] <- max_age
+  calibrated[is.na(calibrated)] <- TRUE  # Need those nodes before the first calibration for MPL stats.
 
   subcalib <- data.frame(node=subcalib_nodes,
                          age.min=subcalib_agemin,
@@ -53,7 +54,7 @@ subset_calibration <- function(ages, tree, age_col="age_dist", leaf_age=0) {
                          row.names=subcalib_names)[calibrated,]
 }
 
-# the MPL algo works only with purely dichotomic trees. So I need to randomly
+# the MPL algo works only with purely dichotomic trees. So I need to (randomly)
 # convert multifurcations to bifurcations, but then convert them back with the
 # correct length
 restore_multi_custom <- function(tree, max_number) {
@@ -86,29 +87,39 @@ restore_multi_custom <- function(tree, max_number) {
   return(tree)
 }
 
-mark_extra_edges <- function(tree, max_number) {
+
+mark_extra_edges <- function(tree, condition, value=-10^6) {
+  # Old condition: function(nodenb) nodenb>maxnb
   e <- tree$edge
   el <- tree$edge.length
 
-  # In case there are negative values
-  min_el <- min(0, el)
-  
-  removed_edges <- which(e[,2] > max_number)
+  removed_edges <- which(condition(e[,2]))
   
   #print(length(removed_edges))
   for(r in removed_edges) {
     # extend the lengths of edges **starting** with that node.
     descendants_of_removed <- which(e[,1] == e[r,2])
     tree$edge.length[descendants_of_removed] <- el[descendants_of_removed] + el[r]
-    tree$edge.length[r] <- min_el - 1
+    tree$edge.length[r] <- value
   }
   return(tree)
 }
 
 restore_multi <- function(multi_tree, dicho_tree) {
+  ntips <- Ntip(dicho_tree)
+  all_labels <- c(dicho_tree$tip.label, dicho_tree$node.label)
+
+  # In case there are negative values
+  min_el <- min(0, dicho_tree$edge.length)
+  
   dicho_tree_marked <- mark_extra_edges(dicho_tree,
-                                        Ntip(multi_tree) + Nnode(multi_tree))
-  return(di2multi(dicho_tree_marked, tol=min(0, dicho_tree$edge.length)))
+                                        function(nnb){
+                                          (nnb > ntips) &
+                                          !grepl('\\.orig$',
+                                             all_labels[nnb])
+                                        },
+                                        min_el-1)
+  return(di2multi(dicho_tree_marked, tol=min_el-0.5))
 }
 
 # Available dating methods:
@@ -177,11 +188,17 @@ date_C <- function(subtree, subcalib) {
 
 date_MPL <- function(subtree, subcalib) {
   is_multi <- !is.binary(subtree)
-  disubtree <- if(is_multi) {multi2di(subtree)} else {subtree}
+  disubtree <- subtree  # Copy
+  if(is_multi) {
+    # Mark original nodes
+    disubtree$node.label <- paste0(disubtree$node.label, '.orig')
+    disubtree <- multi2di(disubtree)
+  }
   chronogram <- chronoMPL(disubtree, se=TRUE, test=TRUE)
   #neg_branchlen <- chronogram$edge.length < 0
   if( is_multi ) {
     chronogram <- restore_multi(subtree, chronogram)
+    chronogram$node.label <- sub('\\.orig$', '', chronogram$node.label)
     attr(chronogram, "stderr") <- attr(chronogram, "stderr")[1:Nnode(subtree)]
     attr(chronogram, "Pval")   <- attr(chronogram, "Pval")[1:Nnode(subtree)]
   }
