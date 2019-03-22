@@ -328,25 +328,75 @@ extract_MPL_nodeinfo <- function(dtree) {
   return(nodeinfo)
 }
 
-extract_rate_edgeinfo <- function(dtree) {
+extract_rate_edgeinfo <- function(dtree, input_tree) {
   # For outputs of the `chronos` function
   edgeinfo <- attr(dtree, "rates")
-  # Add terminal node name as edge label
-  #if( length(edgeinfo)>1 )
-  names(edgeinfo) <- c(dtree$tip.label, dtree$node.label)[dtree$edge[,2]]
+  #if( data.class(dtree) %in% c("chronos", "phylo") ) {
+  if( is.null(edgeinfo) ) {
+    edgeinfo <- rep(NA, Nedge(input_tree))
+    # Add terminal node name as edge label
+    #if( length(edgeinfo)>1 )
+    names(edgeinfo) <- c(input_tree$tip.label, input_tree$node.label)[input_tree$edge[,2]]
+  } else {
+    names(edgeinfo) <- c(dtree$tip.label, dtree$node.label)[dtree$edge[,2]]
+  }
   return(edgeinfo)
 }
 
 extract_runinfo <- function(dtree) {
   # For outputs of the `chronos` function
-  dattr <- attributes(dtree)
-  return(list(message=dattr$message,
-              ploglik=dattr$ploglik,
-              loglik=dattr$PHIIC$logLik,
-              PHIIC=dattr$PHIIC$PHIIC))
+  if( inherits(dtree, 'error') ) {
+    return(list(message=trimws(paste0(dtree, collapse=':'), 'right'),
+                ploglik=NA, loglik=NA, PHIIC=NA))
+  } else {
+    dattr <- attributes(dtree)
+    return(list(message=dattr$message,
+                ploglik=dattr$ploglik,
+                loglik=dattr$PHIIC$logLik,
+                PHIIC=dattr$PHIIC$PHIIC))
+  }
 }
 
 date_methods <- list(PL1=date_PL1, PL100=date_PL100, PL10000=date_PL10000, NPRS=date_NPRS, C=date_C, R1=date_R1, R100=date_R100, R10000=date_R10000, MPL=date_MPL)
+
+make_error_catcher <- function(date_func) {
+  #date_func_name <- paste0(substitute(date_func), collapse='')
+  date_func_name <- match.call()[2]
+  catch_date_func <- function(tree, calibration, ...) {
+    #withCallingHandlers
+    dtree <- tryCatch(
+                      date_func(tree, calibration, ...),
+                      error=function(e) {
+                              if (grepl("NA/NaN gradient evaluation", e$message,
+                                        fixed=TRUE)) {
+                                #cat("known error", e$message)
+                                warning(paste0('Caught expected:', paste0(e, collapse=':')))
+                                return(e)
+                              } else {
+                                traceback()
+                                e$message <- paste0(e$message, '. In function ',
+                                                    #substitute(date_func),
+                                                    date_func_name,
+                                                    ': ', tree$node.label[1])
+                                cat('Unexpected error:', e, file=stderr())
+                                return(e)
+                              }})
+    #if (data.class(dtree) != "chronos") {
+    #  # return the error
+    #  return(c(as.character(as.vector(dtree)), tree$node.label[1], test1, test2, test3))
+    #}
+  }
+  return(catch_date_func)
+}
+
+branching.times.error <- function(dtree, input_tree) {
+    if (! (data.class(dtree) %in% c("chronos", "phylo")) ) {
+      return(setNames(rep(NA, Nnode(input_tree)), input_tree$node.label))
+    } else {
+      return(branching.times(dtree))
+    }
+}
+
 
 date_all_methods <- function(line, calibration,
                          date_methods=list(
@@ -360,42 +410,54 @@ date_all_methods <- function(line, calibration,
                                            R10000=date_R10000,
                                            MPL=date_MPL),
                          age_col="age_dist") {
-  count_iter <<- count_iter + 1
+  count_iter <<- count_iter + 1  # Not correct with parallel.
   tree <- read.tree(text=line)
   cat("\n", count_iter, tree$node.label[1], "     ")
   leaf_ages <- calibration[tree$tip.label, age_col]
   # In case tips are not in the table, ignore (assume leaf age is zero)
   leaf_ages[is.na(leaf_ages)] <- 0
-  test1 <- all(leaf_ages == leaf_ages[1])
   subcalib <- subset_calibration(calibration, tree, age_col=age_col, leaf_age=leaf_ages[1])
-  test2 <- nrow(subcalib) < tree$Nnode  # There are remaining nodes to date.
-  test3 <- nrow(subcalib) > 0
-  test4 <- all(tree$edge.length > 0)
-  if (test1 && test2 && test3 && test4) {
+  tests <- c(
+             leaves_same_age=all(leaf_ages == leaf_ages[1]),
+             any_uncalibrated=(nrow(subcalib) < tree$Nnode),  # There are remaining nodes to date.
+             any_calibrated=(nrow(subcalib) > 0),
+             not_neg_length=all(tree$edge.length >= 0),  # Might give weird results with 0 lengths.
+             no_consecutive_zeros=FALSE)
+  #check for 2 consecutive 0 lengths.
+  el <- tree$edge.length
+  e <- tree$edge
+  consecutive_el <- cbind(el[match(e[,1], e[,2])], el)
+  tests[5] <- all(rowSums(consecutive_el) > 0, na.rm=TRUE)  # NA for the root distance.
+
+  if ( all(tests[1:4]) ) {
 
     dtrees <- lapply(date_methods, do.call, list(tree, subcalib))
 
-    dated <- sapply(dtrees, branching.times)
+    dated <- sapply(dtrees, branching.times.error, tree)
+    if( is.null(dim(dated)) )
+      stop("Not able to simplify2array the branching.times (different number of nodes)")
     # Standard error of node ages and pvalue
     dating_nodeinfo <- extract_MPL_nodeinfo(dtrees[["MPL"]])
     # Extend dated with the tip data.
-    dating_nodeinfo <- rbind(dating_nodeinfo, matrix(NA, Ntip(tree), ncol(dating_nodeinfo)))
-
-    dated <- rbind(dated, matrix(0, Ntip(tree), ncol(dated)))
-    # Extend dated with the tip data.
+    dating_nodeinfo <- rbind(dating_nodeinfo,
+                             matrix(NA, Ntip(tree), ncol(dating_nodeinfo)))
+    dated <- rbind(dated,
+                   matrix(0, Ntip(tree), ncol(dated)))
     rownames(dated)[(Nnode(tree)+1):(Ntip(tree)+Nnode(tree))] <- tree$tip.label
     
     # Molecular rates
     dating_edgeinfo <- sapply(dtrees[c("PL1", "PL100", "PL10000", "NPRS", "R1",
                                        "R100", "R10000")],
-                              extract_rate_edgeinfo)
+                              extract_rate_edgeinfo, tree)
     dating_edgeinfo <- cbind(dating_edgeinfo, C=attr(dtrees[["C"]], "rates"))
     dating_edgeinfo <- rbind(NA, dating_edgeinfo)
     rownames(dating_edgeinfo)[1] <- tree$node.label[1]
     # Reorder based on the nodes then the tips, as in the other data.frames
+    #print(dating_edgeinfo)
     dating_edgeinfo <- dating_edgeinfo[c(tree$node.label, tree$tip.label), ]
 
-    info <- calibration[c(tree$node.label, tree$tip.label), c("calibrated", "type", "parent", "taxon", "subgenetree")]
+    info <- calibration[c(tree$node.label, tree$tip.label),
+                        c("calibrated", "type", "parent", "taxon", "subgenetree")]
     rownames(info) <- c(tree$node.label, tree$tip.label)
     info[tree$tip.label,"subgenetree"] <- info[tree$node.label[1],"subgenetree"]
     #print(info[tree$node.label[1],"subgenetree"])
@@ -411,12 +473,12 @@ date_all_methods <- function(line, calibration,
     runinfo <- unlist(lapply(dtrees[c("PL1", "PL100", "PL10000", "R1", "R100",
                                       "R10000", "C")],
                              extract_runinfo),
-                      recursive=FALSE)
+                      recursive=FALSE)#, use.names=FALSE)
 
-    loginfo <- c(tree$node.label[1], "calibrate", test1, test2, test3, test4)
+    loginfo <- c(list(name=tree$node.label[1], action="calibrate"), tests)
     return(list(log=loginfo, run=runinfo, ages=dated_info))
   } else {
-    loginfo <- c(tree$node.label[1], "skip", test1, test2, test3, test4)
+    loginfo <- c(list(name=tree$node.label[1]), action="skip", tests)
     return(list(log=loginfo, run=NULL, ages=NULL))
   }
 
@@ -486,35 +548,68 @@ date_all_trees_all_methods <- function(datasetname, agefile, treefile, ncores=6,
   count_iter <<- 0
 
   # Name each tree by its root node name.
-  names(allnewicks) <- strcapture("^.*\\)([A-Za-z.0-9]+):[0-9.-][^(),]+;$",
+  rootname_pattern <- "^.*\\)([A-Za-z.0-9]+):[0-9.-][^(),]+;$"
+  names(allnewicks) <- strcapture(rootname_pattern,
                                   allnewicks,
                                   proto=data.frame(root=character()))$root
 
+  date_methods <- list(PL1=date_PL1,
+                       PL100=date_PL100,
+                       PL10000=date_PL10000,
+                       NPRS=date_NPRS,
+                       C=date_C,
+                       R1=date_R1,
+                       R100=date_R100,
+                       R10000=date_R10000,
+                       MPL=date_MPL)
+  try_date_methods <- lapply(date_methods, make_error_catcher)
+  try_date_all <- function(newickline, ...) {
+    tryCatch(date_all_methods(newickline, ...),
+             error=function(e) {
+               rootname <- strcapture(rootname_pattern,
+                                      newickline,
+                                      proto=data.frame(root=character()))$root
+               e$message <- paste0(e$message, ': ', rootname)
+               #traceback()
+               cat('Error in at least one dating method:', e, file=stderr())
+               stop(e)
+             })
+  }
+
   if( ncores == 1 ) {
-    out <- lapply(allnewicks, date_all_methods, calib)
+    out <- lapply(allnewicks, try_date_all, calib, try_date_methods)
   } else {
     cl <- makeForkCluster(ncores, outfile="")
-    out <- parLapply(cl, allnewicks, date_all_methods, calib)
+    out <- parLapply(cl, allnewicks, try_date_all, calib, try_date_methods)
     stopCluster(cl)
   }
 
-  out_ages <- do.call(rbind, lapply(out, `[[`, "ages"))  # Do not check row names
+  out_logs <- do.call(rbind.data.frame, lapply(out, `[[`, "log"))
   out_runs <- do.call(rbind, lapply(out, `[[`, "run"))
-  out_logs <- data.frame(do.call(rbind, lapply(out, `[[`, "log")))
-  colnames(out_logs) <- c("name", "action", "test1", "test2", "test3","test4")
-  #out_logs$test1 <- as.logical(out_logs$test1)
-  #out_logs$test2 <- as.logical(out_logs$test2)
-  #out_logs$test3 <- as.logical(out_logs$test3)
+  #names(out) <- NULL  # Otherwise, those names will prefix each row name.
+  out_ages <- do.call(rbind, c(lapply(unname(out), `[[`, "ages"), deparse.level=0))  # Do not check row names
+
+  # Just for a shorter representation and lighter files.
+  out_logs[3:ncol(out_logs)] <- apply(out_logs[3:ncol(out_logs)], 2,
+                                      factor,
+                                      levels=c("TRUE", "FALSE"),
+                                      labels=c('T', 'F'))
 
   #return(list(out_ages, out_runs, out_logs))
-  write.table(out_ages, outfile_ages, quote=FALSE, sep="\t", na="")
-  write.table(out_runs, outfile_runs, quote=FALSE, sep="\t", na="")
   write.table(out_logs, outfile_logs, quote=FALSE, sep="\t", na="", row.names=FALSE)
+  write.table(out_runs, outfile_runs, quote=FALSE, sep="\t", na="")
+  write.table(out_ages, outfile_ages, quote=FALSE, sep="\t", na="")
 }
 
 if(!interactive()) {
+  #options(error=function(){warnings();traceback();return(1)})
+
+  args <- c("Simiiformes_m1w04_ages.subtreesGoodQualO2-ci",
+            "Simiiformes_m1w04_ages.subtreesGoodQualO2-um2-ci.tsv",
+            "Simiiformes_m1w04_ages.subtreesGoodQualO2-um2-ci.dSfulltrees.nwk",
+            1, 35)
   args <- commandArgs(trailingOnly=TRUE)
-  if( length(args) != 5 ) {
+  if( !(length(args) %in% 3:5) ) {
     stop("Wrong number of arguments", usage)
   }
   #datasetname <- "Simiiformes_m1w04_ages.subtreesCleanO2-um2-withSG"
@@ -522,8 +617,9 @@ if(!interactive()) {
   datasetname <- args[1]
   agefile <- args[2]
   treefile <- args[3]
-  ncores <- as.integer(args[4])
+  ncores <- ifelse(length(args) >= 4, as.integer(args[4]), 1)
   nlines <- ifelse(length(args) >= 5, as.integer(args[5]), -1)
 
   date_all_trees_all_methods(datasetname, agefile, treefile, ncores, nlines)
+  warnings()
 }
