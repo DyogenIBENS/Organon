@@ -6,11 +6,13 @@
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.collections as mc
 from scipy.stats import gaussian_kde
 import scipy.cluster.hierarchy as hclust
 import scipy.spatial.distance as spdist
 import pandas as pd
 from collections import namedtuple
+from itertools import combinations
 
 import pandas as pd
 import seaborn as sns
@@ -98,19 +100,25 @@ def ordered_boxplot(df, x, y, order=None, **kwds):
 
 
 # TODO:
-def stackedbar(x, arr, ax=None, **kwds):
+def stackedbar(x, arr, ax=None, zero=0, **kwds):
     assert isinstance(arr, np.ndarray)
-    bar = plt.bar if ax is None else ax.bar
+    if kwds.get('orientation', None) == 'horizontal':
+        bar = plt.barh if ax is None else ax.barh
+        base = 'left'
+    else:
+        bar = plt.bar if ax is None else ax.bar
+        base = 'bottom'
+
     stacked_bars = []
-    bottom = None
+    bottom = np.zeros(len(x))
+    bottom -= arr[:zero].sum(axis=0)
     for row in arr:
-        bars = bar(x, row, bottom=bottom, **kwds)
+        kwds.update({base: bottom})
+        bars = bar(x, row, **kwds)
         stacked_bars.append(bars)
         if bottom is not None:
             bottom += row
-        else:
-            bottom = row
-    return bars
+    return stacked_bars
 
 
 def scatter_density(x, y, data=None, cmap='viridis', scale=None, ax=None, **kwargs):
@@ -286,7 +294,7 @@ def annotate_features_radar(ax, components, features, PCs):
                        axis=1, keys=['a', 'r']).sort_values(['a', 'r'])
 
     # Get the density of the point angles:
-    adensity = stats.gaussian_kde(coords.a, lambda gk: np.pi/18)(coords.a)
+    adensity = gaussian_kde(coords.a, lambda gk: np.pi/18)(coords.a)
     # Spread angles
 
     for ft, coord in coords.iterrows():

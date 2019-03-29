@@ -16,7 +16,7 @@ def centered_background_gradient(s, cmap='PRGn', center=0, extend=0):
     # matplotlib modifies inplace?
     # https://github.com/matplotlib/matplotlib/issues/5427
     normed = norm(s.values)
-    c = [mpl.colors.rgb2hex(x) for x in plt.cm.get_cmap(cmap)(normed)]
+    c = [mpl.colors.rgb2hex(x) for x in mpl.cm.get_cmap(cmap)(normed)]
     return ['background-color: {color}'.format(color=color) for color in c]
 
 
@@ -32,5 +32,4 @@ def magnify():
                  props=[('max-width', '200px'),
                         ('font-size', '12pt')])
             ]
-
 
