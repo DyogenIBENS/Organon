@@ -9,6 +9,7 @@
 
 from sys import stdin
 import os.path
+import re
 import argparse
 import logging
 logging.basicConfig(format='%(levelname)s:%(funcName)s:%(message)s')
@@ -288,6 +289,8 @@ def printal(infile, wrap=False, format=None, slice=None, alphabet='codon',
     pad = padlen*' '
     #unit_delim = '.'
     #five_delim = '|'
+    ruler_end_reg = re.compile(r'\d+$')
+    ruler_start_reg = re.compile(r'\d+')
 
     #with open(infile) as al:
     align = AlignIO.read(infile, format=(format or filename2format(infile.name)))
@@ -346,31 +349,27 @@ def printal(infile, wrap=False, format=None, slice=None, alphabet='codon',
             ncols = length + 1 + name_len + padlen
             block_width = length + 1
 
-        nextstartcoord = int(slice.partition(':')[0]) if slice else 0
-
         nblocks = length // block_width + 1
+        prev_block_number = ''
         for block in range(nblocks):
             start, stop = (block*block_width, (block+1)*block_width)
             start += slstart
             stop = min(stop + slstart, slend)
 
             blockruler = ruler[start:stop]
-            #endcol = ncols-1 - (block_width - len(blockruler) + 1)
 
-            # If the end of previous line number was split, add it here
-            if (nextstartcoord % 10) == 0:
-                blockruler = str(nextstartcoord) + blockruler.lstrip('0123456789')
-            nextstartcoord = stop // stepwidth - start1
-            
-            rulediff = len(blockruler) - (stop - start)
-            rulerline = ' '*(name_len + padlen - rulediff) + blockruler
-            if (nextstartcoord % 10) == 0:
+            # If the end of the previous column number was split, add it here
+            rulerline = ' '*(name_len + padlen - len(prev_block_number)) \
+                        + prev_block_number + blockruler
+
+            end_match = ruler_end_reg.search(blockruler)
+            continue_match = ruler_start_reg.match(ruler[stop:])
+            if end_match and continue_match:
+                prev_block_number = end_match.group()
                 rulerline = rulerline.rstrip('0123456789')
+            else:
+                prev_block_number = ''
 
-            if slice and block == nblocks-1 and \
-                    len(rulerline + str(nextstartcoord)) <= ncols:
-                rulerline += str(nextstartcoord)
-                
             print(rulerline)
             #print(blockruler.rjust(endcol))
             
