@@ -339,10 +339,14 @@ def plot_features_radar(components, features, PCs=['PC1', 'PC2'], ax=None):
     return ax
 
 
-
-
-def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True, topology_only=False, label_params=None, edge_colors=None, **kwargs):
-    """Plot an ete3 tree, from left to right."""
+def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
+             topology_only=False, label_params=None, edge_colors=None,
+             add_edge_axes=None, **kwargs):
+    """Plot an ete3 tree, from left to right.
+    
+    param: edge_colors dict-like object with keys being the nodes, and values a color string.
+    param: add_edge_axes can be None, "top", or "middle".
+    """
     coord = namedtuple('coord', 'x y')
 
     if root is None:
@@ -380,6 +384,15 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
     extended_x = []  # Dashed lines to the right when tree is not ultrametric
     extended_y = []
 
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.get_figure()
+
+    axes_to_add = []  # List of args to be given to fig.add_axes:
+                      # rectangle positions in data coordinates:
+                      # [left, bottom, width, height]
+
     for (node,dist), items in rev_dfw_descendants(tree, get_items,
                                                   include_leaves=True,
                                                   queue=[(root, rootdist)]):
@@ -399,6 +412,10 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
                                                        child_coords[ch].y)
                 xy += [(child_coords[ch].x, nodecoord.x)
                        (child_coords[ch].y, nodecoord.y)]
+                #lines for LinesCollection
+                # lines += [(child_coords[ch].x, child_coords[ch].y),
+                #           (nodecoord.x,        nodecoord.y)]
+                # linecolors.append(edge_colors[ch])
 
                 if edge_colors is not None:
                     xy.append(edge_colors[ch])
@@ -410,18 +427,32 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
                 child_coords[node] = nodecoord = coord(
                         child_coords[ch0].x - ch0dist,
                         (child_coords[ch0].y + child_coords[ch1].y)/2.)
-                for ch,_ in sorted_items:
+                for ch,chdist in sorted_items:
                     xy += [(child_coords[ch].x, nodecoord.x, nodecoord.x),
                            (child_coords[ch].y, child_coords[ch].y, nodecoord.y)]
                     if edge_colors is not None:
                         xy.append(edge_colors[ch])
+                    if add_edge_axes:
+                        # Assuming drawing tree left->right and bottom->top
+                        shift = -0.5 if add_edge_axes == 'middle' else 0
+                        axes_to_add.append((ch,
+                                            [nodecoord.x,
+                                             child_coords[ch].y + shift,
+                                             chdist,
+                                             1]))
     if rootdist > 0:
         xy += [(0, -rootdist),
                (nodecoord.y, nodecoord.y)]
         if edge_colors is not None:
             xy.append(edge_color.get(root))
-
-    plot = plt.plot if ax is None else ax.plot
+        if add_edge_axes:
+            # Assuming drawing tree left->right and bottom->top
+            shift = -0.5 if add_edge_axes == 'middle' else 0
+            axes_to_add.append((root,
+                                [-rootdist,
+                                 nodecoord.y + shift,
+                                 0,
+                                 nodecoord.y + 1 + shift]))
 
     if not kwargs.get('color') and not args and edge_colors is None:
         # or not args[0][0] in 'bgrcmykw'):
@@ -431,9 +462,7 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
     default_kwargs.update(kwargs)
 
     #lines = plot(x, y, *args, **default_kwargs)
-    lines = plot(*xy, **default_kwargs)
-    if ax is None:
-        ax = plt.gca()
+    lines = ax.plot(*xy, **default_kwargs)
     ax.plot(extended_x, extended_y, 'k--', alpha=0.4,
             linewidth=kwargs.get('linewidth', mpl.rcParams['lines.linewidth'])/2.)
     ax.set_xlim(min(0, 0-rootdist), depth)
@@ -447,8 +476,29 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
     if invert: ticklabels.reverse()
     ax.set_yticklabels(ticklabels, **label_params)
     ax.get_figure().tight_layout()  # extend interactive view to see labels.
-    return lines
+                                    # But before inserted the subaxes.
 
+    #if edges_colors is not None:
+        # Would be better directly using the cmap and norm.
+        #scalarmappable = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        #sm.set_array([])
+        # Inside the ax would be nicer.
+        #fig.colorbar(sm)
+
+    # Transform coords from data to display, then from display to figure.
+    data2fig = ax.transData + fig.transFigure.inverted()
+
+    subaxes = {}
+    for ch, rect in axes_to_add:
+        xlim = rect[0], rect[0] + rect[2]
+        subax = fig.add_axes(rect, xlim=xlim, position=data2fig.transform(rect),
+                             frame_on=False, autoscale_on=False
+                             ) #clip_on=False, visible=False
+        subax.set_clip_on(False)
+        subax.axis('off')
+        subaxes[ch] = subax
+
+    return lines, child_coords, subaxes
 
 
 # Or joypy.joyplot
