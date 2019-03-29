@@ -35,7 +35,7 @@ def main(infile, subtreesfile=None, check_ultrametricity=-1,
     if check_ultrametricity < 0:
         is_ultrametric = lambda tree, thresh: True
     else:
-        from dendron.climber import iter_distleaves
+        from dendro.bates import iter_distleaves
         get_data = lambda tree,dat: [(ch, ch.dist) for ch in dat[0].children]
         def is_ultrametric(tree, thresh=0.01):
             leaf_dists = [d for _,d in iter_distleaves(tree, get_data)]

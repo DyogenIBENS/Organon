@@ -22,7 +22,7 @@ import os.path as op
 
 from codeml.analyse.dSvisualizor import splitname2taxongenetree
 from seqtools.compo_freq import weighted_std
-from dendron.climber import dfw_pairs_generalized, dfw_pairs
+from dendro.bates import dfw_pairs_generalized, dfw_pairs
 from datasci.graphs import scatter_density, \
                            plot_cov, \
                            heatmap_cov, \
@@ -33,7 +33,7 @@ from datasci.stats import normal_fit, cov2cor
 from datasci.dataframe_recipees import centered_background_gradient, magnify
 from datasci.compare import pairwise_intersections, align_sorted
 
-from dendron.any import myPhylTree as phyltree_methods, ete3 as ete3_methods
+from dendro.any import myPhylTree as phyltree_methods, ete3 as ete3_methods
 import ete3
 
 from scipy import stats

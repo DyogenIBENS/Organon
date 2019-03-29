@@ -6,9 +6,9 @@ import re
 from collections import namedtuple
 from itertools import zip_longest
 
-from dendron.climber import dfw_descendants_generalized, \
+from dendro.bates import dfw_descendants_generalized, \
                             dfw_pairs_generalized
-from dendron.sorter import ladderize
+from dendro.sorter import ladderize
 import logging
 #logging.basicConfig(format="%(levelname)s:%(module)s:l.%(lineno)d:%(funcName)s:%(message)s")
 logger = logging.getLogger(__name__)

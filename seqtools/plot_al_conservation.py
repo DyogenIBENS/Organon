@@ -27,7 +27,7 @@ except ImportError:
 from functools import reduce
 
 from datasci.graphs import stackedbar, plottree
-from dendron.climber import rev_dfw_descendants
+from dendro.bates import rev_dfw_descendants
 
 import logging
 logger = logging.getLogger(__name__)

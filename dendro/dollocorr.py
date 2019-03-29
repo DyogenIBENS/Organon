@@ -12,7 +12,7 @@ not be lost."""
 
 import itertools as it
 import numpy as np
-from dendron.climber import rev_dfw_descendants
+from dendro.bates import rev_dfw_descendants
 import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig()

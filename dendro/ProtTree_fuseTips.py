@@ -18,7 +18,7 @@ from sys import stdout, setrecursionlimit
 import os.path as op
 import argparse as ap
 from LibsDyogen import myProteinTree
-from dendron.climber import dfw_descendants_generalized, iter_distleaves, iter_leaves
+from dendro.bates import dfw_descendants_generalized, iter_distleaves, iter_leaves
 from genomicustools.identify import convert_gene2species
 
 import logging

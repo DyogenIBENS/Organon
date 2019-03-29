@@ -19,7 +19,7 @@ import seaborn as sns
 
 from .stats import car2pol, cov2cor
 
-from dendron.climber import rev_dfw_descendants, iter_distleaves
+from dendro.bates import rev_dfw_descendants, iter_distleaves
 import matplotlib.patches as patches
 from matplotlib.path import Path
 MOVETO, CURVE3, LINETO = Path.MOVETO, Path.CURVE3, Path.LINETO

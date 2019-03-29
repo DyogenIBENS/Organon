@@ -150,7 +150,7 @@ def div_gamma(tree):
     return g
 
 
-#from dendron.climber import dfw_pairs
+#from dendro.bates import dfw_pairs
 logging.basicConfig()
 logger.setLevel(logging.DEBUG)
 

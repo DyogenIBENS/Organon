@@ -13,7 +13,7 @@ The parent clade therefore becomes a polytomy.
 from sys import stdin
 import argparse as ap
 import ete3
-from dendron.climber import iter_distleaves
+from dendro.bates import iter_distleaves
 import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig()

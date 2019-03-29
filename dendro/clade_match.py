@@ -10,13 +10,13 @@
 
 import sys
 import argparse
-#from dendron.climber import dfw_descendants_generalized
+#from dendro.bates import dfw_descendants_generalized
 from itertools import zip_longest, product
 import logging
 logger = logging.getLogger(__name__)
 
-import dendron.parsers as treeparsers
-import dendron.converters as treeconverters
+import dendro.parsers as treeparsers
+import dendro.converters as treeconverters
 
 import signal, traceback
 

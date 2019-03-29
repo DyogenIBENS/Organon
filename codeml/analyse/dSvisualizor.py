@@ -59,8 +59,8 @@ import numpy as np
 import pandas as pd
 import LibsDyogen.myPhylTree as PhylTree
 
-from dendron.climber import dfw_descendants_generalized
-from dendron.sorter import ladderize
+from dendro.bates import dfw_descendants_generalized
+from dendro.sorter import ladderize
 
 import logging
 logger = logging.getLogger(__name__)

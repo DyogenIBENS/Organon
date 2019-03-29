@@ -38,9 +38,9 @@ import ete3
 import LibsDyogen.myPhylTree as PhylTree
 #import LibsDyogen.myProteinTree as ProteinTree
 
-from dendron.climber import dfw_descendants_generalized
-from dendron.sorter import ladderize
-from dendron.reconciled import get_taxon, get_taxon_treebest, infer_gene_event
+from dendro.bates import dfw_descendants_generalized
+from dendro.sorter import ladderize
+from dendro.reconciled import get_taxon, get_taxon_treebest, infer_gene_event
 
 import logging
 logging.basicConfig(format='%(levelname)s:%(name)s:l.%(lineno)d:%(funcName)s:%(message)s')#, level=logging.DEBUG)

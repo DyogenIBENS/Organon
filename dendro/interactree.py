@@ -61,8 +61,8 @@ def main(newickfiles, subnewick_format=1, rootnode=None, ladderize=False,
                     raise
                 yield tree, make_treename(newick)
     else:
-        from dendron.parsers import parserchoice
-        from dendron.converters import converterchoice
+        from dendro.parsers import parserchoice
+        from dendro.converters import converterchoice
         treeparser = parserchoice[parser]
         treeconverter = converterchoice[parser]['ete3']
         def parse_trees(treefiles):

@@ -8,7 +8,7 @@ import argparse as ap
 from collections import defaultdict
 
 from LibsDyogen import myProteinTree
-from dendron.climber import iter_leaves, \
+from dendro.bates import iter_leaves, \
                             iter_distleaves, \
                             dfw_descendants_generalized, \
                             rev_dfw_descendants

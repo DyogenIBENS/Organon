@@ -207,7 +207,7 @@ def infer_gene_event_taxa(node, taxon, children_taxa,
 
 
 from collections import defaultdict
-from dendron.climber import dfw_pairs_generalized, iter_leaves
+from dendro.bates import dfw_pairs_generalized, iter_leaves
 
 def prottree_extract_genecounts(proteintrees, ancestor, phyltree,
                                 speciesset=set(('Homo sapiens',)),

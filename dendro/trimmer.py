@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""Cut tree branches in various ways"""
+# Anc. gr. name: tom
 
-import dendron.climber as dclimb
+
+import dendro.bates as dclimb
 
 def reset_data(tree, node, data):
     node.children = []
