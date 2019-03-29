@@ -149,12 +149,105 @@ def div_gamma(tree):
     g = gamma_num / gamma_denom
     return g
 
-    
+
+#from dendron.climber import dfw_pairs
+logging.basicConfig()
+logger.setLevel(logging.DEBUG)
+
+def speciation_numbers_on_selected_lineages(fulltree, reftree, ref2full=None):
+    reftree = reftree.copy()
+
+    if ref2full is None:
+        ref2full = lambda x: x.replace(' ', '_')
+
+    for node in reftree.get_descendants('postorder'):
+        nodename = ref2full(node.name)
+        if node.is_leaf():
+            if not 'age' in node.features:
+                node.add_feature('age', 0)
+
+            matched = fulltree.get_leaves_by_name(nodename)
+            if len(matched) == 0:
+                logger.warning('Leaf %r not found (detach)', nodename)
+                node.detach()
+                break
+            elif len(matched) > 1:
+                logger.warning('Multiple matches for %r (take first)', nodename)
+            matched = matched[0]
+            age = node.age
+        else:
+            matched = node.matched
+            age = matched.age
+
+        logger.debug('* Ref node %s (match: %s)', nodename,matched.name)
+        
+        parent = node.up
+        pname = ref2full(parent.name)
+        logger.debug('  parent:  %s', pname)
+
+        branch_speciations = 0
+        branch_sistersizes = []
+        branching_times = []
+
+        while matched.up and matched.up.name != pname:
+
+            sisters = matched.get_sisters()
+            logger.debug(' - speciation: %s -> %s', matched.up.name,
+                         [s.name for s in sisters])
+
+            branch_speciations += len(sisters)
+            branch_sistersizes.extend(len(sis) for sis in sisters)
+            branching_times.extend([age - matched.dist]*len(sisters))
+
+            age -= matched.dist
+            matched = matched.up
+
+        node.add_features(speciations=branch_speciations,
+                          sistersizes=branch_sistersizes,
+                          branching_times=branching_times)
+        
+        if not matched and not node.up.is_root():
+            logger.warning('Reached the root in fulltree before reftree (%s)',
+                           node.name)
+            break
+        
+        age -= matched.dist
+        matched = matched.up
+        logger.debug('  parent match: %s', matched.name)
+
+        matched.add_feature('age', age)
+        parent.add_features(matched=matched,
+                           age=(node.age - node.dist))
+
+    return reftree
 
 
+# Example execution
+import os.path as op
+from LibsDyogen import myPhylTree
 
+def example_speciation_numbers(
+        phyltreefile="~/ws2/DUPLI_data93/PhylTree.TimeTree201901.Ensembl93-like.goodQual.nwk",
+        fulltreefile="~/ws2/databases/timetree/Opisthokonta_species.taxa.nwk",
+        root='Primates'):
 
+    phyltree = myPhylTree.PhylogeneticTree(op.expanduser(phyltreefile))
+    ptree = phyltree.to_ete3()
+    rtree = ptree&root
 
+    fulltree = ete3.Tree(fulltreefile, format=1)
 
+    fixmatches = {'Papionini': '58293', #'58249',
+                  'HomoPan': '58326'}#,
 
+    ref2full = lambda x: fixmatches.get(x, '_'.join(x.split()[:2]))
+
+    nrtree = speciation_numbers_on_selected_lineages(fulltree, rtree, ref2full)
+
+    def mylayout(node):
+        sistersizes = getattr(node, 'sistersizes', ())
+        ete3.add_face_to_node(
+                ete3.TextFace(' '.join(str(s) for s in reversed(sistersizes))),
+                node, 0, position='branch-top')
+        #spe_number_face
 
