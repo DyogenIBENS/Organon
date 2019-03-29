@@ -23,11 +23,13 @@ CMD_ARGS = {
                     (('-l', '--lineage'),),
                     (('-p', '--phyltreefile'),   {'default': PHYLTREEFILE}),
                     (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION}),
+                    (('-b', '--nbins'),          {'type':int, 'default': DEFAULT_NBINS}),
                     (('-x', '--xlim'),)],
         'tree':    [(('-a', '--age-key'), {'default': DEFAULT_AGE_KEY}),
                     (('-V', '--vertical'),       {'action':'store_true'}),
                     (('-p', '--phyltreefile'),   {'default': PHYLTREEFILE}),
                     (('-e', '--ensembl-version'),{'default': ENSEMBL_VERSION}),
+                    (('-b', '--nbins'),          {'type':int, 'default': DEFAULT_NBINS}),
                     (('-x', '--xlim'),),
                     (('-y', '--ylim'),),
                     (('-t', '--title'),),
@@ -62,10 +64,6 @@ from dendron.sorter import ladderize
 
 import logging
 logger = logging.getLogger(__name__)
-ch = logging.StreamHandler()
-ch.setFormatter(logging.Formatter("%(levelname)s:l.%(lineno)d%:(funcName)s:%(message)s"))
-logger.addHandler(ch)
-
 
 # Change all black to dark grey
 grey10 = '#1a1a1a'
@@ -606,10 +604,13 @@ class DataVisualizor(object):
                 self.data_bins[lab] = bins
                 x, y = get_hist_coords(lab)
                 #logger.debug('Plotting label %r at (%s, %s)' % (lab, x, y))
-                ax.text(x, y, lab, rotation=text_rotation, va='bottom', ha='left', 
-                        fontsize='x-small')
+                if x <= 0.1:
+                    ax.text(x, y, lab, va='center', ha='right')#, fontsize='x-small')
+                else:
+                    ax.text(x, y, lab, rotation=text_rotation, va='bottom', ha='left')#, 
+                            #fontsize='x-small')
             #set_title(ax, "plot %s" % ax_pos)
-            ax.legend(prop={'size': 'xx-small', 'family': 'monospace'})
+            ax.legend(prop={'size': 'small', 'family': 'monospace'})
             #ax.axis('off')
             for spine in invisible_spines:
                 ax.spines[spine].set_visible(False)
@@ -764,6 +765,11 @@ CMD_FUNC = {'lineage': DataVisualizor.lineage_hist,
 
 
 if __name__=='__main__':
+
+    #ch = logging.StreamHandler()
+    #ch.setFormatter(logging.Formatter("%(levelname)s:l.%(lineno)d:%(funcName)s:%(message)s"))
+    #logger.addHandler(ch)
+    logging.basicConfig(format="%(levelname)s:l.%(lineno)d:%(funcName)s:%(message)s")
 
     #class RawDescArgDefFormatter(argparse.RawDescriptionHelpFormatter,
     #                             argparse.ArgumentDefaultsHelpFormatter):
