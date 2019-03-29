@@ -22,24 +22,19 @@ import os.path as op
 
 from codeml.analyse.dSvisualizor import splitname2taxongenetree
 from seqtools.compo_freq import weighted_std
-from dendron.climber import dfw_pairs_generalized
+from dendron.climber import dfw_pairs_generalized, dfw_pairs
 from datasci.graphs import scatter_density, \
                            plot_cov, \
                            heatmap_cov, \
                            plot_loadings, \
-                           plot_features_radar
+                           plot_features_radar, \
+                           plottree
 from datasci.stats import normal_fit, cov2cor
 from datasci.dataframe_recipees import centered_background_gradient, magnify
+from datasci.compare import pairwise_intersections, align_sorted
 
-
-mpl.style.use("softer")
-pd.set_option("display.max_columns", 50)
-pd.set_option("display.width", 115)
-pd.set_option("display.max_colwidth", 50)
-pd.set_option("display.show_dimensions", True)  # even on non truncated dataframes
-
-# wide_screen_style
-mpl.rcParams['figure.figsize'] = (14, 10) # width, height
+from dendron.any import myPhylTree as phyltree_methods, ete3 as ete3_methods
+import ete3
 
 from scipy import stats
 import scipy.cluster.hierarchy as hclust
@@ -49,13 +44,15 @@ import scipy.spatial.distance as spdist
 from LibsDyogen import myPhylTree
 
 from sklearn.decomposition import PCA
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, Lasso
 from sklearn.preprocessing import StandardScaler
 import statsmodels.api as sm
 #import statsmodels.formula.api as smf
+import statsmodels.stats.api as sms
 
 from IPython.display import display_html
 import logging
+
 
 logfmt = "%(levelname)-7s:l.%(lineno)3s:%(funcName)-20s:%(message)s"
 logf = logging.Formatter(logfmt)
@@ -76,6 +73,15 @@ logger.setLevel(logging.INFO)
 logger.handlers = []
 logger.addHandler(sh)
 #logging.basicConfig(handlers=[sh])
+
+mpl.style.use("softer")
+pd.set_option("display.max_columns", 50)
+pd.set_option("display.width", 115)
+pd.set_option("display.max_colwidth", 50)
+pd.set_option("display.show_dimensions", True)  # even on non truncated dataframes
+
+# wide_screen_style
+mpl.rcParams['figure.figsize'] = (14, 10) # width, height
 
 
 # Convert "time used" into seconds.  # ~~> numbertools? timetools? converters?
@@ -116,6 +122,7 @@ stat_loaders = {'al':     load_stats_al,
 
 stat_loaders['codemlI'] = stat_loaders['codeml']
 stat_loaders['treeI'] = stat_loaders['tree']
+
 
 def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
     """
@@ -210,6 +217,8 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
     
 
 def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
+    """Load ages dataframe, join with parent information, and compute the
+    'robust' info"""
     ages = pd.read_table(ages_file, sep='\t', index_col=0)
 
     logger.info("Shape ages: %s; has dup: %s" % (ages.shape, ages.index.has_duplicates))
@@ -221,14 +230,17 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     n_nodes_int = (ages.type != 'leaf').sum()
 
     # Fetch parent node info
-    ages_p = pd.merge(ages,
-                      ages.loc[(~ages.is_outgroup) & (ages.type != 'leaf'),
-                            ['taxon', 'type', 'calibrated']
+    ages_p = pd.merge(ages.reset_index(),
+                      ages.loc[ages.type != 'leaf',
+                            ['taxon', 'type', 'calibrated', 'is_outgroup',
+                             'subgenetree']
                             + ['%s_%s' % (s,m) for s in ('age', 'branch')
                                for m in measures]],
-                      how="left", left_on="parent", right_index=True,
+                      how="left", left_on=["parent", "subgenetree"],
+                      right_on=["name", "subgenetree"],
                       suffixes=('', '_parent'), indicator=True,
-                      validate='many_to_one')
+                      validate='many_to_one')\
+                .set_index('name')
     logger.info("Shape ages with parent info: %s" % (ages_p.shape,))
     n_nodes_p = ages_p.shape[0]
 
@@ -242,11 +254,17 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     logger.info("\nOrphans: %d\n" % (orphans.sum()))
     #display_html(ages_orphans.head())
 
-    orphan_taxa = ages_orphans.taxon.unique()
+    #expected_orphans = ages.is_outgroup_parent.isna()
+    recognized_outgroups = (ages_orphans.is_outgroup == 1)
+                            #| ages_orphans.is_outgroup_parent == 1)
+    orphan_taxa = ages_orphans[~recognized_outgroups].taxon.unique()
+
     #print("All orphans are expected (leaf, or child of the root).")
     logger.info('Computed ages of orphan taxa:\n%s\n%s',
-                ages_orphans[['age_%s' %m for m in measures]].head(),
-                ages_orphans[['age_%s' %m for m in measures]].isna().sum()\
+                ages_orphans.loc[~recognized_outgroups,
+                                 ['age_%s' %m for m in measures]].head(),
+                ages_orphans.loc[~recognized_outgroups,
+                                 ['age_%s' %m for m in measures]].isna().sum()\
                             .rename('Sum of NaNs').to_frame().T)
     logger.warning('CHECK those orphan taxa (should all be outgroups sequences (could be duplicates from the ingroup taxa): %s.',
                    ', '.join(orphan_taxa))
@@ -263,8 +281,25 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     #        (len(nochild) - n_nochild,
     #         ages.loc[nochild - e_nochild])
 
-    ages_spe2spe = ages_p[(ages_p.type.isin(('spe', 'leaf'))) & \
-                          (ages_p.type_parent == 'spe')]
+    # Drop outgroups! (they create duplicated index values and might confuse stuff
+    # However don't drop the ingroup root
+    # (doesn't have an is_outgroup_parent info)
+
+    child_of_root = ages_p.root == ages_p.parent
+    #recognized_outgroups = (ages_p.is_outgroup == 1 | ages_orphans.is_outgroup_parent == 1)
+    to_remove = (~child_of_root & orphans
+                 | (ages_p.is_outgroup == 1)
+                 | ages_p.is_outgroup_parent == 1)
+    # If some nodes to remove appear to be valid ingroup nodes, it's because their
+    # ancestors could not be dated (absence of the node required for calibration,
+    # e.g Simiiformes)
+    ages_p = ages_p.loc[~to_remove].copy(deep=False)
+    if ages_p.index.has_duplicates:
+        debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age', 'branch_dS', 'age_dS']
+        logger.error("Failed to remove index duplicates in 'ages_p':\n%s\n...",
+                     ages_p.loc[ages_p.index.duplicated(), debug_columns].head(10))
+    ages_spe2spe = ages_p[(ages_p.type.isin(('spe', 'leaf')))
+                          & (ages_p.type_parent == 'spe')]
     logger.info("\nShape ages speciation to speciation branches (no dup): %s",
                 ages_spe2spe.shape)
     for m in measures:
@@ -281,7 +316,12 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
 # for averaging by taking into account branch length: with Omega.
 # NOTE: columns will be reordered following `var`.
 def group_average(g, var, weight_var="median_brlen"):
+    g = g[~g[weight_var].isna()]
+    if not g.shape[0]:
+        return pd.Series([np.NaN]*len(var))
+    values = np.ma.array(g[var], mask=g[var].isna())
     return pd.Series(np.average(g[var], axis=0, weights=g[weight_var]))
+    # TODO: append the count of removed rows (NA in weight_var)
 
 def group_weighted_std(g, var, weight_var="median_brlen"):
     return pd.Series(weighted_std(g[var], axis=0, weights=g[weight_var]))
@@ -323,10 +363,10 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
     invalid_nodes = invalid_taxon_parent & ~invalid_measures
     # calibrated | branch_dS.isna()
     # Should be nodes whose parent node is the root.
+    debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age', 'branch_dS', 'age_dS']
     if invalid_nodes.any():
         #assert (ages_controled[invalid_taxon_parent].parent == \
         #        ages_controled[invalid_taxon_parent].root).all()
-        debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age', 'branch_dS', 'age_dS']
         logger.warning("%d invalid 'taxon_parent':head:\n%s\n"
                      "The following taxa have no parent taxa information, "
                      "please check:\n%s\n**DROPPING** this data!",
@@ -338,24 +378,34 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
         ages_controled.dropna(subset=['taxon_parent'], inplace=True)
     
 
+    # Do not include length from/to duplication.
+    ages_controled_spe2spe = ages_controled.dropna(subset=['taxon_parent']).query('type != "dup" & type_parent != "dup"')
+    same_sp = ages_controled_spe2spe.taxon == ages_controled_spe2spe.taxon_parent
+    if same_sp.any():
+        logger.error("Failed to filter out duplications:\n%s",
+                     ages_controled_spe2spe[same_sp].head(15))
+
+    #TODO: NaN for data not in ages_forcontrol?
     ages_controled['median_brlen'] = \
-        ages_controled.taxon_parent.apply(control_ages.median_taxon_age.get) \
-        - ages_controled.median_taxon_age
+        ages_controled_spe2spe.taxon_parent.apply(control_ages.median_taxon_age.get) \
+        - ages_controled_spe2spe.median_taxon_age
     #control_ages.reindex(ages_controled.taxon_parent)\
     #        .set_axis(ages_controled.index, inplace=False)
     # would be more 'Pandas-like'.
 
     ages_controled['timetree_brlen'] = \
-        ages_controled.taxon_parent.apply(control_ages.timetree_age.get) \
-        - ages_controled.timetree_age
+        ages_controled_spe2spe.taxon_parent.apply(control_ages.timetree_age.get) \
+        - ages_controled_spe2spe.timetree_age
 
     # Resulting branch lengths
     branch_info = ["taxon_parent", "taxon"]
     #control_brlen = ages_controled.loc[
     #                    ~ages_controled.duplicated(branch_info),
-    control_brlen = ages_controled.groupby(branch_info)[
-                ["median_brlen", "median_taxon_age", "timetree_brlen",
-                 "timetree_age"]].agg(lambda s: s[0])
+    control_brlen = ages_controled.query('type != "dup" & type_parent != "dup"')\
+                    .groupby(branch_info)\
+                    [["median_brlen", "median_taxon_age", "timetree_brlen",
+                      "timetree_age"]]\
+                    .first()#agg(lambda s: s[0])
                 #.sort_values('timetree_age')
                     #].sort_values("taxon_parent", ascending=False)
                     #.reset_index(branch_info, drop=True)
@@ -364,6 +414,7 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
                     #                names=branch_info),
                     #          inplace=False)\
                     #.drop(branch_info, axis=1)
+    ###FIXME: Still some branches that are not in PhylTree (jump over taxa)
     display_html(control_brlen)
     return ages_controled, control_ages, control_brlen
 
@@ -402,6 +453,7 @@ def check_control_dates_lengths(control_brlen, phyltree, root):
           median_treelen_phyltree)
     print("Sum of timetree branch lengths for branches found in phyltree =",
           timetree_treelen_phyltree)
+    return unexpected_branches, lost_branches
 
 
 def compute_dating_errors(ages_controled, control='median'):
@@ -426,10 +478,45 @@ def compute_dating_errors(ages_controled, control='median'):
     return mean_errors
 
 
-def compute_branchrate_std(ages_controled, dist_measures):
+
+def display_evolutionary_rates():
+    Glires_ts = load_stats_tree('subtreesGoodQualO2_treestats-Glires.tsv')
+
+    measures = ['dist', 'dS', 'dN', 't']
+    dist_measures = ['branch_%s' % m for m in measures]
+    rate_measures = ['%s_rate' % m for m in measures]
+
+    agesGlires_treestats = load_prepare_ages('../ages/Glires_m1w04_ages.subtreesGoodQualO2-um2-ci.tsv', Glires_ts)
+
+    agesGlires_controled, control_agesGlires, control_brlenGlires =\
+        add_control_dates_lengths(agesGlires_treestats, phyltree)
+    agesGlires_controled_robust = agesGlires_controled.query('really_robust & aberrant_dists == 0') 
+
+    agesGlires_controled_robust['branchtaxa'] = agesGlires_controled_robust.taxon_parent + '--' + agesGlires_controled_robust.taxon
+
+    agesGlires_controled_robust[rate_measures] = agesGlires_controled_robust[dist_measures]\
+                                          .div(agesGlires_controled_robust.timetree_brlen, axis=0)
+
+    agesGlires_controled_robust.groupby(['taxon_parent', 'taxon'])[rate_measures].agg(['median', 'mean', 'std'])\
+        .style.background_gradient(cmap='PRGn', subset=[(r, stat) for r in rate_measures for stat in ('median', 'mean')])
+
+    ordered_Glires_branches = ['%s--%s' % br for br in dfw_pairs(phyltree, queue=[(None, 'Glires')], closest_first=True)]
+
+    ordered_Glires_branches_bylen = ['%s--%s' % v for v in control_brlenGlires.sort_values('timetree_brlen').index.values]
+
+    sb.violinplot('branchtaxa', 'dS_rate', data=agesGlires_controled_robust, width=1, order=ordered_Glires_branches_bylen)
+    ax = plt.gca()
+    ax.set_ylim(-0.005, 0.03);
+    ax.set_xticklabels([xt.get_text() for xt in ax.get_xticklabels()], rotation=45, va='top', ha='right');
+
+
+def compute_branchrate_std(ages_controled, dist_measures,
+                           branchtime='median_brlen', taxon_age=None):
     
-    groupby_cols = ["subgenetree", "median_brlen", "median_taxon_age",
-                    "taxon_parent", "taxon"] + dist_measures
+    groupby_cols = ["subgenetree", "taxon_parent", "taxon",
+                    branchtime] + dist_measures
+    if taxon_age is not None:
+        groupby_cols.append(taxon_age)  ## "median_taxon_age"
     #ages_controled["omega"] = ages_controled.branch_dN / ages_controled.branch_dS
 
     sgg = subgenetree_groups = ages_controled[groupby_cols].groupby('subgenetree')
@@ -439,14 +526,14 @@ def compute_branchrate_std(ages_controled, dist_measures):
 
     # Sum aggregation + division broadcasted on columns
     # FIXME: actually wouldn't it be simpler dividing before groupby?
-    cs_rates = sgg[dist_measures].sum().div(sgg.median_brlen.sum(), axis=0)
+    cs_rates = sgg[dist_measures].sum().div(sgg[branchtime].sum(), axis=0)
     #cs_rates["omega"] = (sgg.branch_dN / sgg.branch_dS).apply() 
     rate_measures = [(m.replace('branch_', '') + '_rate') for m in dist_measures]
     cs_rates.columns = rate_measures
 
     # ### Weighted standard deviation of substitution rates among branches
 
-    tmp = pd.merge(ages_controled[["subgenetree", "median_brlen"] + dist_measures],
+    tmp = pd.merge(ages_controled[["subgenetree", branchtime] + dist_measures],
                    cs_rates, left_on="subgenetree", right_index=True)
 
     #rate_dev = pd.DataFrame({
@@ -459,20 +546,20 @@ def compute_branchrate_std(ages_controled, dist_measures):
     #            "median_brlen": tmp.median_brlen})
 
     # subtract branch rate with mean rate, then square.
-    rate_dev_dict = {d: (tmp[d] / tmp.median_brlen - tmp[r])**2
+    rate_dev_dict = {d: (tmp[d] / tmp[branchtime] - tmp[r])**2
                      for d,r in zip(dist_measures, rate_measures)}
-    rate_dev_dict.update(subgenetree=tmp.subgenetree,
-                         median_brlen=tmp.median_brlen)
-    rate_dev = pd.DataFrame(rate_dev_dict)
+    
+    rate_dev = pd.DataFrame(rate_dev_dict)\
+                    .join(tmp[['subgenetree', branchtime]])
 
     cs_wstds = rate_dev.groupby("subgenetree").apply(
                 (lambda x, var, weight_var:
                                     sqrt(group_average(x, var, weight_var))),
-                dist_measures, "median_brlen")
+                dist_measures, branchtime)
                 
-    cs_wstds.columns = [(r + '_std') for r in cs_rates.columns]
+    cs_wstds.columns = [(r + '_std') for r in cs_rates.columns]  # Or multiindex
 
-    return cs_rates, cs_wstds
+    return pd.concat((cs_rates, cs_wstds), axis=1)
 
 
 def subset_on_criterion_tails(criterion_serie, ages=None, ages_file=None,
@@ -546,7 +633,7 @@ def annot_quantiles_on_criterion(ages, criterion_serie, criterion_name=None,
 
 
 def _violin_spe_ages_vs_criterion_quantiles(annot_df, criterion_name, isin=None,
-                                           split=True, order=None):
+                                           split=True, order=None, **kwargs):
     Q_col = "Q_" + criterion_name
     if isin is None:
         # Look at extreme quantiles only
@@ -557,20 +644,21 @@ def _violin_spe_ages_vs_criterion_quantiles(annot_df, criterion_name, isin=None,
                        data=annot_df[(annot_df.type == "spe")
                                      & annot_df[Q_col].isin(isin)],
                        split=split,
-                       order=order)
+                       order=order,
+                       **kwargs)
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
     return ax
 
 
 def violin_spe_ages_vs_criterion(ages, criterion_serie, criterion_name=None,
-                                 nquantiles=10, split=False, order=None):
+                                 nquantiles=10, split=False, order=None, **kwargs):
     criterion_name = criterion_name or criterion_serie.name
     annot_ages = annot_quantiles_on_criterion(ages, criterion_serie,
                                               criterion_name, nquantiles)
     isin = None if split else list(range(nquantiles))
-    ax = _violin_spe_ages_vs_criterion_quantiles(
+    return _violin_spe_ages_vs_criterion_quantiles(
                                 annot_ages[annot_ages.taxon != 'Simiiformes'],
-                                criterion_name, isin, split, order)
+                                criterion_name, isin, split, order, **kwargs)
 
 
 # Functions to check if variables need transformation
@@ -580,10 +668,12 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
     #fig, axes = plt.subplots(len(variables),3, figsize=(22, 5*len(variables)))
     nbins = 50
 
+    suggested_transform = {}
     for i, ft in enumerate(variables):
         
         var = alls[ft]
         
+        transform_skews = {}
         # Plot original variable distribution 
         if var.dtype != float:
             print("Variable %r not continuous: %s" % (ft, var.dtype))
@@ -601,16 +691,21 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
         _, xmax0 = axes[0].get_xlim()
         _, ymax0 = axes[0].get_ylim()
         
+        varskew = var.skew()
         text = "Skew: %g\nKurtosis: %g\n" % (var.skew(), var.kurt())
+        transform_skews[notransform] = varskew
+
         if (var < 0).any():
             if (var > 0).any():
                 print("Variable %r has negative and positive values. Shifting to positive." % ft)
                 text += "Negative and positive values. Shifting to positive.\n"
                 var -= var.min()
+                #best_transform = make_logpostransform_inc()
             else:
                 print("Variable %r converted to positive values" % ft)
                 text += "Converted to positive values.\n"
                 var = -var
+                #best_transform = logneg
         
         # Plot log-transformed distribution
         with warnings.catch_warnings(record=True) as w:
@@ -626,6 +721,7 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
         
         logskew, logkurt = logtransformed_var.skew(), logtransformed_var.kurt()
         logtext = "Skew: %g\nKurtosis: %g\n" % (logskew, logkurt)
+        #transform_skews[logtransform] = logskew
 
         axes[1].hist(logtransformed_var, bins=nbins, density=True, alpha=0.5)
         axes[1].plot(*normal_fit(logtransformed_var), '-', alpha=0.5)
@@ -636,7 +732,7 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
                         % (ft, n_infinite_vals, suggested_increment))
             text += "%d not finite values. Suggested increment: 10^(%g)"\
                         % (n_infinite_vals, suggested_increment)
-            
+
             logtransformed_inc_var = np.log10(var + 10**suggested_increment) #1.) 
             twin_ax1 = axes[1].twinx()
             twin_ax1.hist(logtransformed_inc_var, bins=nbins, density=True,
@@ -652,9 +748,12 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
             logtext_inc = ("Skew     (+inc): %g\nKurtosis (+inc): %g\n"
                            % (logtransformed_inc_var.skew(),
                               logtransformed_inc_var.kurt()))
+            #transform_skews[logtransform_inc(10**suggested_increment)] = logtransformed_inc_var.skew()
+            
             logtext_inc1 = ("Skew     (+1): %g\nKurtosis (+1): %g\n"
                             % (logtransformed_inc1_var.skew(),
                                logtransformed_inc1_var.kurt()))
+            #transform_skews[logtransform_inc(1)] = logtransformed_inc1_var.skew()
 
         xmin1, xmax1 = axes[1].get_xlim()
         _, ymax1 = axes[1].get_ylim()
@@ -664,6 +763,8 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
         sqrttransformed_var = np.sqrt(var)
         sqrttext = "Skew: %g\nKurtosis: %g\n" % (sqrttransformed_var.skew(),
                                                  sqrttransformed_var.kurt())
+        transform_skews[sqrt] = sqrttransformed_var.skew()
+
         axes[2].hist(sqrttransformed_var, bins=nbins, density=True)
         axes[2].plot(*normal_fit(sqrttransformed_var), '-')
         axes[2].set_title("Square root transformed")
@@ -684,6 +785,10 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
 
         #fig.show(warn=False)
         plt.show()
+        suggested_transform[ft] = sorted(transform_skews.items(),
+                                         key=lambda x: abs(x[1]))[0][0]
+
+    return suggested_transform
 
 
 # Variable transformation
@@ -838,7 +943,7 @@ def lm_summary(lm, features, response, data):
         print("%-17s: %10.6f" % (ft, coef))
 
 
-def sm_ols_summary(olsfit):
+def sm_ols_summary(olsfit, renames=None):
     r_coefs = pd.read_csv(StringIO(olsfit.summary().tables[1].as_csv()),
                           sep='\s*,\s*', index_col=0, engine='python')
 
@@ -847,13 +952,133 @@ def sm_ols_summary(olsfit):
     r_coefs.sort_values("abs_coef", ascending=False, inplace=True)
     r_coefs.drop("abs_coef", axis=1, inplace=True)
     #r_coefs_styled = r_coefs.style.apply(centered_background_gradient, axis=0, subset="coef")
-    param_names = [n for n in olsfit.model.exog_names
+    renames = {} if renames is None else renames
+
+    param_names = [renames.get(n, n) for n in olsfit.model.exog_names
                    if n not in ('Intercept', 'const')]
-    r_coefs_styled = r_coefs.style.bar(
+    r_coefs_styled = r_coefs.rename(renames).style.bar(
                         subset=pd.IndexSlice[param_names, "coef"],
                         axis=0,
                         align="zero")
     return r_coefs_styled
+
+
+
+from siphon import dependency_func, dependency, auto_internalmethod
+from functools import wraps
+
+class analysis(object):
+    """Analysis pipeline and environment"""
+    
+    @property
+    def measures(self):
+        return self._measures
+    
+    @property
+    def dist_measures(self):
+        return self._dist_measures
+
+    @property
+    def age_measures(self):
+        return self._age_measures
+
+    @property
+    def rate_measures(self):
+        return self._rate_measures
+
+    @measures.setter
+    def set_measures(self, value):
+        self._measures = value
+        self._dist_measures = ['branch_%s' %m for m in self._measures]
+        self._rate_measures = ['rate_%s' %m for m in self._measures]
+        self._age_measures =  ['age_%s' %m for m in self._measures]
+
+
+    def __init__(self, age_file, stats_template,
+                 stattypes=('al', 'tree', 'codeml'),
+                 measures = ['dist', 'dS', 'dN', 't'],
+                 control_condition='really_robust && aberrant_dists == 0',
+                 phyltreefile=None,
+                 timetree_ages_CI=None,
+                 common_info=None,
+                 al_params=None,
+                 tree_params=None,
+                 cl_params_restricted=None):
+        # Add a settings attribute that stores the keys
+        self.settings = set()
+        for k,v in locals():
+            if k != 'self':
+                setattr(self, k, v)
+                self.settings.add(k)
+
+    @dependency
+    def phyltree(self):
+        return myPhylTree.PhylogeneticTree(phyltreefile)
+    
+    @dependency
+    def ts(self):
+        return load_stats_tree(stats_template.format(stattype=stattypes[1]))
+
+    @dependency
+    def aS(self):
+        return load_stats_al(stats_template.format(stattype=stattypes[0]))
+
+    @dependency
+    def cs(self):
+        return load_stats_codeml(stats_template.format(stattype=stattypes[2]))
+
+    @dependency
+    def ages_treestats(self):
+        return load_prepare_ages(self.ages_file, self.ts)
+
+    @auto_internalmethod
+    @wraps(add_control_dates_lengths)
+    def get_control_dates_length(self, *args, **kwargs): 
+        return add_control_dates_lengths(*args, **kwargs)
+
+    @dependency_func
+    def getcheck_control_dates_lengths(self, root):
+        a_ctrled, ctrl_ages, ctrl_brlen = self.get_control_dates_length()
+        check_control_dates_lengths(ctrl_brlen, self.phyltree, root)
+        return a_ctrled, ctrl_ages, ctrl_brlen
+
+    @property
+    def ages_controled(self):
+        return self.get_control_dates_length[0]
+
+    @property
+    def control_ages(self):
+        return self.get_control_dates_length[1]
+    
+    @property
+    def control_brlen(self):
+        return self.get_control_dates_length[2]
+
+    @dependency_func
+    def mean_errors(self, control='median'):
+        return compute_dating_error(self.ages_controled, control=control)
+
+    @dependency_func
+    def mean_speciation_errors(self, control='median'):
+        pass
+
+    def compare_error_with(other_analysis):
+        pass
+
+    compute_branchrate_std = dependency(auto_internalmethod(compute_branchrate_std))
+
+    @dependency
+    def csrates(self):
+        return self.compute_branchrate_std
+
+    @dependency
+    def alls(self):
+        return pd.concat((self.mean_errors,
+                          self.aS[self.common_info + self.al_params],
+                          self.ts[self.tree_params],
+                          self.cs[self.cl_params_restricted],
+                          self.cs_rates),
+                         axis=1, join='inner')
 
 
 if __name__ == '__main__':
@@ -1065,7 +1290,7 @@ if __name__ == '__main__':
 
 
     # #### Checks
-    #check_control_brlen(ages_controled, phyltree)
+    #check_control_dates_lengths(ages_controled, phyltree, root)
 
     # Check out unexpected species branches for robust trees
     ages_best[(ages_best.taxon_parent == "Hominoidea") & (ages_best.taxon == "Homininae")\
