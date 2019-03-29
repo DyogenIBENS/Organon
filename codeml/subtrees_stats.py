@@ -75,13 +75,14 @@ def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
 
 
 def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
-                 subtreesdir='subtreesCleanO2', ensembl_version=ENSEMBL_VERSION):
+                 subtreesdir='subtreesCleanO2', ensembl_version=ENSEMBL_VERSION,
+                 ignore_error=True):
     """Gather characteristics of the **input alignments**, and output them as
     a tsv file."""
 
-    phyltree = PhylTree.PhylogeneticTree(phyltreefile)
-    ensembl_ids_anc = get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version)
-    pattern = '^(' + '|'.join(ensembl_ids_anc) + ')'
+    #phyltree = PhylTree.PhylogeneticTree(phyltreefile)
+    #ensembl_ids_anc = get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version)
+    #pattern = '^(' + '|'.join(ensembl_ids_anc) + ')'
     
     stats_header = ['subtree', 'genetree']
     stats_names  = [typ + '_' + measure
@@ -97,19 +98,36 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                              '_genes.fa',
                                                              rootdir,
                                                              subtreesdir):
-        al = AlignIO.read(alfile, format='fasta')
-        al = ungap(al)
-        _, al_stats = make_al_stats(al)
-        
-        # TODO: take an '--ignore-outgroups' option.
-        ingroup_al = ungap(algrep(al, pattern))
-        _, ingroup_al_stats = make_al_stats(ingroup_al)
-        
-        stats_row = ['%g' % s for stat in (al_stats + ingroup_al_stats) for s in stat]
-
-        print('\t'.join([subtree, genetree] + stats_row))
+        try:
+            al = AlignIO.read(alfile, format='fasta')
+            al = ungap(al)
+            _, al_stats = make_al_stats(al)
             
-        #treefiles_pattern = alfiles_pattern.replace('_genes.fa', '.nwk')
+            subtreefile = alfile.replace('_genes.fa', '.nwk')
+            tree = ete3.Tree(subtreefile, format=1)
+            ingroupmarked = find_ingroup_marked(tree)
+            pattern = r'^(' + '|'.join(re.escape(s)
+                                       for s in ingroupmarked.get_leaf_names()) + ')$'
+
+            # TODO: take an '--ignore-outgroups' option.
+            ingroup_al = ungap(algrep(al, pattern))
+            outgroupsize = len(al) - len(ingroup_al)
+            if outgroupsize != 2:
+                logger.error("Removed outgroup of size %d ≠ 2 in %s",
+                             outgroupsize, subtree)
+            _, ingroup_al_stats = make_al_stats(ingroup_al)
+            
+            stats_row = ['%g' % s for stat in (al_stats + ingroup_al_stats) for s in stat]
+
+            print('\t'.join([subtree, genetree] + stats_row))
+                
+            #treefiles_pattern = alfiles_pattern.replace('_genes.fa', '.nwk')
+        except BaseException as err:
+            if ignore_error:
+                logger.exception('At file %s', alfile)
+            else:
+                err.args = (str(err.args[0]) + '. At file %s' % alfile,) + err.args[1:]
+                raise
 
         
 def simple_robustness_test(tree, expected_species, ensembl_version=ENSEMBL_VERSION):
@@ -280,7 +298,11 @@ def find_ingroup_marked(tree):
     """Find the ingroup as the furthest node with sisters having the `is_outgroup` tag."""
     ingroup = tree
     while any(getattr(child, 'is_outgroup', 0) for child in ingroup.children):
-        ingroup, = [child for child in ingroup.children if not getattr(child, 'is_outgroup', 0)]
+        try:
+            ingroup, = [child for child in ingroup.children
+                        if not getattr(child, 'is_outgroup', 0)]
+        except ValueError:
+            break
     return ingroup
 
 
@@ -291,7 +313,7 @@ def get_childdist_ete3(tree, nodedist):
 def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                    subtreesdir='subtreesCleanO2',
                    ensembl_version=ENSEMBL_VERSION,
-                   ignore_outgroups=False, extended=False):
+                   ignore_outgroups=False, extended=False, ignore_error=True):
     """Determine the robustness of the tree, and its clock-likeliness.
 
     To find the robust trees from the given ancestor only, (excluding the
@@ -312,86 +334,107 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                               rootdir,
                                                               subtreesdir,
                                                               exclude='_codeml\.nwk$'):
-        tree = ete3.Tree(subtreefile, format=1)
-        root_taxon, _ = split_species_gene(tree.name, ancgene2sp)
-        
-        # Determine if root_taxon is inside (I) or outside (O) of the clade.
-        root_location = 'O' if root_taxon is None \
-                        else 'I' if root_taxon != ancestor \
-                        else '='
-
-        # What about paralog outgroups?? Should NOT happen if prune2family WITHOUT `--latest`.
-        if root_location == 'O':
-            if ignore_outgroups:
-                # Double-check:
-                ingroup, outgroups = find_ingroup(tree, ancestor, phyltree, ensembl_version, 2)
-                # Triple-check:
-                # Use the `is_outgroup` mark
-                ingroupmarked = find_ingroup_marked(tree)
-                # Go to the ingroup root.
-                for node in tree.traverse('levelorder'):
-                    if split_species_gene(node.name, ancgene2sp)[0] is not None:
-                        #logger.debug('split_species_gene: %s'
-                        #        % ( split_species_gene(node.name, ancgene2sp),)
-                        tree = node
-                        break
-                # Double-check:
-                if ingroup != tree:
-                    logger.error('%s: Found 2 ≠ ingroups with 2 methods: '
-                                 'ancgene2sp -> %r ≠ find_ingroup: %r',
-                                 subtree, tree.name, ingroup.name)
-                # Triple-check:
-                if ingroupmarked != tree:
-                    logger.error('%s: Found 2 ≠ ingroups with 2 methods: '
-                                 'ancgene2sp -> %r ≠ find_ingroup_mark: %r',
-                                 subtree, tree.name, ingroupmarked.name)
-                
-            else:
-                root_taxon, _ = split_species_gene(tree.name, all_ancgene2sp)
-
-        #logger.debug('Considered genetree root: %s; root taxon: %s; original: %s'
-        #      tree.name, root_taxon or ancestor, ancestor)
-        expected_species = phyltree.species[root_taxon or ancestor]
         try:
-            leaves_robust, single_child_nodes = simple_robustness_test(tree,
-                                                            expected_species,
-                                                            ensembl_version)
-        except KeyError as err:  # Error while converting genename to species
-            err.args += (subtreefile,)
-            raise
+            tree = ete3.Tree(subtreefile, format=1)
+            root_taxon, _ = split_species_gene(tree.name, ancgene2sp)
+            
+            # Determine if root_taxon is inside (I) or outside (O) of the clade.
+            root_location = 'O' if root_taxon is None \
+                            else 'I' if root_taxon != ancestor \
+                            else '='
 
-        root_to_tips = np.array([leafdist for _, leafdist in
-                                 iter_distleaves(tree,
-                                                 get_childdist_ete3,
-                                                 tree.get_tree_root())])
+            # What about paralog outgroups?? Should NOT happen if prune2family WITHOUT `--latest`.
+            if root_location == 'O':
+                if ignore_outgroups:
+                    # Double-check:
+                    ingroup, outgroups = find_ingroup(tree, ancestor, phyltree, ensembl_version, 2)
+                    # Triple-check:
+                    # Use the `is_outgroup` mark
+                    ingroupmarked = find_ingroup_marked(tree)
+                    # Go to the ingroup root.
+                    for node in tree.traverse('levelorder'):
+                        if split_species_gene(node.name, ancgene2sp)[0] is not None:
+                            #logger.debug('split_species_gene: %s'
+                            #        % ( split_species_gene(node.name, ancgene2sp),)
+                            tree = node
+                            break
+                    # Double-check:
+                    if ingroup != tree:
+                        # Check tree is a single child descendant of ingroup.
+                        while len(ingroup.children)==1:
+                            ingroup, = ingroup.children
+                            if ingroup == tree:
+                                break
+                        else:
+                            logger.error('%s: Found 2 ≠ ingroups with 2 methods: '
+                                         'ancgene2sp -> %r ≠ find_ingroup: %r',
+                                         subtree, tree.name, ingroup.name)
+                    # Triple-check:
+                    if ingroupmarked != tree:
+                        while len(ingroup.children)==1:
+                            ingroupmarked, = ingroupmarked.children
+                            if ingroupmarked == tree:
+                                break
+                        else:
+                            logger.error('%s: Found 2 ≠ ingroups with 2 methods: '
+                                         'ancgene2sp -> %r ≠ find_ingroup_mark: %r',
+                                         subtree, tree.name, ingroupmarked.name)
+                    
+                else:
+                    root_taxon, _ = split_species_gene(tree.name, all_ancgene2sp)
 
-        output = (int(leaves_robust), int(single_child_nodes),
-                  mean(root_to_tips), std(root_to_tips))
+            #logger.debug('Considered genetree root: %s; root taxon: %s; original: %s'
+            #      tree.name, root_taxon or ancestor, ancestor)
+            expected_species = phyltree.species[root_taxon or ancestor]
+            try:
+                leaves_robust, single_child_nodes = simple_robustness_test(tree,
+                                                                expected_species,
+                                                                ensembl_version)
+            except KeyError as err:  # Error while converting genename to species
+                err.args += (subtreefile,)
+                raise
 
-        if extended:
-            sure_events, only_treebest_events, aberrant_dists, rebuilt_topo = \
-                    per_node_events(tree,
-                                    phyltree,
-                                    10000,
-                                    any_get_taxon,
-                                    ancgene2sp=all_ancgene2sp,
-                                    ensembl_version=ensembl_version)
-            nodes_robust = not any((sure_events['dup'],
-                                    sure_events['speloss'],
-                                    sure_events['duploss'],
-                                    only_treebest_events['dup'],
-                                    only_treebest_events['speloss'],
-                                    only_treebest_events['duploss']))
-            output += (int(nodes_robust), only_treebest_events['spe'], aberrant_dists, rebuilt_topo)
+            root_to_tips = np.array([leafdist for _, leafdist in
+                                     iter_distleaves(tree,
+                                                     get_childdist_ete3,
+                                                     tree.get_tree_root())])
 
-        print('\t'.join((subtree, genetree, root_location) +
-                         tuple(str(x) for x in output)))
+            output = (int(leaves_robust), int(single_child_nodes),
+                      mean(root_to_tips), std(root_to_tips))
+
+            if extended:
+                sure_events, only_treebest_events, aberrant_dists, rebuilt_topo = \
+                        per_node_events(tree,
+                                        phyltree,
+                                        10000,
+                                        any_get_taxon,
+                                        ancgene2sp=all_ancgene2sp,
+                                        ensembl_version=ensembl_version)
+                nodes_robust = not any((sure_events['dup'],
+                                        sure_events['speloss'],
+                                        sure_events['duploss'],
+                                        only_treebest_events['dup'],
+                                        only_treebest_events['speloss'],
+                                        only_treebest_events['duploss']))
+                output += (int(nodes_robust), only_treebest_events['spe'], aberrant_dists, rebuilt_topo)
+
+            print('\t'.join((subtree, genetree, root_location) +
+                             tuple(str(x) for x in output)))
+        except BaseException as err:
+            if err.args:
+                err.args = (str(err.args[0]) + ". At file %s" % mlcfile,) + err.args[1:]
+            else:
+                err.args = ("At file %s" % mlcfile,)
+            if ignore_error:
+                logger.exception('Unknown exception')
+            else:
+                raise
 
 
 def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                      subtreesdir='subtreesCleanO2',
                      ensembl_version=ENSEMBL_VERSION,
-                     ignore_outgroups=False):
+                     ignore_outgroups=False, ignore_error=True):
     """Gather characteristics of the **codeml results**, and output them as
     a tsv file."""
 
@@ -400,7 +443,7 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     stats_header = ['subtree', 'genetree']
     stats_name   = ['ls', 'ns', 'Nbranches',
                     'NnonsynSites', 'NsynSites', 'kappa',
-                    'treelen', 'dN_treelen', 'dS_treelen',
+                    'treelen', 'dS_treelen', 'dN_treelen',
                     'brlen_mean', 'brlen_std', 'brlen_med', 'brlen_skew',
                     'brOmega_mean', 'brOmega_std', 'brOmega_med', 'brOmega_skew',
                     'brdS_mean', 'brdS_std', 'brdS_med', 'brdS_skew',
@@ -478,8 +521,8 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                          mlc['output']['kappa'],
                          \
                          sum(br_lengths),  # tree length
-                         sum(dS_lengths),      # tree length for dN
-                         sum(dN_lengths),      # tree length for dS,
+                         sum(dS_lengths),      # tree length for dS
+                         sum(dN_lengths),      # tree length for dN,
                          \
                          mean(br_lengths),    # brlen_mean
                          std(br_lengths),     # brlen_std
@@ -519,7 +562,10 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                 err.args = (str(err.args[0]) + ". At file %s" % mlcfile,) + err.args[1:]
             else:
                 err.args = ("At file %s" % mlcfile,)
-            raise
+            if ignore_error:
+                logger.exception('Unknown exception')
+            else:
+                raise
 
 
 if __name__ == '__main__':
@@ -553,18 +599,20 @@ if __name__ == '__main__':
                                help="[%(default)s]")
     parent_parser.add_argument('-e', '--ensembl-version', type=int,
                                default=ENSEMBL_VERSION, help="[%(default)s]")
-    
+    parent_parser.add_argument('-I', '--no-ignore-error', dest='ignore_error',
+                               action='store_false')
+
     subp = parser.add_subparsers(dest='commands', help='type of statistics to compile')
-    
+
     codemlstats_parser = subp.add_parser('codeml', parents=[parent_parser], aliases=['co'])
     codemlstats_parser.add_argument('-i', '--ignore-outgroups', action='store_true',
                                     help='Do not take outgroup species into '\
                                          'account to compute tree stats.')
     codemlstats_parser.set_defaults(func=make_subparser_func(get_codeml_stats))
-    
+
     alstats_parser = subp.add_parser('alignment', parents=[parent_parser], aliases=['al'])
     alstats_parser.set_defaults(func=make_subparser_func(get_al_stats))
-    
+
     treestats_parser = subp.add_parser('tree', parents=[parent_parser], aliases=['tr'])
     treestats_parser.add_argument('-E', '--extended', action='store_true',
                                   help='Perform robustness test on nodes (instead of leaves VS root)')
