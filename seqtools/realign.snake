@@ -1,0 +1,23 @@
+
+rule all:
+    input: "realigned/{subtree}_fsa.fa"
+
+rule translate:
+    input: "{subtree}_genes.fa"
+    output: "realigned/{subtree}_prot.fa"
+    shell:
+        "treebest trans {input} > {output}"
+
+rule realign:
+    input: "realigned/{subtree}_prot.fa"
+    output: "realigned/{subtree}_protfsa.fa"
+    shell:
+        "fsa {input} > {output}"
+
+rule backtrans:
+    input:
+        al="realigned/{subtree}_protfsa.fa",
+        dna="{subtree}_genes.fa"
+    output: "realigned/{subtree}_fsa.fa"
+    shell:
+        "treebest backtrans {input.al} {input.dna} > {output}"

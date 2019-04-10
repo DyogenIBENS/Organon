@@ -1,0 +1,52 @@
+
+rule rsync_axt:
+	output: 'sequences/genomes/{target}_al/{target}{query}.net.axt.gz'
+	params:
+		# for the mouse, there is one file per chromosome. Not for hg38.
+		url='rsync://hgdownload.soe.ucsc.edu/goldenPath/{target}/vs{query}/{chr}{target}.{query}.net.axt.gz',
+		outdir=os.path.split(output[0])[0]
+	shell:
+		'rsync -Pavz {url} {params.outdir}'
+
+rule rsync_chromsizes:
+	input: 'sequences/genomes/{query}.chrom.sizes'
+	params:
+		url='http://hgdownload.soe.ucsc.edu/goldenPath/{query}/bigZips/{query}.chrom.sizes',
+		outdir=os.path.split(output[0])[0]
+	shell:
+		'rsync -Pavz {url} {params.outdir}'
+
+rule rsync_2bit:
+	input: 'sequences/genomes/{query}.2bit'
+	params:
+		url='http://hgdownload.soe.ucsc.edu/goldenPath/{query}/bigZips/{query}.2bit',
+		outdir=os.path.split(output[0])[0]
+	shell:
+		'rsync -Pavz {url} {params.outdir}'
+
+
+rule seq_from_axt:
+	input:
+		axt=rules.rsync_axt.output,
+		bed='sequences/genomic/{target}_smchd1.bed'
+	output:
+		fasta='sequences/genomic/{query}/axt/{query}_fromaxt.fasta',
+		info='sequences/genomic/{query}/axt/{query}_fromaxt.tsv'
+	shell:
+		'~glouvel/scripts/ucsc_tools/seq_from_axt.py {input.axt} {output.fasta} {output.info} $(awk \'{print "-S "$1" -b "$2+1" -e"$3; exit}\' <{input.bed})'
+
+rule reverse_minus:
+	input:
+		info=rules.seq_from_axt.output.info,
+		sizes='sequences/genomes/{query}.chrom.sizes' #rules.rsync_chromsizes.output
+	output: 'sequences/genomic/{query}/axt/{query}_fromaxt.forward.tsv'
+	shell:
+		'~glouvel/scripts/ucsc_tools/bed_reverseminus.py {input.info} {input.sizes} -o {output} -s 3'
+
+rule join_consecutive:
+	input: rules.reverse_minus.output
+	output: 'sequences/genomic/{query}/axt/{query}_fromaxt.forward.joined.tsv'
+	shell:
+		'~glouvel/scripts/ucsc_tools/bed_join_consecutive.py --noskip-header -s 3 -f {input} {output}'
+
+
