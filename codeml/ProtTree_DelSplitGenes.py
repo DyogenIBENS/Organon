@@ -7,7 +7,7 @@ import LibsDyogen.myTools as myTools
 import LibsDyogen.myFile as myFile
 import LibsDyogen.myProteinTree as ProteinTree
 
-from dendron.climber import dfw_descendants_generalized, dfw_pairs_generalized
+from dendro.bates import dfw_descendants_generalized, dfw_pairs_generalized
 
 setrecursionlimit(10000) # YOLO
 

@@ -33,10 +33,10 @@ from copy import copy
 import ete3
 import LibsDyogen.myPhylTree as PhylTree
 
-from dendron.parsers import read_multinewick, iter_from_ete3
+from dendro.parsers import read_multinewick, iter_from_ete3
 from genomicustools.identify import ultimate_seq2sp
-from dendron.climber import iter_distleaves
-from dendron.trimmer import thin_ete3 as thin
+from dendro.bates import iter_distleaves
+from dendro.trimmer import thin_ete3 as thin
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ def parse_species_genename(child, get_species, split_ancestor):
 
 def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
                      diclinks, ages=None): #, event='spe'):
-    # ~~> dendron.reconciled
+    # ~~> dendro.reconciled
     """given two taxa and the child gene name, return each missing speciation
     node inbetween."""
     try:
@@ -158,7 +158,7 @@ def name_missing_spe(parent_sp, ancestor, genename, parent_genename,
 
 
 def insert_nodes(new_node_names, parent, child, new_taxa, new_dist_ratios=None):
-    # ~~> dendron.reconciled
+    # ~~> dendro.reconciled
     # conserve original distance
     if not new_dist_ratios:
         # split equally
@@ -186,7 +186,7 @@ def insert_nodes(new_node_names, parent, child, new_taxa, new_dist_ratios=None):
 ### TODO: write `insert_missing_dup`
 def insert_missing_spe(parent_sp, ancestor, genename, parent_genename,
                        parent_node, child, diclinks, ages=None, event='spe'):
-    # ~~> dendron.reconciled
+    # ~~> dendro.reconciled
     """Insert missing speciation nodes between parent_node and child.
     
     If event='spe': parent_node is a speciation, 
@@ -226,7 +226,7 @@ def add_species_nodes_back(tree, diclinks, ages=None):
                            parent_node, node, diclinks, ages)
 
 
-def suffixes_ok(parent, child, event): # ~~> genomicustools/dendron?
+def suffixes_ok(parent, child, event): # ~~> genomicustools/dendro?
     """parent: *genename* (Better if does not contain the taxon name);
         child: *genename*
         event: 'dup' or 'spe'
@@ -575,7 +575,7 @@ def with_dup(leafnames):
 
 
 #def get_mostdivergent(nodes, maxsize)
-def get_basal(nodes, maxsize):  # ~~> dendron.
+def get_basal(nodes, maxsize):  # ~~> dendro.
     """Identify `maxsize` most basal nodes from a list of sister nodes.
 
     Return 2 lists:
@@ -656,7 +656,7 @@ def get_data_ete3(tree, nodedist):
 def reroot_with_outgroup(node, maxsize=0, minsize=0,
                          is_allowed_outgroup=None,
                          uniq_allowed_value=False,
-                         already_taken=None):  # ~~> dendron.reconciled
+                         already_taken=None):  # ~~> dendro.reconciled
     """Goes up the tree (towards the root) until it finds outgroup taxa.
     Return (new formatted root (thinned), number of outgroup leaves).
     
@@ -982,7 +982,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
     # Because of multiprocessing
     global get_species, split_ancestor
 
-    # ~~> dendron.reconciled
+    # ~~> dendro.reconciled
     if treebest:
         print_if_verbose("  Reading from TreeBest reconciliation format ({gene}_{species})")
 

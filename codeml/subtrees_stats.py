@@ -19,10 +19,10 @@ import LibsDyogen.myPhylTree as PhylTree
 
 from genomicustools.identify import SP2GENEID, \
                                     convert_gene2species
-from dendron.reconciled import get_taxon, \
+from dendro.reconciled import get_taxon, \
                                get_taxon_treebest, \
                                infer_gene_event_taxa
-from dendron.climber import iter_distleaves
+from dendro.bates import iter_distleaves
 from seqtools import ungap, \
                      algrep, \
                      make_al_stats
@@ -151,7 +151,7 @@ def any_get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
         return get_taxon_treebest(node)
 
 
-# Move to dendron.reconciled
+# Move to dendro.reconciled
 def per_node_events(tree, phyltree, aberrant_dist=10000,
                     get_taxon=any_get_taxon, *args, **kwargs):
     """Check each node and its type (duplication, deletion, speciation).

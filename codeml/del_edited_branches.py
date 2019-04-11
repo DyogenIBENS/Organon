@@ -9,7 +9,7 @@ from sys import stdin, stdout
 import argparse
 import LibsDyogen.myProteinTree as ProteinTree
 
-from dendron.climber import iter_leaves
+from dendro.bates import iter_leaves
 
 
 #def prottree_getchildren(tree, node):
