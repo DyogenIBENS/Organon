@@ -26,6 +26,7 @@ except ImportError:
 
 from functools import reduce
 
+from IUPAC import gaps, unknown, nucleotides, ambiguous
 from datasci.graphs import stackedbar, plottree
 from dendro.bates import rev_dfw_descendants
 
@@ -58,11 +59,12 @@ ext2fmt = {'.fa':    'fasta',
            '.phy':   'phylip-relaxed'}
 
 
-CODONS = [''.join(codon) for codon in product(*['ACGT']*3)]
+CODONS = [''.join(codon) for codon in product(*[nucleotides]*3)]
 NACODON = '---'
 #NCODONS = 
 CODON2INT = {codon:i for i,codon in enumerate([NACODON] + CODONS)}
-NUCL2INT  = {'-': 0, 'A': 1, 'C': 2, 'G': 3, 'T': 4}
+#NUCL2INT  = {'-': 0, 'A': 1, 'C': 2, 'G': 3, 'T': 4}
+NUCL2INT = {symbol: i for i, symbol in enumerate(gaps[0] + nucleotides)}
 STOPS = ['TAA', 'TAG', 'TGA']
 
 # Does not work...
@@ -70,6 +72,7 @@ STOPS = ['TAA', 'TAG', 'TGA']
 codonalphabet = Alphabet.Alphabet()
 codonalphabet.letters = [NACODON] + CODONS
 codonalphabet.size = 3
+
 
 def make_unif_codon_dist():
     """Return a uniform codon distance matrix:
@@ -121,13 +124,14 @@ def al2int(align, nucl=False, allow_N=False):
     converter_dict = NUCL2INT if nucl else CODON2INT
     return category2int(alarray, converter_dict, allow_N)
 
+
 def category2int(array, converter_dict, allow_N=False):
     """Convert an array of categorical values using a dictionary"""
     if not allow_N:
         ufunc = converter_dict.__getitem__
     else:
         #ufunc = lambda residue: converter_dict.get(residue, np.NaN)
-        Ncodon_regex = re.compile('[NATCG]+$')
+        Ncodon_regex = re.compile(r'[' + unknown + nucleotides + ''.join(ambiguous) + ']+$')
         Ncodon_int = max(converter_dict.values()) + 1
         
         def ufunc(residue):

@@ -13,6 +13,11 @@ from sys import stdin
 import numpy as np
 import argparse
 from Bio import AlignIO
+from collections import Counter
+from seqtools.IUPAC import gaps, nucleotides, unknown, ambiguous
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 def weighted_std(values, weights, axis=None):
@@ -31,21 +36,34 @@ def get_seq_counts(alignment):
     length = alignment.get_alignment_length()
 
     for i, record in enumerate(alignment):
-        gaps = record.seq.count('-')
-        N = record.seq.count('N')
-        A = record.seq.count('A')
-        T = record.seq.count('T')
-        G = record.seq.count('G')
-        C = record.seq.count('C')
+        #gaps = record.seq.count('-')
+        #N = record.seq.count('N')
+        #A = record.seq.count('A')
+        #T = record.seq.count('T')
+        #G = record.seq.count('G')
+        #C = record.seq.count('C')
+        #for symbol, possible in ambiguous.items():
+        #    symbol_count = record.seq.count(symbol)
+        #    N += symbol_count # * (1. - len(possible)/4.)
+        #    #for p in possible:
+        #if gaps + N + A + T + G + C != length:
+        #    logger.error('Unexpected nucleotides occured, please check.')
+
+        counts = Counter(record.seq)
         CpG = record.seq.count('CG')
 
-        assert gaps + N + A + T + G + C == length
+        seq_nucl[:, i] = [counts[n] for n in nucleotides]
+        seq_gap[i]  = sum(counts[g] for g in gaps)
+        seq_N[i]    = counts[unknown]
+        for a, possible in ambiguous.items():
+            seq_N[i] += counts[a] * (1-len(possible)/4.)
+            for p in possible:
+                seq_nucl[nucleotides.index(p), i] += 0.25 * counts[a]
 
-        seq_nucl[:, i] = (A, C, G, T)
-        seq_gap[i]  = gaps
-        seq_N[i]    = N
+        assert seq_nucl[:, i].sum() + seq_gap[i] + seq_N[i] == length
+
         seq_CpG[i]  = CpG
-    
+
     return length, seq_nucl, seq_gap, seq_N, seq_CpG
 
 
