@@ -4,6 +4,9 @@
 
 # Anc. Greek for `comparison`: 'Parabole'
 
+from itertools import combinations
+import numpy as np
+
 
 def pairwise_intersections(*data, **nameddata):
     nameddata.update({i: datum for i, datum in enumerate(data)})
