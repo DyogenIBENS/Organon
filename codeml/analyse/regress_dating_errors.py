@@ -633,20 +633,44 @@ def annot_quantiles_on_criterion(ages, criterion_serie, criterion_name=None,
 
 
 def _violin_spe_ages_vs_criterion_quantiles(annot_df, criterion_name, isin=None,
-                                           split=True, order=None, **kwargs):
+                                           split=True, order=None, cut=0,
+                                           points=False,
+                                           **kwargs):
     Q_col = "Q_" + criterion_name
     if isin is None:
         # Look at extreme quantiles only
         isin = (annot_df[Q_col].min(), annot_df[Q_col].max())
-        print(isin)
+        logger.info(isin)
         
     ax = sb.violinplot(x="taxon", y="age_dS", hue=Q_col,
                        data=annot_df[(annot_df.type == "spe")
                                      & annot_df[Q_col].isin(isin)],
-                       split=split,
                        order=order,
+                       split=split,
+                       cut=cut,
                        **kwargs)
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, va='top', ha='right')
+    if points:
+        #violins = ax.get_children()
+        orig_legend_args = ax.get_legend_handles_labels()
+        orig_legend_title = ax.legend_.get_title().get_text()
+
+        sb.pointplot(x="taxon", y="age_dS", hue=Q_col,
+                     data=annot_df[(annot_df.type == "spe") & annot_df[Q_col].isin(isin)],
+                     order=order,
+                     estimator=np.nanmedian,
+                     #ci='sd',
+                     join=False,
+                     dodge=(1./(len(isin)+1)),
+                     palette=['#b8b8b8'],
+                     alpha=0.8,
+                     ax=ax,
+                     legend=False)
+        # Reset the legend.
+        #print(ax.get_children())
+        #plt.setp(set(ax.get_children()).difference(violins), label='')
+        ax.legend_ = None
+        ax.legend(*orig_legend_args, title=orig_legend_title)
     return ax
 
 
