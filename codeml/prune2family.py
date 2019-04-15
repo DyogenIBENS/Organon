@@ -180,6 +180,7 @@ def insert_nodes(new_node_names, parent, child, new_taxa, new_dist_ratios=None):
     #print_if_verbose()
     # Move the child on top of the created intermediate links
     new_node = new_node.add_child(child=child.detach(), dist=new_branch_dists[-1])
+    # new_nodes.append(new_node)?
     return new_nodes
 
 
@@ -394,6 +395,7 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
                 event = 'dup'
             else:
                 event = 'spe'
+                node.add_feature('event', 'spe')
                 # Check that parent is the MRCA
                 if len(child_sp)>1:
                     mrca = get_mrca(parent_sp, child_sp, diclinks)
@@ -403,11 +405,12 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
                     # I didn't expect this to happen. Let's fix it (not raise)
                     msg = ("Unexpected case: parent %r is not the MRCA of %s. "
                             % (parent_sp, child_sp))
+                    node.add_feature('event', 'spe not mrca')
                     if not force_mrca:
                         logger.warning(msg + "Ignoring.")
                         # Must change event to dup.
                         event = 'dup'
-                        node.add_feature('D', 1)
+                        node.add_feature('D', 1)  # True or "dubious"?
                     else:
                         ### TODO: when several consecutive nodes have this
                         ###       problem, the fix must be applied to all
@@ -459,6 +462,7 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
                     msg = "Unexpected case: some but not all descendants are "\
                           "duplicates: %s: %s (%s)" % \
                                 (node.name, node_children, event)
+                    node.add_feature('event', 'spe+dup')
                     logger.error(msg)
                     #raise RuntimeError(msg)
                     #if all(same_taxa_horizontally):
@@ -469,8 +473,10 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
                     #raise AssertionError()
 
             if event == 'dup':
+                node.add_feature('event', "dup")
                 if not all(same_taxa_vertically):
                     print_if_verbose("implicit dup+spe")
+                    node.event = "implicit dup+spe"
                     # there is a dup + a spe. Need to add nodes
                     ### TODO: check this missing node **before** this node:
                     ###       if node_taxon != parent_taxon and \
@@ -838,7 +844,7 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
     # Output all current features.
     output_features = set.union(set(('is_outgroup',)),
                                 *(set(n.features) for n in tree.traverse()))\
-                      .difference(('name', 'dist', 'support'))
+                      .difference(('name', 'dist', 'support', 'event'))
     print_if_verbose("* Searching for ancestors:")
     for ancestor, descendants in ancestor_descendants.items():
         print_if_verbose(ancestor)
@@ -986,9 +992,9 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
     if treebest:
         print_if_verbose("  Reading from TreeBest reconciliation format ({gene}_{species})")
 
-        def get_species_treebest(node):
+        def get_species(node):
             return node.S.replace('.', ' '), node.name.split('_')[0]
-        def split_ancestor_treebest(node):
+        def split_ancestor(node):
             return node.S.replace('.', ' '), node.name
     else:
 
