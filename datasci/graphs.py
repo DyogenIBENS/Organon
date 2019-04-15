@@ -12,7 +12,6 @@ import scipy.cluster.hierarchy as hclust
 import scipy.spatial.distance as spdist
 import pandas as pd
 from collections import namedtuple
-from itertools import combinations
 
 import pandas as pd
 import seaborn as sns
@@ -339,12 +338,30 @@ def plot_features_radar(components, features, PCs=['PC1', 'PC2'], ax=None):
     return ax
 
 
-def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
-             topology_only=False, label_params=None, edge_colors=None,
-             add_edge_axes=None, **kwargs):
+## Create colormaps
+
+def colortuple_to_hex(coltup):
+    return '#' + ('%02x' * len(coltup)) % tuple(int(round(c*255)) for c in coltup)
+
+def value2color(values, cmap='afmhot', extend=1):
+    # Setup the colormap for evolutionary rates
+    cmap = plt.get_cmap('afmhot')
+    value_range = values.max() - values.min()
+    norm = mpl.colors.Normalize(values.max() - extend*value_range,
+                                values.min() + extend*value_range)
+
+    return values.apply(lambda v: colortuple_to_hex(cmap(norm(v))))
+
+
+def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
+             age_from_root=False,
+             topology_only=False,
+             label_params=None, edge_colors=None,
+             edge_cmap='afmhot', add_edge_axes=None, **kwargs):
     """Plot an ete3 tree, from left to right.
     
-    param: edge_colors dict-like object with keys being the nodes, and values a color string.
+    param: edge_colors dict-like object with keys being the nodes, and values ~~a color string~~
+            a scalar value mapped to a color using a cmap.
     param: add_edge_axes can be None, "top", or "middle".
     """
     coord = namedtuple('coord', 'x y')
@@ -363,11 +380,23 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
         def get_items(tree, nodedist):
             return [(child, 1) for child, _ in get_items_withdist(tree, nodedist)]
 
+    if edge_colors is not None:
+        extend = 1.1
+        edge_range = edge_colors.max() - edge_colors.min()
+        #edge_norm = mpl.colors.Normalize(edge_colors.max() - extend*edge_range,
+        #                            edge_colors.min() + extend*edge_range)
+
+
     #depth = tree.get_farthest_leaf()[1]
     leafdists = sorted(iter_distleaves(tree, get_items, root), key=lambda x: x[1])
     depth = leafdists[-1][1]  # furthest leaf.
     leafloc, leafstep = (0, 1) if invert is False else (len(leafdists)-1, -1)
-    leafdists = dict(leafdists)
+    if age_from_root:
+        root_age = 0
+        leafdists = dict(leafdists)
+    else:
+        root_age = -depth
+        leafdists = {l: ld-depth for l, ld in leafdists}
     try:
         rootdist = tree.dist  # ete3 instance
     except AttributeError:
@@ -378,7 +407,10 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
     if rootdist is None: rootdist = 0
 
     child_coords = {}  # x (node depth), y (leaf number)
-    xy = []
+    #xy = []  # coords to be unpacked and given to plot: plt.plot(*xy)
+    segments = []
+    line_edge_values = []
+
     ticklabels = []
 
     extended_x = []  # Dashed lines to the right when tree is not ultrametric
@@ -400,8 +432,8 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
             # Is a leaf.
             child_coords[node] = coord(leafdists[node], leafloc)
             ticklabels.append(get_label(node))
-            if child_coords[node].x < depth:
-                extended_x.extend((depth, child_coords[node].x, None))
+            if child_coords[node].x < depth+root_age:
+                extended_x.extend((depth+root_age, child_coords[node].x, None))
                 extended_y.extend((leafloc, leafloc, None))
             leafloc += leafstep
         else:
@@ -410,15 +442,15 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
                 (ch, chdist), = items
                 child_coords[node] = nodecoord = coord(child_coords[ch].x - chdist,
                                                        child_coords[ch].y)
-                xy += [(child_coords[ch].x, nodecoord.x)
-                       (child_coords[ch].y, nodecoord.y)]
-                #lines for LinesCollection
-                # lines += [(child_coords[ch].x, child_coords[ch].y),
-                #           (nodecoord.x,        nodecoord.y)]
-                # linecolors.append(edge_colors[ch])
-
+                #xy += [(child_coords[ch].x, nodecoord.x)
+                #       (child_coords[ch].y, nodecoord.y)]
+                # segments for LinesCollection
+                segments.append(
+                            [(child_coords[ch].x, child_coords[ch].y),
+                             (nodecoord.x,        nodecoord.y)])
                 if edge_colors is not None:
-                    xy.append(edge_colors[ch])
+                #    xy.append(edge_colors[ch])
+                    line_edge_values.append(edge_colors[ch])
             else:
                 sorted_items = sorted(items,
                                       key=lambda item: child_coords[item[0]].y)
@@ -428,10 +460,14 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
                         child_coords[ch0].x - ch0dist,
                         (child_coords[ch0].y + child_coords[ch1].y)/2.)
                 for ch,chdist in sorted_items:
-                    xy += [(child_coords[ch].x, nodecoord.x, nodecoord.x),
-                           (child_coords[ch].y, child_coords[ch].y, nodecoord.y)]
+                    #xy += [(child_coords[ch].x, nodecoord.x, nodecoord.x),
+                    #       (child_coords[ch].y, child_coords[ch].y, nodecoord.y)]
+                    segments.append(
+                             [(child_coords[ch].x, child_coords[ch].y),
+                              (nodecoord.x, child_coords[ch].y),
+                              (nodecoord.x, nodecoord.y)])
                     if edge_colors is not None:
-                        xy.append(edge_colors[ch])
+                        line_edge_values.append(edge_colors[ch])
                     if add_edge_axes:
                         # Assuming drawing tree left->right and bottom->top
                         shift = -0.5 if add_edge_axes == 'middle' else 0
@@ -441,31 +477,47 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
                                              chdist,
                                              1]))
     if rootdist > 0:
-        xy += [(0, -rootdist),
-               (nodecoord.y, nodecoord.y)]
+        #xy += [(0, -rootdist),
+        #       (nodecoord.y, nodecoord.y)]
+        segments.append([(root_age,          nodecoord.y),
+                         (root_age-rootdist, nodecoord.y)])
         if edge_colors is not None:
-            xy.append(edge_color.get(root))
+        #    xy.append(edge_colors.get(root))
+            line_edge_values.append(edge_colors.get(root, np.NaN))
         if add_edge_axes:
             # Assuming drawing tree left->right and bottom->top
             shift = -0.5 if add_edge_axes == 'middle' else 0
             axes_to_add.append((root,
-                                [-rootdist,
+                                [root_age-rootdist,
                                  nodecoord.y + shift,
-                                 0,
+                                 root_age,
                                  nodecoord.y + 1 + shift]))
 
-    if not kwargs.get('color') and not args and edge_colors is None:
-        # or not args[0][0] in 'bgrcmykw'):
-        kwargs['color'] = mpl.rcParams['text.color']  # Default color to black.
-
-    default_kwargs = {'clip_on': False}
-    default_kwargs.update(kwargs)
+    #if edge_colors is None:
+    #    # or not args[0][0] in 'bgrcmykw'):
+    #    edge_cmap = None
+    line_color = kwargs.pop('color', mpl.rcParams['text.color'])
+    #else:
+    #    line_color = None
 
     #lines = plot(x, y, *args, **default_kwargs)
-    lines = ax.plot(*xy, **default_kwargs)
+    #lines = ax.plot(*xy, **default_kwargs)
+    lines = mc.LineCollection(segments, colors=line_color, cmap=edge_cmap)#, norm=edge_norm)
+
+    if edge_colors is not None:
+        lines.set_array(np.array(line_edge_values))  # Value to be converted to colors.
+
+    lines.set_clip_on(False)
+    ax.add_collection(lines)
+    ax.set(**kwargs)
+
     ax.plot(extended_x, extended_y, 'k--', alpha=0.4,
             linewidth=kwargs.get('linewidth', mpl.rcParams['lines.linewidth'])/2.)
-    ax.set_xlim(min(0, 0-rootdist), depth)
+
+    ax.set_xlim(min(root_age, root_age-rootdist), depth+root_age)
+    ax.set_ylim(-0.5, len(leafdists))
+    #ax.autoscale_view()
+    
     ax.spines['top'].set_visible(False)
     ax.spines['left'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -475,9 +527,13 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
     if label_params is None: label_params = {}
     if invert: ticklabels.reverse()
     ax.set_yticklabels(ticklabels, **label_params)
-    ax.get_figure().tight_layout()  # extend interactive view to see labels.
-                                    # But before inserted the subaxes.
+    fig = ax.get_figure()
 
+    #if lines.get_array() is not None:
+    #    cax,kw = mpl.colorbar.make_axes_gridspec(ax, panchor=(0,1))  # no effect of panchor.
+    #    fig.colorbar(lines, cax=cax, **kw)
+    #fig.tight_layout()  # extend interactive view to see labels, but before subplots.
+    
     #if edges_colors is not None:
         # Would be better directly using the cmap and norm.
         #scalarmappable = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
@@ -493,7 +549,7 @@ def plottree(tree, get_items, get_label, root=None, ax=None, *args, invert=True,
         xlim = rect[0], rect[0] + rect[2]
         subax = fig.add_axes(rect, xlim=xlim, position=data2fig.transform(rect),
                              frame_on=False, autoscale_on=False
-                             ) #clip_on=False, visible=False
+                             ) #share_y #clip_on=False, visible=False
         subax.set_clip_on(False)
         subax.axis('off')
         subaxes[ch] = subax
