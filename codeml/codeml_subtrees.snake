@@ -224,7 +224,7 @@ rule codeml:
 		rst  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_rst",
 		rst1 ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_rst1",
 		rub  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_rub"
-	log: "{genetree}/%s/{ancestorgenetreesuffix}_{model}.log"
+	log: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.log"
 	shell:
 		"bash ~glouvel/scripts/codeml/run_codeml_separatedir.sh '{input.ctl}'"
 
