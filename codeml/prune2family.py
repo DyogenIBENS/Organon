@@ -406,11 +406,14 @@ def insert_species_nodes_back(tree, parse_species_genename, diclinks, ages=None,
                     msg = ("Unexpected case: parent %r is not the MRCA of %s. "
                             % (parent_sp, child_sp))
                     node.add_feature('event', 'spe not mrca')
-                    if not force_mrca:
-                        logger.warning(msg + "Ignoring.")
+                    if any_same_taxa_horizontally:
                         # Must change event to dup.
                         event = 'dup'
                         node.add_feature('D', 1)  # True or "dubious"?
+                        node.add_feature('event', 'dup not mrca')
+
+                    if not force_mrca:
+                        logger.warning(msg + "Ignoring.")
                     else:
                         ### TODO: when several consecutive nodes have this
                         ###       problem, the fix must be applied to all
@@ -659,7 +662,7 @@ def get_data_ete3(tree, nodedist):
 #def is_leaf(node):
 #    return node.is_leaf()
 
-def reroot_with_outgroup(node, maxsize=0, minsize=0,
+def reroot_with_outgroup(node, maxsize=0, minsize=-1,
                          is_allowed_outgroup=None,
                          uniq_allowed_value=False,
                          already_taken=None):  # ~~> dendro.reconciled
@@ -677,18 +680,19 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
     (having the most basal latest common ancestor).
 
     Remark: it doesn't go further than the next immediate outgroup. If you
-    want to add the two 2 closest outgroups, give a minsize > 0.
+    want to add the two 2 closest outgroups, give a minsize >= 0.
 
     param: uniq_allowed_value:
     if is_allowed_outgroup return a not False or None value, only one leaf
     for each value must be returned.
     Example 1: Use it to exclude paralog sequences.
-    Example 2: In combination with minsize>0, select *mandatory* species.
+    Example 2: In combination with minsize>=0, select *mandatory* species.
     Example 3: In combination with maxsize<0, avoid limiting the search to the 
               `maxsize` closest nodes.
     """
-    logger.debug('Rerooting %r:\n%s...', node, node.get_ascii())
-    logger.debug('maxsize=%d, minsize=%d, is_allowed_outgroup=%s,'
+    logger.debug('Rerooting %r:%s...', node,
+                 node.get_ascii(show_internal=False, compact=True))
+    logger.debug('maxsize=%d, minsize=%d, is_allowed_outgroup=%s, '
                  'uniq_allowed_value=%s, already_taken=%s',
                  maxsize, minsize, is_allowed_outgroup, uniq_allowed_value,
                  already_taken)
@@ -700,6 +704,7 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
     # Ignore single child nodes.
     while len(root) == len(node):
         if root.is_root():
+            logger.debug('Reached the root of the tree!')
             return None, 0
         # Else go to parent node
         node = root
@@ -708,10 +713,9 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
     orig_outgroups = node.get_sisters()
     realsize = sum(len(sister) for sister in orig_outgroups)
 
-    if maxsize < 0 and is_allowed_outgroup is None and not minsize:
+    if maxsize < 0 and is_allowed_outgroup is None and minsize<=0:
         # We accept the full outgroup subtrees.
         return root, realsize
-
 
     if maxsize > 0 or is_allowed_outgroup is not None:
         # Because root will be copied, we set a marker to remember those nodes.
@@ -736,15 +740,10 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
                 else:
                     return False
         else:
-            is_allowed_leaf = is_allowed_outgroup
+            is_allowed_leaf = (lambda l: True) if is_allowed_outgroup is None else is_allowed_outgroup
 
-        #if maxsize < 0:
-            # We accept all outgroups, but only the allowed species
         base = [node for node in root.children
                 if getattr(node, 'is_outgroup', False)]
-        #else:
-        #    # If requested, reduce the size of the outgroup clade to the specified number.
-        #    base, todetach = get_basal(base, maxsize)
 
         # Now that we know the basal tree:
         # keep only one leaf per identified basal node.
@@ -757,7 +756,6 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
         outgroup_leaves = [(l, d) for l,d in outgroup_leaves if is_allowed_leaf(l)][:maxsize]
 
         realsize = 0
-        current_outgroups = []
         for basal in base:
             thinned_child = thin(basal.detach(), [l for l,_ in outgroup_leaves])
             if thinned_child is None:
@@ -767,27 +765,41 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
                 #TODO: check the leaf distance. assert outgroup_leaves
                 thinned_child.add_feature('is_outgroup', 1)
                 root.add_child(child=thinned_child)
-                current_outgroups.append(thinned_child)
                 realsize += len(thinned_child)
-   
-    while realsize < minsize:  # Untested
+
+    for o_outgroup in orig_outgroups:
+        o_outgroup.del_feature('is_outgroup')
+
+    while realsize < minsize and root is not None:
+        # This block *should* be *inside* this function, because the function
+        # itself updates the content of `already_taken`
         logger.debug('Recursive reroot because realsize %d < minsize %d.',
                      realsize, minsize)
+
+        if orig_root.up is None:
+            root = None
+            break
+
+        if not orig_root.get_sisters():
+            # Skip single child nodes.
+            orig_root = orig_root.up
+            continue
+        
         # Get the orig_root.up, copy (with ancestors), replace the orig_root by root.
         orig_root.add_feature('has_ingroup', True)
+        nextroot = orig_root.up.copy()  # This doesn't preserve parents.
+        orig_root.del_feature('has_ingroup')
 
-        try:
-            nextroot = orig_root.up.copy()
-        except AttributeError:
-            return None, realsize
+        orig_rname = orig_root.get_tree_root().name  # Checking
+        #nextrname = nextroot.get_tree_root().name
+        #assert nextrname == orig_rname, "Root changed! %s -> %s" % (orig_rname, nextrname)
 
         nextnode = [node for node in nextroot.children
                     if getattr(node, 'has_ingroup', False)][0]
-        orig_root.del_feature('has_ingroup')
         orig_root = orig_root.up
 
         # `root` is the next node.
-        # Update to the thinned version
+        # Replace by the thinned version
         if maxsize > 0 or is_allowed_outgroup is not None or uniq_allowed_value:
             nextroot.remove_child(nextnode)
             nextroot.add_child(root)
@@ -800,11 +812,6 @@ def reroot_with_outgroup(node, maxsize=0, minsize=0,
                                               uniq_allowed_value,
                                               already_taken)
         realsize += nextsize
-        if root is None:
-            return root, realsize
-
-    for o_outgroup in orig_outgroups:
-        o_outgroup.del_feature('is_outgroup')
 
     return root, realsize
 
@@ -846,6 +853,8 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
                                 *(set(n.features) for n in tree.traverse()))\
                       .difference(('name', 'dist', 'support', 'event'))
     print_if_verbose("* Searching for ancestors:")
+    logger.debug('Params: latest_ancestor=%s; only_dup=%s; one_leaf=%s; outgroups=%s',
+                 latest_ancestor, only_dup, one_leaf, outgroups)
     for ancestor, descendants in ancestor_descendants.items():
         print_if_verbose(ancestor)
         ancestor_regex = ancestor_regexes[ancestor]
@@ -858,6 +867,7 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
             leafnames = node.get_leaf_names()
             #print(node.name)
             #print(node.get_ascii())
+            logger.debug('Got %s', node.name)
             if len(leafnames) > 1 or one_leaf:
                 # check that there is at least one duplication
                 if not only_dup or with_dup(leafnames):
@@ -905,7 +915,8 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
                                    outfile=None,
                                    features=output_features)
                     else:
-                        print_if_verbose("Writing to %r." % outfile)
+                        #print_if_verbose("Writing to %r." % outfile)
+                        logger.info("Writing to %r.", outfile)
                         outtree = root.write(format=1,
                                              format_root_node=True,
                                              outfile=outfile,
@@ -914,6 +925,8 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
                             print(outtree)
                     #outfiles_set.add(outfile)
                     outtrees_set.add(outname)
+            else:
+                logger.debug('Not outputted')
     #print_if_verbose("Output %d trees." % len(outfiles_set))
     return outtrees_set
 
@@ -1145,7 +1158,7 @@ if __name__ == '__main__':
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="only print out the output files it would produce")
     parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
-    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-v", "--verbose", action="count", default=0)
     parser.add_argument("-i", "--ignore-errors", action="store_true", 
                         help="On error, print the error and continue the loop.")
     #parser.add_argument("-O", "--to-stdout", action="store_true")
@@ -1158,10 +1171,13 @@ if __name__ == '__main__':
     #ANCGENE_START = dargs.pop("ancgene_start")
     #ANCGENE2SP = re.compile(ANCGENE2SP_PATTERN % ANCGENE_START)
 
-    if not dargs.pop("verbose"):
+    verbosity = dargs.pop("verbose")
+    if not verbosity:
         # mute the custom print function
         def print_if_verbose(*args, **kwargs):
             pass
+    elif verbosity > 1:
+        logger.setLevel(logging.DEBUG)
 
     if dargs.pop("fromfile"):
         treefiles = parse_treefiles(dargs.pop("treefile"))
