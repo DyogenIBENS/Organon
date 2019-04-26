@@ -220,7 +220,8 @@ def make_ancgene2sp(ancestor, phyltree):
                       + r')([^a-z].*|)$')
 
 
-def find_ingroup(tree, ancestor, phyltree, ensembl_version, outgroupsize=2):
+def find_ingroup(tree, ancestor, phyltree, ensembl_version, outgroupsize=2,
+                 get_taxon=any_get_taxon, ancgene2sp=None):
     # Minimum number of sequences: 2.
     # Can include ingroup species if the sequences are paralogs.
     leaf2sp = {leafname: convert_gene2species(leafname, ensembl_version)
@@ -238,10 +239,18 @@ def find_ingroup(tree, ancestor, phyltree, ensembl_version, outgroupsize=2):
         size_ok = len(child) > outgroupsize-outgroup_numbers
         size_delta = abs(len(child) - outgroupsize-outgroup_numbers)
         # If all groups are smaller, the most likely outgroup is the one whose size matches.
+
+        if ancgene2sp is not None:
+            child_sp = get_taxon(child, ancgene2sp, ensembl_version)
+            parent_sp = get_taxon(child.up, ancgene2sp, ensembl_version)
+            no_missing_ancestor = len(phyltree.dicLinks[parent_sp][child_sp]) <= 2
+        else:
+            no_missing_ancestor = None
         return (not_all_out,
                 size_ok,
                 not_any_out,
-                size_delta)
+                size_delta,
+                no_missing_ancestor)
 
     while outgroup_numbers < outgroupsize:
         nodechildren = ingroup.get_children()  # Copy the list.
@@ -282,8 +291,11 @@ def find_ingroup(tree, ancestor, phyltree, ensembl_version, outgroupsize=2):
                            ingroup.name, outgroup_numbers)
             break
         if all(ingroup_like(out) == ingroup_like(ingroup) for out in nodechildren):
-            logger.error("%r->%r: Unable to choose outgroup: %s",
+            logger.error("%r->%r: Unable to choose outgroup: %s.",
                          ingroup.up, ingroup, ingroup_like(ingroup))
+            # Chooses the first one then
+            nodechildren.append(ingroup)
+            ingroup = nodechildren.pop(0)
 
         found_outgroups.update(nodechildren)
         outgroup_numbers = sum(len(outg) for outg in found_outgroups)
@@ -294,16 +306,24 @@ def find_ingroup(tree, ancestor, phyltree, ensembl_version, outgroupsize=2):
     return ingroup, found_outgroups
 
 
-def find_ingroup_marked(tree):
+def find_ingroup_marked(tree, outgroupsize=2):
     """Find the ingroup as the furthest node with sisters having the `is_outgroup` tag."""
     ingroup = tree
+    found_outgroups = set()
     while any(getattr(child, 'is_outgroup', 0) for child in ingroup.children):
         try:
             ingroup, = [child for child in ingroup.children
                         if not getattr(child, 'is_outgroup', 0)]
         except ValueError:
+            # Unpacking error: this is either a leaf or all children are unmarked.
             break
-    return ingroup
+        found_outgroups.update(ingroup.get_sisters())
+
+    outgroup_numbers = sum(len(outg) for outg in found_outgroups)
+    assert outgroup_numbers <= outgroupsize, '%s: size of outgroup is %d > %d'\
+                               % (ingroup.name, outgroup_numbers, outgroupsize)
+
+    return ingroup, found_outgroups
 
 
 def get_childdist_ete3(tree, nodedist):
@@ -346,39 +366,31 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
             # What about paralog outgroups?? Should NOT happen if prune2family WITHOUT `--latest`.
             if root_location == 'O':
                 if ignore_outgroups:
+                    # Use the `is_outgroup` mark. When available, this is the safest.
+                    ingroupmarked, outgroups = find_ingroup_marked(tree, 2)
+                    if ingroupmarked == tree:
+                        logger.error('find_ingroup_marked:No outgroup found! %s',
+                                     tree.name)
+
                     # Double-check:
-                    ingroup, outgroups = find_ingroup(tree, ancestor, phyltree, ensembl_version, 2)
-                    # Triple-check:
-                    # Use the `is_outgroup` mark
-                    ingroupmarked = find_ingroup_marked(tree)
-                    # Go to the ingroup root.
-                    for node in tree.traverse('levelorder'):
-                        if split_species_gene(node.name, ancgene2sp)[0] is not None:
-                            #logger.debug('split_species_gene: %s'
-                            #        % ( split_species_gene(node.name, ancgene2sp),)
-                            tree = node
-                            break
-                    # Double-check:
-                    if ingroup != tree:
-                        # Check tree is a single child descendant of ingroup.
-                        while len(ingroup.children)==1:
-                            ingroup, = ingroup.children
-                            if ingroup == tree:
-                                break
-                        else:
-                            logger.error('%s: Found 2 ≠ ingroups with 2 methods: '
-                                         'ancgene2sp -> %r ≠ find_ingroup: %r',
-                                         subtree, tree.name, ingroup.name)
-                    # Triple-check:
-                    if ingroupmarked != tree:
-                        while len(ingroup.children)==1:
+                    ingroup, outgroups = find_ingroup(tree, ancestor, phyltree,
+                                            ensembl_version,
+                                            2,
+                                            any_get_taxon,
+                                            ancgene2sp=all_ancgene2sp)
+                    if ingroupmarked != ingroup:
+                        while len(ingroupmarked.children)==1:
                             ingroupmarked, = ingroupmarked.children
-                            if ingroupmarked == tree:
+                            if ingroupmarked == ingroup:
                                 break
                         else:
-                            logger.error('%s: Found 2 ≠ ingroups with 2 methods: '
-                                         'ancgene2sp -> %r ≠ find_ingroup_mark: %r',
-                                         subtree, tree.name, ingroupmarked.name)
+                            logger.warning(
+                                    '%s: Found 2 ≠ ingroups with 2 methods: '
+                                    'find_ingroup -> %r ≠ find_ingroup_mark: %r',
+                                    subtree, ingroup.name, ingroupmarked.name)
+                            # This is ignored.
+
+                    tree = ingroupmarked
                     
                 else:
                     root_taxon, _ = split_species_gene(tree.name, all_ancgene2sp)
