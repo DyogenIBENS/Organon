@@ -513,9 +513,9 @@ def rec_average_u(node, scname, subtree, measures=['dS'], weightkey='cal_leaves'
 
     # Array operation here: increment tmp_m with current measure.
     # One child per row.
-    children_ms = np.stack([getattr(ch, m, np.NaN) for m in measures] \
-                            + subtree[ch.name]['tmp_m']
-                           for ch in node.children)
+    children_ms = np.stack([[getattr(ch, m, np.NaN) for m in measures] \
+                             + subtree[ch.name]['tmp_m']
+                            for ch in node.children])
     # weights:
     children_ws = np.array([[subtree[ch.name][weightkey]] for ch in
                             node.children])
@@ -534,9 +534,9 @@ def rec_average_w(node, scname, subtree, measures=['dS']): #, weightkey
     """
     # Array operation here: increment tmp_m with current measure.
     # One child per row.
-    children_ms = np.stack([getattr(ch, m, np.NaN) for m in measures] \
-                            + subtree[ch.name]['tmp_m']
-                           for ch in node.children)
+    children_ms = np.stack([[getattr(ch, m, np.NaN) for m in measures] \
+                             + subtree[ch.name]['tmp_m']
+                            for ch in node.children])
     # mean of each measure (across children)
     subtree[scname]['tmp_m'] = children_ms.mean(axis=0)
     #return children_ms.mean(axis=0)
@@ -572,10 +572,27 @@ def def_is_any_taxon(*target_taxa):
     """define the speciation node check function"""
     def is_any_taxon(node, taxon, subtree):
         return taxon in target_taxa
+    is_any_taxon.__name__ += '_' + '|'.join(target_taxa)
     return is_any_taxon
 
 def negate(testfunc):
-    return lambda *args,**kwargs: not testfunc(*args, **kwargs)
+    def negated(*args,**kwargs):
+        return not testfunc(*args, **kwargs)
+    negated.__name__ = '!' + negated.__name__
+    return negated
+
+def all_of(tests):
+    def all_tests(*args):
+        return all(test(*args) for test in tests)
+    all_tests.__name__ = '(' + '&'.join(t.__name__ for t in tests) + ')'
+    return all_tests
+
+def any_of(tests):
+    def any_test(*args):
+        return any(test(*args) for test in tests)
+    any_test.__name__ = '(' + '|'.join(t.__name__ for t in tests) + ')'
+    return any_test
+
 
 def get_tocalibrate(key):
     """'Parse' the key argument to combine several tests together.
@@ -616,9 +633,9 @@ def get_tocalibrate(key):
 
             tests.append(test)
 
-        alt_tests.append(lambda *args: all(test(*args) for test in tests))
+        alt_tests.append(all_of(tests))
 
-    return lambda *args: any(alt_test(*args) for alt_test in alt_tests)
+    return any_of(alt_tests)
     
 
 def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
@@ -646,6 +663,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
 
     # Convert argument to function
     tocalibrate = get_tocalibrate(tocalibrate)
+    logger.debug('tocalibrate function: %s', tocalibrate.__name__)
 
     ages = []
     # list of ete3 subtrees of fulltree (between two consecutive speciations)
