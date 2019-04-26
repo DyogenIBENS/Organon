@@ -15,7 +15,8 @@ import os
 import fileinput
 import re
 import os.path as op
-from codemlparser import parse_mlc
+#from codemlparser import parse_mlc
+from codemlparser2 import parse_mlc
 
 
 # space preceded by closing parenthesis
@@ -24,19 +25,35 @@ from codemlparser import parse_mlc
 RE_FIELD = re.compile('-?\d\.\d+ \(-?\d+\.\d+ -?\d\.\d+\)')
 NAval = '-1.0000 (-1.0000 -1.0000)'
 
-def check_NG(mlcfile):
-    NGlines = parse_mlc(mlcfile)['Nei & Gojobori']['matrix']
+def parse_NG(mlc):
+    NGlines = mlc['Nei & Gojobori']['matrix']
     seqnames, nblines = zip(*NGlines)
-    values = [RE_FIELD.findall(line) for line in nblines]
+    return seqnames, [RE_FIELD.findall(line) for line in nblines]
+
+
+def quickcheck_NG(mlc):
+    seqnames, values = parse_NG(mlc)
     for i, linevalues in enumerate(values):
         if NAval in linevalues:
             # There is no intersection between the two sequence positions.
             return (seqnames[i], seqnames[linevalues.index(NAval)])
             # Return now and omit any other problematic values
 
+def list_nonoverlapping_NG(mlc):
+    seqnames, values = parse_NG(mlc)
+    nonoverlapping = []
+    for i, linevalues in enumerate(values):
+        for j, cellval in enumerate(linevalues):
+            if cellval == NAval:
+                # There is no intersection between the two sequence positions.
+                nonoverlapping.append((seqnames[i], seqnames[j]))
+                # Return now and omit any other problematic values
+    return nonoverlapping
+
+
 def main(mlcfiles):
     for mlcfile in mlcfiles:
-        r = check_NG(mlcfile)
+        r = quickcheck_NG(parse_mlc(mlcfile))
         if r:
             print('%s: %s - %s' % (op.basename(mlcfile), *r))
 

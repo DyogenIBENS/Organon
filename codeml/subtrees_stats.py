@@ -20,13 +20,14 @@ import LibsDyogen.myPhylTree as PhylTree
 from genomicustools.identify import SP2GENEID, \
                                     convert_gene2species
 from dendro.reconciled import get_taxon, \
-                               get_taxon_treebest, \
-                               infer_gene_event_taxa
+                              get_taxon_treebest, \
+                              infer_gene_event_taxa
 from dendro.bates import iter_distleaves
 from seqtools import ungap, \
                      algrep, \
                      make_al_stats
 from codeml.codemlparser2 import parse_mlc
+from find_non_overlapping_codeml_results import list_nonoverlapping_NG
 from codeml.prune2family import split_species_gene
 
 import logging
@@ -429,6 +430,9 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                         only_treebest_events['speloss'],
                                         only_treebest_events['duploss']))
                 output += (int(nodes_robust), only_treebest_events['spe'], aberrant_dists, rebuilt_topo)
+                # TO ADD:
+                # - Bootstrap values
+                # - Consecutive null distances.
 
             print('\t'.join((subtree, genetree, root_location) +
                              tuple(str(x) for x in output)))
@@ -455,6 +459,7 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     stats_header = ['subtree', 'genetree']
     stats_name   = ['ls', 'ns', 'Nbranches',
                     'NnonsynSites', 'NsynSites', 'kappa',
+                    'prop_splitseq',
                     'treelen', 'dS_treelen', 'dN_treelen',
                     'brlen_mean', 'brlen_std', 'brlen_med', 'brlen_skew',
                     'brOmega_mean', 'brOmega_std', 'brOmega_med', 'brOmega_skew',
@@ -522,8 +527,11 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
             dN_root_to_tips = np.array([leafdist for _, leafdist in
                                  iter_distleaves(dN_tree, get_childdist_ete3)])
 
-            #TODO: exclude the branches below the root from some values
-            #      (e.g. brlen_mean)
+            # TO ADD:
+            # - Number of NAvalues in Nei & Gojobori table.
+            ns = mlc['nsls']['ns']
+            prop_nonoverlap = len(list_nonoverlapping_NG(mlc)) * 2./(ns*(ns-1))
+
             stats_row = [mlc['nsls']['ls'],
                          mlc['nsls']['ns'],
                          Nbr,
@@ -531,6 +539,7 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                          dNdS_rows[0][1],  # NnonsynSites
                          dNdS_rows[0][2],  # NsynSites
                          mlc['output']['kappa'],
+                         prop_nonoverlap,
                          \
                          sum(br_lengths),  # tree length
                          sum(dS_lengths),      # tree length for dS
