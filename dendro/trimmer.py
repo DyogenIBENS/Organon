@@ -6,6 +6,9 @@
 
 
 import dendro.bates as dclimb
+import logging
+logger = logging.getLogger(__name__)
+
 
 def reset_data(tree, node, data):
     node.children = []
@@ -94,3 +97,27 @@ def thin_prottree(tree, root, rootdist, keptleaves):
         tree.data[root] = newnodedata
 
     return root, rootdist
+
+
+def fuse_single_child_nodes_ete3(tree, copy=True):
+    if copy:
+        tree = tree.copy()
+    count = 0
+    for node in tree.iter_descendants(strategy='postorder'):
+        if len(node.children) == 1:
+            child, = node.children
+            child.dist += node.dist
+            # This does not preserve the order of the children,
+            # if the parent had >=2 children.
+            #node.delete(prevent_nondicotomic=False,
+            #            preserve_branch_length=False)
+            node_i = node.up.children.index(node)
+            node.up.children[node_i] = child
+            count += 1
+
+    while len(tree.children) == 1:
+        tree = tree.children[0].detach()
+        count += 1
+
+    logger.debug('Fused %d nodes', count)
+    return tree

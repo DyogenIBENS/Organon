@@ -557,6 +557,80 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
     return lines, child_coords, subaxes
 
 
+def toothpaste(x, y, hue, data=None, order=None, hue_order=None,
+               cmap='viridis', **kwargs):
+    # Suggested colormaps: 'viridis', 'gist_rainbow', 'rainbow'
+    default_kwargs = {'widths': 1.}
+    default_kwargs.update(kwargs)
+    
+    g = data.groupby(x)
+    if order is None:
+        order = sorted(g.groups)
+    if hue_order is None:
+        hue_order = sorted(data.groupby(hue).groups)
+
+    cmap = plt.get_cmap(cmap, len(hue_order))
+
+    dataset = [g.get_group(name)[y].values for name in order]
+    violins = plt.violinplot(dataset=dataset, **default_kwargs)
+    ax = plt.gca()
+
+    facecolor='none'
+    edgecolor='k'
+
+    #plt.setp(ax.lines, zorder=100)
+    plt.setp(ax.collections, edgecolor=edgecolor, alpha=0.8)
+    
+    for i, polycollection in enumerate(violins['bodies']):
+        label = order[i]
+        polycollection.set_facecolor(facecolor)
+        polycollection.set_edgecolor(edgecolor)
+        polycollection.set_alpha(0.8)
+        
+        violinpath, = polycollection.get_paths()
+        coords = violinpath.vertices
+        #x = i+1
+        #left_coords = coords[coords[:,0]  < x]
+        #right_coords = coords[coords[:,0] > x]
+        mid = coords.shape[0] // 2
+        left_coords = coords[:mid]
+        if coords.shape[0] % 2:
+            # Skip middle coords if it draws a horizontal line.
+            mid += 1
+        right_coords = coords[mid:]
+
+        hue_left_x = left_coords[:,0].copy()
+        violin_y = left_coords[:,1]
+        
+        # Compute the density for each hue value
+        violindata = g.get_group(label)
+
+        # Estimate the width-scaling (Did not find a way to avoid recomputing the density)
+        scaling = float(default_kwargs['widths']) / max(gaussian_kde(violindata[y])(violin_y))
+        scaling /= violindata.shape[0]
+
+        violindata_hues = violindata.groupby(hue)
+
+        for j, hue_value in enumerate(hue_order):
+            logger.debug('violin #%d: hue #%d %r', i, j, hue_value)
+            try:
+                hue_data = violindata_hues.get_group(hue_value)
+            except KeyError as err:
+                logger.debug(str(err))
+                continue
+
+            npoints = hue_data.shape[0]
+            hue_density = npoints*scaling * gaussian_kde(hue_data[y])(violin_y)
+            ax.fill_betweenx(violin_y, hue_left_x, hue_left_x + hue_density, color=cmap(j))
+            hue_left_x += hue_density
+
+        #ax.plot(left_coords[:,0], violin_y, color=edgecolor)
+        #ax.plot(hue_left_x, violin_y, color=edgecolor)
+
+
+    return violins
+
+
 # Or joypy.joyplot
 def kde_ridgeplot(x, by, data=None):
     """

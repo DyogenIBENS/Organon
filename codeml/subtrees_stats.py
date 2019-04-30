@@ -23,9 +23,11 @@ from dendro.reconciled import get_taxon, \
                               get_taxon_treebest, \
                               infer_gene_event_taxa
 from dendro.bates import iter_distleaves
+from dendro.trimmer import fuse_single_child_nodes_ete3
 from seqtools import ungap, \
                      algrep, \
-                     make_al_stats
+                     make_al_compo
+from seqtools.plot_al_conservation import reorder_al, get_position_stats, parsimony_score
 from codeml.codemlparser2 import parse_mlc
 from find_non_overlapping_codeml_results import list_nonoverlapping_NG
 from codeml.prune2family import split_species_gene
@@ -75,9 +77,13 @@ def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
     logger.info('%d lines, %d subtrees' % (countlines, countfiles))
 
 
+def get_children(tree, node):
+    return node.children
+
+
 def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                  subtreesdir='subtreesCleanO2', ensembl_version=ENSEMBL_VERSION,
-                 ignore_error=True):
+                 ignore_outgroups=False, ignore_error=True):
     """Gather characteristics of the **input alignments**, and output them as
     a tsv file."""
 
@@ -85,14 +91,21 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     #ensembl_ids_anc = get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version)
     #pattern = '^(' + '|'.join(ensembl_ids_anc) + ')'
     
-    stats_header = ['subtree', 'genetree']
     stats_names  = [typ + '_' + measure
                     for typ in ('glob', 'mean', 'med', 'std', 'w_mean', 'w_std')
                     for measure in ('len', 'A','C','G','T', 'GC', 'N',
                                     'gaps', 'CpG')]
-    stats_header += stats_names + ['ingroup_' + name for name in stats_names]
+    # /!\ WARNING for future self: the below summary stats are **column-wise**!!!
+    # (VS sequence-wise above)
+    stats_names += ['%s_%s_%s' %(seqtype, measure, typ)
+                    for seqtype in ('nucl', 'codon')
+                    for measure in ('entropy', 'parsimony')
+                    for typ in ('mean', 'median', 'std')]
+    if ignore_outgroups:
+        ##TO REMOVE
+        stats_names = ['ingroup_'+s for s in stats_names]
 
-    print('\t'.join(stats_header))
+    print('\t'.join(['subtree', 'genetree'] + stats_names))
 
     for alfile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                              ancestor,
@@ -102,25 +115,49 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
         try:
             al = AlignIO.read(alfile, format='fasta')
             al = ungap(al)
-            _, al_stats = make_al_stats(al)
-            
             subtreefile = alfile.replace('_genes.fa', '.nwk')
             tree = ete3.Tree(subtreefile, format=1)
-            ingroupmarked = find_ingroup_marked(tree)
-            pattern = r'^(' + '|'.join(re.escape(s)
-                                       for s in ingroupmarked.get_leaf_names()) + ')$'
 
-            # TODO: take an '--ignore-outgroups' option.
-            ingroup_al = ungap(algrep(al, pattern))
-            outgroupsize = len(al) - len(ingroup_al)
-            if outgroupsize != 2:
-                logger.error("Removed outgroup of size %d ≠ 2 in %s",
-                             outgroupsize, subtree)
-            _, ingroup_al_stats = make_al_stats(ingroup_al)
+            if ignore_outgroups:
+                tree, _ = find_ingroup_marked(tree)
+                pattern = r'^(' + '|'.join(re.escape(s)
+                                           for s in tree.get_leaf_names()) + ')$'
+
+                orig_Nseq = len(al)
+                al = ungap(algrep(al, pattern))
+                outgroupsize = orig_Nseq - len(al)
+                if outgroupsize != 2:
+                    logger.error("Removed outgroup of size %d ≠ 2 in %s",
+                                 outgroupsize, subtree)
+
+            # Compositional stats
+            _, compo_stats = make_al_compo(al)
             
-            stats_row = ['%g' % s for stat in (al_stats + ingroup_al_stats) for s in stat]
+            # ~Evolutionary stats (conservation): arrays of column-wise values
+            seqlabels = tree.get_leaf_names()
+            al = reorder_al(al, seqlabels)
 
-            print('\t'.join([subtree, genetree] + stats_row))
+            evo_stats = []
+            tree = fuse_single_child_nodes_ete3(tree, copy=False)
+
+            ## By nucleotide column, then by codon.
+            for nucl, minlength in [(True,6), (False,66)]:
+                _, entropy, alint = get_position_stats(al, nucl=nucl, allow_N=True)
+                
+                pars_score = parsimony_score(alint, tree, seqlabels,
+                                             minlength=minlength,
+                                             get_children=get_children)
+                evo_stats.extend((entropy.mean(),
+                                  median(entropy),
+                                  entropy.std(),
+                                  pars_score.mean(),
+                                  median(pars_score),
+                                  pars_score.std()))
+            
+            al_stats = ['%g' % s for stat in compo_stats for s in stat]
+            al_stats += ['%g' % s for s in evo_stats]
+
+            print('\t'.join([subtree, genetree] + al_stats))
                 
             #treefiles_pattern = alfiles_pattern.replace('_genes.fa', '.nwk')
         except BaseException as err:
@@ -651,6 +688,7 @@ if __name__ == '__main__':
             dictargs.pop('commands')
             dictargs.pop('func')
             return func(**dictargs)
+        subp_func.__name__ = 'subp_' + func.__name__
         return subp_func
 
     parent_parser = argparse.ArgumentParser(add_help=False)
@@ -663,15 +701,15 @@ if __name__ == '__main__':
                                help="[%(default)s]")
     parent_parser.add_argument('-e', '--ensembl-version', type=int,
                                default=ENSEMBL_VERSION, help="[%(default)s]")
+    parent_parser.add_argument('-i', '--ignore-outgroups', action='store_true',
+                               help='Do not take outgroup species into account'\
+                                    ' to compute stats.')
     parent_parser.add_argument('-I', '--no-ignore-error', dest='ignore_error',
                                action='store_false')
 
     subp = parser.add_subparsers(dest='commands', help='type of statistics to compile')
 
     codemlstats_parser = subp.add_parser('codeml', parents=[parent_parser], aliases=['co'])
-    codemlstats_parser.add_argument('-i', '--ignore-outgroups', action='store_true',
-                                    help='Do not take outgroup species into '\
-                                         'account to compute tree stats.')
     codemlstats_parser.set_defaults(func=make_subparser_func(get_codeml_stats))
 
     alstats_parser = subp.add_parser('alignment', parents=[parent_parser], aliases=['al'])
@@ -680,9 +718,6 @@ if __name__ == '__main__':
     treestats_parser = subp.add_parser('tree', parents=[parent_parser], aliases=['tr'])
     treestats_parser.add_argument('-E', '--extended', action='store_true',
                                   help='Perform robustness test on nodes (instead of leaves VS root)')
-    treestats_parser.add_argument('-i', '--ignore-outgroups', action='store_true',
-                                  help='Do not take outgroup species into '\
-                                       'account to determine robustness')
     treestats_parser.set_defaults(func=make_subparser_func(get_tree_stats))
 
     args = parser.parse_args()

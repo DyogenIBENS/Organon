@@ -83,8 +83,11 @@ def get_seq_freqs(length, seq_nucl, seq_gap, seq_N, seq_CpG):
     #return (seq_lengths, seq_nucl_freq, seq_N_freq, seq_gap_freq, seq_CpG_freq)
     
 
-def get_al_stats(length, seq_counts, seq_freqs):
-    """Stats over the whole alignment"""
+def get_al_compo_summary(length, seq_counts, seq_freqs):
+    """Stats over the whole alignment
+    
+    Return: for each summary type, a list of values for each compositional element.
+    """
     seq_nucl, seq_gap, seq_N, seq_CpG = seq_counts
     
     seq_lengths = seq_freqs[0]
@@ -116,7 +119,7 @@ def get_al_stats(length, seq_counts, seq_freqs):
     return global_stats, seq_means, seq_medians, seq_stds, seq_w_means, seq_w_stds
 
 
-def make_al_stats(alignment, byseq=False):
+def make_al_compo(alignment, byseq=False):
     length, *seq_counts = get_seq_counts(alignment)
 
     seq_freqs = get_seq_freqs(length, *seq_counts)
@@ -126,14 +129,14 @@ def make_al_stats(alignment, byseq=False):
         stat_names = [r.name for r in alignment]  # (1 seq per row)
 
     else:
-        stats = get_al_stats(length, seq_counts, seq_freqs)
+        stats = get_al_compo_summary(length, seq_counts, seq_freqs)
         stat_names = ['glob', 'mean', 'med', 'std', 'w_mean', 'w_std']  # summary stats
     return stat_names, stats
 
 
 def main(alignment_file, format='fasta', byseq=False):
     alignment = AlignIO.read(alignment_file, format=format)  # Alphabet=
-    stat_names, stats = make_al_stats(alignment, byseq)
+    stat_names, stats = make_al_compo(alignment, byseq)
 
     n_stats = len(stats[0])
     

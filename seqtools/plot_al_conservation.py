@@ -26,7 +26,7 @@ except ImportError:
 
 from functools import reduce
 
-from IUPAC import gaps, unknown, nucleotides, ambiguous
+from seqtools.IUPAC import gaps, unknown, nucleotides, ambiguous
 from datasci.graphs import stackedbar, plottree
 from dendro.bates import rev_dfw_descendants
 
@@ -338,7 +338,7 @@ def parsimony_score(alint, tree, seqlabels, minlength=66, get_children=None):
     return score.astype(float) / branch_nb
 
 
-def al_stats(align, nucl=False, allow_N=False):
+def get_position_stats(align, nucl=False, allow_N=False):
     """Compute gap proportion and entropy value for each position of the alignment"""
     al_len = align.get_alignment_length()
     if al_len % 3 and not nucl:
@@ -379,9 +379,27 @@ def get_items_biophylo(tree, nodedist):
 def get_label_biophylo(node):
     return node.name
 
+
+def reorder_al(align, records=None, record_order=None):
+    """
+    param: `align`: Bio.Align object
+    param: `record_order`: sequence of integers
+    param: `records`: sequence of record names
+    """
+    # Mutually exclusive args
+    if not (record_order is None) ^ (records is None):
+        raise ValueError('`record_order` and `records` are mutually exclusive. Provide exactly one.')
+
+    if records is not None:
+        recnames = [rec.name for rec in align]
+        record_order = [recnames.index(recordname) for recordname in records]
+
+    return Align.MultipleSeqAlignment([align[r] for r in record_order])
+
+
 def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
                   outfile=None):
-    """"""
+    """DEPRECATED."""
     if outfile is None:
         #try:
         #    plt.switch_backend('Qt5Agg')
@@ -429,6 +447,15 @@ def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
         fig.savefig(outfile)
 
 
+def annotate_summary(ax, values):
+    summary = 'Mean: %g\nMedian: %g\nStd-dev: %g' % (
+                np.nanmean(values),
+                np.nanmedian(values),
+                np.nanstd(values))
+    ax.text(0.995, 0.99, summary, transform=ax.transAxes,
+            verticalalignment='top', horizontalalignment='right')
+
+
 PLOTS = ['gap_prop', 'entropy', 'gap_entropy', 'al', 'sp_score']
 COMP_PLOTS = ['manhattan', 'pearson', 'split_pairs_score']
 
@@ -459,9 +486,9 @@ class AlignPlotter(object):
                   #                ('invert_yaxis', {})],
                   #'gap':         default_step, #default_bar, "stackplot"
                   'gap':         [(stackedbar, {'width': 1, 'edgecolor': 'none'})],
-                  'pars':        default_bar,
-                  'entropy':     default_bar,
-                  'gap_entropy': default_bar,
+                  'pars':        default_bar + [(annotate_summary,)],
+                  'entropy':     default_bar + [(annotate_summary,)],
+                  'gap_entropy': default_bar + [(annotate_summary,)],
                   'sp':          default_bar,
                   'manh':        default_step,
                   'pearson':     default_step,
@@ -512,6 +539,7 @@ class AlignPlotter(object):
         norm = mpl.colors.BoundaryNorm(bounds, cmap.N)
         self.plot_funcs['al'][0][1].update(cmap=cmap, norm=norm)
         self.plot_properties['al']['yticks'] = np.arange(alint.shape[0])
+        #TODO: Add the *last* xtick showing alignment length.
         #self.plot_properties['al']['xlim'] = (0, alint.shape[1]) #pcolormesh
         self.plot_properties['al']['xlim'] = (-0.5, alint.shape[1]-0.5) #imshow
 
@@ -535,26 +563,27 @@ class AlignPlotter(object):
             logger.error("Not a codon alignment!")
 
         tree = None
-        if records or recordsfile or treefile:
-            if records:
-                records = [int(r) for r in records.split(',')]
-            else:
-                recnames = [rec.name for rec in align]
-                if recordsfile:
-                    with open(recordsfile) as recf:
-                        records = [recnames.index(line.rstrip()) for line in recf]
-                elif treefile:
-                    #try:
-                    #    import ete3
-                    #    tree = ete3.Tree(treefile, format=1)
-                    #    get_leaves = tree.get_leaves
-                    #except ImportError:
-                    from Bio.Phylo import read as phyloread
-                    tree = phyloread(treefile, 'newick')
-                    get_leaves = tree.get_terminals
-                    records = [recnames.index(leaf.name) for leaf in get_leaves()]
 
-            align = Align.MultipleSeqAlignment([align[r] for r in records])
+        if records or recordsfile or treefile:
+            record_order = None
+            if records:
+                record_order = [int(r) for r in records.split(',')]
+                records = None
+            elif recordsfile:
+                with open(recordsfile) as recf:
+                    records = [line.rstrip() for line in recf]
+            elif treefile:
+                #try:
+                #    import ete3
+                #    tree = ete3.Tree(treefile, format=1)
+                #    get_leaves = tree.get_leaves
+                #except ImportError:
+                from Bio.Phylo import read as phyloread
+                tree = phyloread(treefile, 'newick')
+                get_leaves = tree.get_terminals
+                records = [leaf.name for leaf in get_leaves()]
+
+            align = reorder_al(align, records, record_order)
 
         if slice:
             slstart, slend = [int(pos) for pos in slice.split(':')]
@@ -621,6 +650,10 @@ class AlignPlotter(object):
                              entropy=(self.x, self.entropy,),
                              gap_entropy=(self.x, self.gap_entropy,),
                              sp=(self.x, self.sp_score,))
+        self.plot_funcs['entropy'][1] = self.plot_funcs['entropy'][1] \
+                                     + ({'values': self.entropy},) 
+        self.plot_funcs['gap_entropy'][1] = self.plot_funcs['gap_entropy'][1] \
+                                     + ({'values': self.gap_entropy},) 
 
         if self.tree is not None:
             if hasattr(self.tree, 'children'):
@@ -628,11 +661,13 @@ class AlignPlotter(object):
             else:
                 get_children = lambda tree, node: node.clades
             self.parsimony_score = parsimony_score(self.alint, self.tree,
-                                                   minlength=(max_valid+2),
                                                    seqlabels=self.seqlabels,
+                                                   minlength=(max_valid+2),
                                                    get_children=get_children)
             self.plotlist.insert(1, 'pars')
             self.plotdata['pars'] = (self.x, self.parsimony_score)
+            self.plot_funcs['pars'][1] = self.plot_funcs['pars'][1] \
+                                         + ({'values': self.parsimony_score},) 
 
 
     def annotate_parts(self, ax):
@@ -792,7 +827,7 @@ def main_old(infile, outfile=None, format=None, nucl=False, allow_N=False,
         align = align[:,slstart:slend]
 
     seqlabels = [record.name for record in align]
-    gap_prop, al_entropy, alint = al_stats(align, nucl, allow_N)
+    gap_prop, al_entropy, alint = get_position_stats(align, nucl, allow_N)
     dist_array = comp_parts(alint, compare_parts)
     plot_al_stats(gap_prop, al_entropy, alint, dist_array, seqlabels, outfile)
 
