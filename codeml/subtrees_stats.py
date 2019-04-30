@@ -331,6 +331,19 @@ def get_childdist_ete3(tree, nodedist):
     return [(ch, ch.dist) for ch in nodedist[0].children]
 
 
+def count_consecutive_zeros(tree):
+    consecutive_zeros = 0
+    n_branches = 0
+
+    for node in tree.traverse():
+        if not node.is_root():
+            n_branches += 1
+            if node.dist == 0 and node.up.dist == 0:
+                consecutive_zeros += 1
+
+    return float(consecutive_zeros) / n_branches
+
+
 def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                    subtreesdir='subtreesCleanO2',
                    ensembl_version=ENSEMBL_VERSION,
@@ -344,7 +357,8 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     #ensembl_ids_anc = get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version)
     print('subtree\tgenetree\troot_location\tleaves_robust\tsingle_child_nodes'
           '\troot2tip_mean\troot2tip_sd'
-          + ('\tnodes_robust\tonly_treebest_spe\taberrant_dists\trebuilt_topo' if extended else ''))
+          + ('\tnodes_robust\tonly_treebest_spe\taberrant_dists\trebuilt_topo\t'
+             'bootstrap_min\tbootstrap_mean\tconsecutive_zeros' if extended else ''))
 
     ancgene2sp = make_ancgene2sp(ancestor, phyltree)
     all_ancgene2sp = make_ancgene2sp(phyltree.root, phyltree)
@@ -365,36 +379,36 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                             else '='
 
             # What about paralog outgroups?? Should NOT happen if prune2family WITHOUT `--latest`.
-            if root_location == 'O':
-                if ignore_outgroups:
-                    # Use the `is_outgroup` mark. When available, this is the safest.
-                    ingroupmarked, outgroups = find_ingroup_marked(tree, 2)
-                    if ingroupmarked == tree:
-                        logger.error('find_ingroup_marked:No outgroup found! %s',
-                                     tree.name)
+            #if root_location == 'O':
+            if ignore_outgroups:
+                # Use the `is_outgroup` mark. When available, this is the safest.
+                ingroupmarked, outgroups = find_ingroup_marked(tree, 2)
+                if ingroupmarked == tree:
+                    logger.error('find_ingroup_marked:No outgroup found! %s',
+                                 tree.name)
 
-                    # Double-check:
-                    ingroup, outgroups = find_ingroup(tree, ancestor, phyltree,
-                                            ensembl_version,
-                                            2,
-                                            any_get_taxon,
-                                            ancgene2sp=all_ancgene2sp)
-                    if ingroupmarked != ingroup:
-                        while len(ingroupmarked.children)==1:
-                            ingroupmarked, = ingroupmarked.children
-                            if ingroupmarked == ingroup:
-                                break
-                        else:
-                            logger.warning(
-                                    '%s: Found 2 ≠ ingroups with 2 methods: '
-                                    'find_ingroup -> %r ≠ find_ingroup_mark: %r',
-                                    subtree, ingroup.name, ingroupmarked.name)
-                            # This is ignored.
+                # Double-check:
+                ingroup, outgroups = find_ingroup(tree, ancestor, phyltree,
+                                        ensembl_version,
+                                        2,
+                                        any_get_taxon,
+                                        ancgene2sp=all_ancgene2sp)
+                if ingroupmarked != ingroup:
+                    while len(ingroupmarked.children)==1:
+                        ingroupmarked, = ingroupmarked.children
+                        if ingroupmarked == ingroup:
+                            break
+                    else:
+                        logger.warning(
+                                '%s: Found 2 ≠ ingroups with 2 methods: '
+                                'find_ingroup -> %r ≠ find_ingroup_mark: %r',
+                                subtree, ingroup.name, ingroupmarked.name)
+                        # This is ignored.
 
-                    tree = ingroupmarked
-                    
-                else:
-                    root_taxon, _ = split_species_gene(tree.name, all_ancgene2sp)
+                tree = ingroupmarked
+                
+            else:
+                root_taxon, _ = split_species_gene(tree.name, all_ancgene2sp)
 
             #logger.debug('Considered genetree root: %s; root taxon: %s; original: %s'
             #      tree.name, root_taxon or ancestor, ancestor)
@@ -430,9 +444,23 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                         only_treebest_events['speloss'],
                                         only_treebest_events['duploss']))
                 output += (int(nodes_robust), only_treebest_events['spe'], aberrant_dists, rebuilt_topo)
-                # TO ADD:
-                # - Bootstrap values
-                # - Consecutive null distances.
+                # Bootstrap values
+                B_values = []
+                # Consecutive null distances.
+                consecutive_zeros = 0
+                n_branches = 0
+
+                for node in tree.traverse():
+                    if not node.is_leaf() and hasattr(node, 'B'):
+                        B_values.append(int(node.B))
+                    if not node.is_root():
+                        n_branches += 1
+                        if node.dist == 0 and node.up.dist == 0:
+                            consecutive_zeros += 1
+
+                B_values = np.array(B_values)
+                output += (B_values.min(), B_values.mean(),
+                           float(consecutive_zeros)/n_branches)
 
             print('\t'.join((subtree, genetree, root_location) +
                              tuple(str(x) for x in output)))
@@ -446,6 +474,14 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
             else:
                 raise
 
+
+#def tree_autocorr(tree):
+#    """Compute the standard deviation of rates per branch."""
+#    fork_std = []
+#    for parent in tree.traverse():
+#        if not parent.is_leaf():
+#            # Can't have the rate value here.
+#
 
 def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                      subtreesdir='subtreesCleanO2',
@@ -468,6 +504,9 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                     'r2t_t_mean', 'r2t_t_std',
                     'r2t_dS_mean', 'r2t_dS_std',
                     'r2t_dN_mean', 'r2t_dN_std',
+                    'consecutive_zeros_t',
+                    'consecutive_zeros_dS',
+                    'consecutive_zeros_dN',
                     'lnL', 'Niter', 'time used', 'outgroups']
 
     # TODO: number of dN or dS values of zero
@@ -568,6 +607,10 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                          std(dS_root_to_tips),
                          mean(dN_root_to_tips),
                          std(dN_root_to_tips),
+                         \
+                         count_consecutive_zeros(t_tree),
+                         count_consecutive_zeros(dS_tree),
+                         count_consecutive_zeros(dN_tree),
                          \
                          mlc['output']['lnL']['loglik'],
                          mlc['output']['lnL']['ntime']
