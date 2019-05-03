@@ -127,6 +127,11 @@ restore_multi <- function(multi_tree, dicho_tree) {
 #  - chronos(phy, lambda=Inf): NPRS
 #  - chronosMPL: Mean Path Length, Britton et al
 
+## First, the arguments controling the optimisation
+mychronos_control <- chronos.control()#tol=1e8, iter.max=1e5, eval.max=1e5, dual.iter.max=40)
+mychronos_control_C <- mychronos_control
+mychronos_control_C[['nb.rate.cat']] <- 1
+
 date_line <- function(line) {
   func_params <- list(...)
   tree <- read.tree(text=line)
@@ -158,32 +163,40 @@ chronos_MPL <- function(subtree, calibration, ...) {
 }
 
 date_PL0 <- function(subtree, subcalib) {
-  return(chronos(subtree, lambda=0, calibration=subcalib, quiet=TRUE))
+  return(chronos(subtree, lambda=0, calibration=subcalib, quiet=TRUE,
+                 control=mychronos_control))
 }
 date_PL1 <- function(subtree, subcalib) {
-  return(chronos(subtree, lambda=1, calibration=subcalib, quiet=TRUE))
+  return(chronos(subtree, lambda=1, calibration=subcalib, quiet=TRUE,
+                 control=mychronos_control))
 }
 date_PL100 <- function(subtree, subcalib) {
-  return(chronos(subtree, lambda=100, calibration=subcalib, quiet=TRUE))
+  return(chronos(subtree, lambda=100, calibration=subcalib, quiet=TRUE,
+                 control=mychronos_control))
 }
 date_PL10000 <- function(subtree, subcalib) {
-  return(chronos(subtree, lambda=10000, calibration=subcalib, quiet=TRUE))
+  return(chronos(subtree, lambda=10000, calibration=subcalib, quiet=TRUE,
+                 control=mychronos_control))
 }
 date_NPRS <- function(subtree, subcalib) {
-  return(chronos(subtree, lambda=1e16, calibration=subcalib, quiet=TRUE))
+  return(chronos(subtree, lambda=1e16, calibration=subcalib, quiet=TRUE,
+                 control=mychronos_control))
 }
 date_R1 <- function(subtree, subcalib) {
-  return(chronos(subtree, model='relaxed', calibration=subcalib, quiet=TRUE))
+  return(chronos(subtree, model='relaxed', calibration=subcalib, quiet=TRUE,
+                 control=mychronos_control))
 }
 date_R100 <- function(subtree, subcalib) {
-  return(chronos(subtree, lambda=100, model='relaxed', calibration=subcalib, quiet=TRUE))
+  return(chronos(subtree, lambda=100, model='relaxed', calibration=subcalib,
+                 quiet=TRUE, control=mychronos_control))
 }
 date_R10000 <- function(subtree, subcalib) {
-  return(chronos(subtree, lambda=10000, model='relaxed', calibration=subcalib, quiet=TRUE))
+  return(chronos(subtree, lambda=10000, model='relaxed', calibration=subcalib,
+                 quiet=TRUE, control=mychronos_control))
 }
 date_C <- function(subtree, subcalib) {
   return(chronos(subtree, model='discrete', calibration=subcalib,
-                 control=chronos.control(nb.rate.cat=1), quiet=TRUE))
+                 control=mychronos_control_C, quiet=TRUE))
 }
 
 date_MPL <- function(subtree, subcalib) {
@@ -542,9 +555,9 @@ run <- function(datasetname, agefile, treefile) {
 date_all_trees_all_methods <- function(datasetname, agefile, treefile, ncores=6, n=-1) {
   calib <- load_calibration(agefile)
   allnewicks <- scan(treefile, what=character(), n=n, sep="\n")
-  outfile_ages <- paste0(datasetname, "_chronos-ages.tsv")
-  outfile_runs <- paste0(datasetname, "_chronos-runs.tsv")
-  outfile_logs <- paste0(datasetname, "_chronos-logs.tsv")
+  outfile_ages <- paste0(datasetname, ".chronos-ages.tsv")
+  outfile_runs <- paste0(datasetname, ".chronos-runs.tsv")
+  outfile_logs <- paste0(datasetname, ".chronos-logs.tsv")
   count_iter <<- 0
 
   # Name each tree by its root node name.
