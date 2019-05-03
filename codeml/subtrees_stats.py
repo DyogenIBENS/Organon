@@ -368,17 +368,40 @@ def get_childdist_ete3(tree, nodedist):
     return [(ch, ch.dist) for ch in nodedist[0].children]
 
 
-def count_consecutive_zeros(tree):
+def count_zero_combinations(tree):
+    """Count the proportions of branch of length 0:
+    - consecutive;
+    - sister;
+    - triplet.
+    """
     consecutive_zeros = 0
     n_branches = 0
 
+    sister_zeros = 0
+    triplet_zeros = 0
+    n_nodes = 0
+
     for node in tree.traverse():
+        if not node.is_leaf():
+            all_child_zeros = all(ch.dist==0 for ch in node.children)
+            sister_zeros += all_child_zeros
+
         if not node.is_root():
+            # Consecutive
             n_branches += 1
             if node.dist == 0 and node.up.dist == 0:
                 consecutive_zeros += 1
 
-    return float(consecutive_zeros) / n_branches
+            # Triplet and sister
+            if not node.is_leaf():
+                n_nodes += 1
+                if node.dist == 0 and all_child_zeros:
+                    triplet_zeros += 1
+
+    return (float(consecutive_zeros) / n_branches,
+            float(sister_zeros) / (n_nodes+1),
+            float(triplet_zeros) / n_nodes)
+
 
 
 def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
@@ -395,7 +418,9 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     print('subtree\tgenetree\troot_location\tleaves_robust\tsingle_child_nodes'
           '\troot2tip_mean\troot2tip_sd'
           + ('\tnodes_robust\tonly_treebest_spe\taberrant_dists\trebuilt_topo\t'
-             'bootstrap_min\tbootstrap_mean\tconsecutive_zeros' if extended else ''))
+             'bootstrap_min\tbootstrap_mean\tconsecutive_zeros\tsister_zeros\t'
+             'triplet_zeros'
+             if extended else ''))
 
     ancgene2sp = make_ancgene2sp(ancestor, phyltree)
     all_ancgene2sp = make_ancgene2sp(phyltree.root, phyltree)
@@ -483,21 +508,13 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                 output += (int(nodes_robust), only_treebest_events['spe'], aberrant_dists, rebuilt_topo)
                 # Bootstrap values
                 B_values = []
-                # Consecutive null distances.
-                consecutive_zeros = 0
-                n_branches = 0
-
                 for node in tree.traverse():
                     if not node.is_leaf() and hasattr(node, 'B'):
                         B_values.append(int(node.B))
-                    if not node.is_root():
-                        n_branches += 1
-                        if node.dist == 0 and node.up.dist == 0:
-                            consecutive_zeros += 1
 
                 B_values = np.array(B_values)
-                output += (B_values.min(), B_values.mean(),
-                           float(consecutive_zeros)/n_branches)
+                output += (B_values.min(), B_values.mean())
+                output += count_zero_combinations(tree)
 
             print('\t'.join((subtree, genetree, root_location) +
                              tuple(str(x) for x in output)))
@@ -542,7 +559,13 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                     'r2t_dS_mean', 'r2t_dS_std',
                     'r2t_dN_mean', 'r2t_dN_std',
                     'consecutive_zeros_t',
+                    'sister_zeros_t',
+                    'triplet_zeros_t',
                     'consecutive_zeros_dS',
+                    'sister_zeros_dS',
+                    'triplet_zeros_dS',
+                    'triplet_zeros_dN',
+                    'sister_zeros_dN',
                     'consecutive_zeros_dN',
                     'lnL', 'Niter', 'time used', 'outgroups']
 
@@ -645,9 +668,9 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                          mean(dN_root_to_tips),
                          std(dN_root_to_tips),
                          \
-                         count_consecutive_zeros(t_tree),
-                         count_consecutive_zeros(dS_tree),
-                         count_consecutive_zeros(dN_tree),
+                         *count_zero_combinations(t_tree),
+                         *count_zero_combinations(dS_tree),
+                         *count_zero_combinations(dN_tree),
                          \
                          mlc['output']['lnL']['loglik'],
                          mlc['output']['lnL']['ntime']
