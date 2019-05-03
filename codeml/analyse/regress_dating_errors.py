@@ -28,7 +28,8 @@ from datasci.graphs import scatter_density, \
                            heatmap_cov, \
                            plot_loadings, \
                            plot_features_radar, \
-                           plottree
+                           plottree, \
+                           stackedbar
 from datasci.stats import normal_fit, cov2cor
 from datasci.dataframe_recipees import centered_background_gradient, magnify
 from datasci.compare import pairwise_intersections, align_sorted
@@ -94,16 +95,16 @@ def time2seconds(time_str):
 
 
 def load_stats_al(alfile):
-    return pd.read_table(alfile, index_col=0)
+    return pd.read_csv(alfile, index_col=0, sep='\t')
 
 def load_stats_tree(treefile):
-    ts = pd.read_table(treefile, index_col=0,
-                       dtype={'leaves_robust':      bool,
-                              'single_child_nodes': bool,
-                              'nodes_robust':       bool,
-                              'only_treebest_spe':  int,
-                              'aberrant_dists':     int})
-                              #'root2tip_var': float
+    ts = pd.read_csv(treefile, index_col=0, sep='\t',
+                     dtype={'leaves_robust':      bool,
+                            'single_child_nodes': bool,
+                            'nodes_robust':       bool,
+                            'only_treebest_spe':  int,
+                            'aberrant_dists':     int})
+                            #'root2tip_var': float
     ts['really_robust'] = ts.leaves_robust & ts.nodes_robust & ~ts.only_treebest_spe
     try:
         ts['unlike_clock'] = ts.root2tip_sd / ts.root2tip_mean
@@ -112,7 +113,7 @@ def load_stats_tree(treefile):
     return ts
 
 def load_stats_codeml(codemlfile):
-    cs = pd.read_table(codemlfile, index_col=0)
+    cs = pd.read_csv(codemlfile, index_col=0, sep='\t')
     cs['seconds'] = cs['time used'].apply(time2seconds)
     return cs
 
@@ -140,6 +141,15 @@ def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
 
     return tuple(output_tables)
 
+def intersection_plot(**kwargs):
+    labels, *values = pairwise_intersections(**kwargs)
+
+    intersections = np.array(values)
+    stackedbar(np.arange(len(labels)), intersections, zero=1, orientation='horizontal');
+    ax = plt.gca()
+    ax.set_yticks(np.arange(len(labels)))
+    ax.set_yticklabels(['%s ^ %s' % lab for lab in labels], size='large')
+    return ax
 
 def check_load_subtree_stats(aS, ts, cs):
     logger.info("shapes: aS %s, ts %s, cs %s" % (aS.shape, ts.shape, cs.shape))
@@ -157,8 +167,7 @@ def check_load_subtree_stats(aS, ts, cs):
     logger.warning("%d only in al stats: %s" % (l_al, list(only_al)[:min(5, l_al)]))
     logger.warning("%d only in tree stats: %s" % (l_tr, list(only_tr)[:min(5, l_tr)]))
     logger.warning("%d only in codeml stats: %s" % (l_co, list(only_co)[:min(5, l_co)]))
-    # Todo: pyupset plot
-
+    ax = intersection_plot(aS=aS.index, ts=ts.index, cs=cs.index)
 
 
 # ## Function to merge additional subgenetree information into `ages`
@@ -168,7 +177,7 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
     
     assert (ages is not None or ages_file) and not (ages_file and ages is not None), "At least `ages` (dataframe) or `ages_file` (filename) must be given."
     if ages is None:
-        ages = pd.read_table(ages_file, sep='\t')
+        ages = pd.read_csv(ages_file, sep='\t')
     
     logger.info("Input shape: %s", ages.shape)
     criterion = criterion_serie.name if not criterion_name else criterion_name
@@ -219,7 +228,7 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
 def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     """Load ages dataframe, join with parent information, and compute the
     'robust' info"""
-    ages = pd.read_table(ages_file, sep='\t', index_col=0)
+    ages = pd.read_csv(ages_file, sep='\t', index_col=0)
 
     logger.info("Shape ages: %s; has dup: %s" % (ages.shape, ages.index.has_duplicates))
     n_nodes = ages.shape[0]
@@ -255,7 +264,7 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     #display_html(ages_orphans.head())
 
     #expected_orphans = ages.is_outgroup_parent.isna()
-    recognized_outgroups = (ages_orphans.is_outgroup == 1)
+    recognized_outgroups = (ages_orphans.is_outgroup | ages_orphans.is_outgroup_parent)
                             #| ages_orphans.is_outgroup_parent == 1)
     orphan_taxa = ages_orphans[~recognized_outgroups].taxon.unique()
 
@@ -282,7 +291,7 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     #         ages.loc[nochild - e_nochild])
 
     # Drop outgroups! (they create duplicated index values and might confuse stuff
-    # However don't drop the ingroup root
+    # HOWEVER DON'T drop the ingroup root.
     # (doesn't have an is_outgroup_parent info)
 
     child_of_root = ages_p.root == ages_p.parent
@@ -290,9 +299,10 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     to_remove = (~child_of_root & orphans
                  | (ages_p.is_outgroup == 1)
                  | ages_p.is_outgroup_parent == 1)
-    # If some nodes to remove appear to be valid ingroup nodes, it's because their
-    # ancestors could not be dated (absence of the node required for calibration,
-    # e.g Simiiformes)
+    to_remove = (orphans
+                 | (ages_p.is_outgroup == 1)
+                 | ages_p.is_outgroup_parent == 1)
+
     ages_p = ages_p.loc[~to_remove].copy(deep=False)
     if ages_p.index.has_duplicates:
         debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age', 'branch_dS', 'age_dS']
@@ -302,9 +312,12 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
                           & (ages_p.type_parent == 'spe')]
     logger.info("\nShape ages speciation to speciation branches (no dup): %s",
                 ages_spe2spe.shape)
+    
+    #NOTE: already computed by `subtrees_stats` in current version.
     for m in measures:
         ages_p['consecutive_null_%s' %m] = \
                 ~ages_p[['branch_%s_parent' %m, 'branch_%s' %m]].any(axis=1)
+
     ages_treestats = add_robust_info(ages_p, ts)
 
     #ages_robust = ages_treestats[ages_treestats.really_robust & \
@@ -335,6 +348,7 @@ def tree_dist_2_rate(g, dist_var, norm_var="median_brlen"):
 def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
                               measures=['dist', 'dS', 'dN', 't'],
                               control_condition='really_robust & aberrant_dists == 0'):
+    # 'consecutive_zeros_dS==0'
     # Merge control dates
     ages_forcontrol = ages.query(control_condition)
     logger.info("%d nodes from robust trees", ages_forcontrol.shape[0])
@@ -471,10 +485,15 @@ def compute_dating_errors(ages_controled, control='median'):
                 (ages_controled.age_dS_parent - ages_controled.age_dS - \
                  ages_controled[brlen_var])
 
-    mean_errors = ages_controled[
-                     ['subgenetree', 'abs_age_error', 'signed_age_error',
-                      'abs_brlen_error', 'signed_brlen_error']
-                    ].groupby("subgenetree").mean()
+    # Compute the mean only for nodes that were not calibrated.
+    sgg = ages_controled.groupby("subgenetree")
+    #dev_measures = ['abs_age_dev', 'signed_age_dev', 'abs_brlen_dev', 'signed_brlen_dev']
+    mean_errors = pd.concat((sgg[['abs_age_dev', 'signed_age_dev']].sum() \
+                             / sgg['calibrated'].agg(lambda v: (1-v).sum()),
+                             sgg[['abs_brlen_dev', 'signed_brlen_dev']].sum() \
+                             / sgg[['calibrated', 'calibrated_parent']]\
+                                .apply(lambda df: ((1-df.calibrated) | (1-df.calibrated_parent)).sum())),
+                            axis=1)
     return mean_errors
 
 
@@ -704,6 +723,9 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
             if var.dtype != int:
                 print("Variable %r does not seem to be numeric. Skipping" % ft)
                 continue
+        if var.min() == var.max():
+            print("Variable %r is constant. Skipping." % ft)
+            continue
         
         fig, axes = plt.subplots(1, 3, figsize=figsize)
         #axes[i, 0].set_ylabel(ft)
@@ -716,20 +738,23 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
         _, ymax0 = axes[0].get_ylim()
         
         varskew = var.skew()
-        text = "Skew: %g\nKurtosis: %g\n" % (var.skew(), var.kurt())
+        text = "Skew: %g\nKurtosis: %g\n" % (varskew, var.kurt())
         transform_skews[notransform] = varskew
 
+        current_logtransform = None
         if (var < 0).any():
             if (var > 0).any():
                 print("Variable %r has negative and positive values. Shifting to positive." % ft)
                 text += "Negative and positive values. Shifting to positive.\n"
                 var -= var.min()
-                #best_transform = make_logpostransform_inc()
+                current_logtransform = make_logpostransform_inc()
             else:
                 print("Variable %r converted to positive values" % ft)
                 text += "Converted to positive values.\n"
                 var = -var
-                #best_transform = logneg
+                current_logtransform = logneg  # What if null values?
+        else:
+            current_logtransform = log
         
         # Plot log-transformed distribution
         with warnings.catch_warnings(record=True) as w:
@@ -745,17 +770,21 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
         
         logskew, logkurt = logtransformed_var.skew(), logtransformed_var.kurt()
         logtext = "Skew: %g\nKurtosis: %g\n" % (logskew, logkurt)
-        #transform_skews[logtransform] = logskew
 
         axes[1].hist(logtransformed_var, bins=nbins, density=True, alpha=0.5)
         axes[1].plot(*normal_fit(logtransformed_var), '-', alpha=0.5)
         
-        if n_infinite_vals:
+        if not n_infinite_vals:
+            transform_skews[current_logtransform] = logskew
+        else:
+            make_logtransform = make_logtransform_inc if current_logtransform is log \
+                                else make_logpostransform_inc
+            
             suggested_increment = logtransformed_var.quantile(0.05)
-            print("%s: Nb of not finite values: %d. Suggested increment: 10^(%g)"\
-                        % (ft, n_infinite_vals, suggested_increment))
+            print("%s: Nb of not finite values: %d. Suggested increment: 10^(%g) = %g"\
+                  % (ft, n_infinite_vals, suggested_increment, 10**suggested_increment))
             text += "%d not finite values. Suggested increment: 10^(%g)"\
-                        % (n_infinite_vals, suggested_increment)
+                     % (n_infinite_vals, suggested_increment)
 
             logtransformed_inc_var = np.log10(var + 10**suggested_increment) #1.) 
             twin_ax1 = axes[1].twinx()
@@ -769,15 +798,15 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
                            alpha=0.5, label="Increment+1", color="#a86a78") # Red
             twin2_ax1.plot(*normal_fit(logtransformed_inc1_var), '-', alpha=0.5)
             
+            log_inc_varskew = logtransformed_inc_var.skew()
             logtext_inc = ("Skew     (+inc): %g\nKurtosis (+inc): %g\n"
-                           % (logtransformed_inc_var.skew(),
-                              logtransformed_inc_var.kurt()))
-            #transform_skews[logtransform_inc(10**suggested_increment)] = logtransformed_inc_var.skew()
-            
+                           % (log_inc_varskew, logtransformed_inc_var.kurt()))
+            transform_skews[make_logtransform(10**suggested_increment)] = log_inc_varskew
+
+            log_inc1_varskew = logtransformed_inc1_var.skew()
             logtext_inc1 = ("Skew     (+1): %g\nKurtosis (+1): %g\n"
-                            % (logtransformed_inc1_var.skew(),
-                               logtransformed_inc1_var.kurt()))
-            #transform_skews[logtransform_inc(1)] = logtransformed_inc1_var.skew()
+                            % (log_inc1_varskew, logtransformed_inc1_var.kurt()))
+            transform_skews[make_logtransform(1)] = log_inc1_varskew
 
         xmin1, xmax1 = axes[1].get_xlim()
         _, ymax1 = axes[1].get_ylim()
@@ -785,9 +814,10 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
         axes[1].set_title("log10 transformed")
         
         sqrttransformed_var = np.sqrt(var)
-        sqrttext = "Skew: %g\nKurtosis: %g\n" % (sqrttransformed_var.skew(),
+        sqrttransformed_varskew = sqrttransformed_var.skew()
+        sqrttext = "Skew: %g\nKurtosis: %g\n" % (sqrttransformed_varskew,
                                                  sqrttransformed_var.kurt())
-        transform_skews[sqrt] = sqrttransformed_var.skew()
+        transform_skews[sqrt] = sqrttransformed_varskew
 
         axes[2].hist(sqrttransformed_var, bins=nbins, density=True)
         axes[2].plot(*normal_fit(sqrttransformed_var), '-')
@@ -837,6 +867,12 @@ def make_logpostransform_inc(inc=0):
     loginc = lambda x: np.log10(x + x.min() + inc)
     loginc.__name__ = "log10(%g+min+%%s)" % (inc)
     return loginc
+
+def discretize(bins=[0]):
+    """"""
+    def discrete(x):
+        return np.digitize(x, bins, right=True)
+    return discrete
 
 
 # ~~> datasci.routines ?
@@ -1080,7 +1116,7 @@ class analysis(object):
 
     @dependency_func
     def mean_errors(self, control='median'):
-        return compute_dating_error(self.ages_controled, control=control)
+        return compute_dating_errors(self.ages_controled, control=control)
 
     @dependency_func
     def mean_speciation_errors(self, control='median'):
@@ -1164,7 +1200,7 @@ if __name__ == '__main__':
     ages_file = "../ages/Simiiformes_m1w04_ages.subtreesCleanO2-um2-ci-grepoutSG.tsv"
     outbase = "Simiiformes_m1w04_ages.subtreesCleanO2-um2-ci-grepoutSG"
 
-    ages = pd.read_table(ages_file, sep='\t', index_col=0)
+    ages = pd.read_csv(ages_file, sep='\t', index_col=0)
     #if not set(('taxon', 'genetree')) & set(ages.columns):
     #    ages = splitname2taxongenetree(ages, "name")
 
@@ -2192,7 +2228,7 @@ if __name__ == '__main__':
 
 # # Chronos dating (PL)
 
-    ages_PL1 = pd.read_table("/users/ldog/glouvel/ws2/DUPLI_data85/alignments_analysis/ages/Simiiformes_m1w04_ages.subtreesCleanO2-um2-withSG-PL1.tsv",
+    ages_PL1 = pd.read_csv("/users/ldog/glouvel/ws2/DUPLI_data85/alignments_analysis/ages/Simiiformes_m1w04_ages.subtreesCleanO2-um2-withSG-PL1.tsv",
                              sep='\t', index_col=0)
 
     # ### Compute the number of duplications and speciations in the tree

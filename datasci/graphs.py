@@ -304,7 +304,7 @@ def annotate_features_radar(ax, components, features, PCs):
         va = 'bottom' if (angle>0) else 'top'
         # Text should not be upside down.
         rotation = angle if (-90 < angle <= 90) else angle-180
-        ax.annotate(s=ft, xy=(a, r*1.05), xytext=(a, (r*1.05 + rtxt)/2), #xycoords='polar',
+        ax.annotate(ft, xy=(a, r*1.05), xytext=(a, (r*1.05 + rtxt)/2), #xycoords='polar',
                     arrowprops={'arrowstyle':'->',
                                 'linestyle':'dashed',
                                 'alpha':0.5},
