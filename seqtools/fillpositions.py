@@ -31,8 +31,7 @@ ENSPPYG00000017722
 """
 
 
-def main(positionsfile, alignmentfile=stdin, to_codons=False, fillchar='-',
-         format='fasta', outputfile=stdout):
+def parse_seqranges(positionsfile, to_codons=False):  #should be FROM codons/FROM aa.
     ranges = {}
     multiply = 3 if to_codons else 1
     with open(positionsfile) as f:
@@ -47,10 +46,17 @@ def main(positionsfile, alignmentfile=stdin, to_codons=False, fillchar='-',
                 seqrange = ((seqrange[0]-1)*multiply,
                             seqrange[1]*multiply)
                 ranges[current_seq].append(seqrange)
+    return ranges
+
+
+def main(positionsfile, alignmentfile=stdin, to_codons=False, fillchar='-',
+         format='fasta', outputfile=stdout):
+
+    ranges = parse_seqranges(positionsfile, to_codons)
 
     if alignmentfile == '-':
-        alignmentfile = sys.stdin
-    
+        alignmentfile = stdin
+
     recordlist = []
     for record in SeqIO.parse(alignmentfile, format):
         slen = len(record.seq)
@@ -67,7 +73,6 @@ def main(positionsfile, alignmentfile=stdin, to_codons=False, fillchar='-',
         recordlist.append(record)
 
     SeqIO.write(recordlist, outputfile, format)
-
 
 
 if __name__ == '__main__':

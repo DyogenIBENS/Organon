@@ -153,7 +153,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('alignment_file', nargs='?',
                         type=argparse.FileType('r'), default=stdin)
-    parser.add_argument('-f', '--format', default='fasta')
+    parser.add_argument('-f', '--format', default='fasta', help='[%(default)s]')
     parser.add_argument('-s', '--byseq', action='store_true')
     
     args = parser.parse_args()

@@ -550,8 +550,8 @@ class AlignPlotter(object):
 
     @classmethod
     def fromfile(cls, infile, format=None, nucl=False, allow_N=False,
-                 slice=None, records=None, recordsfile=None, treefile=None,
-                 topology_only=False):
+                 ungap=True, slice=None, records=None, recordsfile=None,
+                 treefile=None, topology_only=False):
         align = AlignIO.read(infile,
                              format=(format or
                                      filename2format(getattr(infile, 'name',
@@ -600,8 +600,10 @@ class AlignPlotter(object):
         seqlabels = [record.name for record in align]
         # Convert matrix of codon/nucleotide strings to matrix of integers.
         alint = al2int(align, nucl, allow_N)
-        # remove columns being 100% gaps
-        alint = alint[:, alint.sum(axis=0) > 0]
+
+        # ungap: remove columns being 100% gaps
+        if ungap:
+            alint = alint[:, alint.sum(axis=0) > 0]
 
         # Init and setup the class instance
         valid_range = (1, 4) if nucl else (1, 64)
@@ -833,7 +835,7 @@ def main_old(infile, outfile=None, format=None, nucl=False, allow_N=False,
 
 
 def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
-         records=None, recordsfile=None, treefile=None, slice=None,
+         ungap=True, records=None, recordsfile=None, treefile=None, slice=None,
          topology_only=False, compare_parts=None,
          compare_only=False, figwidth=16, plotlist=None):
     
@@ -870,6 +872,8 @@ if __name__ == '__main__':
                         help='Process per nucleotide position (instead of codon)')
     parser.add_argument('-N', '--allow-N', action='store_true',
                         help='Tolerate "N" nucleotides as NA value.')
+    parser.add_argument('-g', '--no-ungap', dest='ungap', action='store_false',
+                        help='Do not remove columns of gaps.')
     rec_g = parser.add_mutually_exclusive_group()
     rec_g.add_argument('-r', '--records',
                         help='select records (coma-sep list of 0-based integers)')
