@@ -748,7 +748,7 @@ class AlignPlotter(object):
         else:
             rows = nplots
             cols = 1
-            colspan = 0
+            colspan = 1
             gridspec_kw = {}
         logger.debug("subplots: %d, %d" % (rows, cols))
         pos = (0,0)
@@ -793,8 +793,10 @@ class AlignPlotter(object):
                     #pos += 2 if 'tree' in plotlist else 1
                     #ax = fig.add_subplot(rows, cols, pos, sharex=ax)
                     pos = (pos[0]+1, pos[1])
+                    logger.debug('rows,cols: (%d,%d); pos: %s; colspan: %d',
+                                 rows, cols, pos, colspan)
                     ax = plt.subplot2grid((rows,cols), pos, colspan=colspan, fig=fig, sharex=ax, autoscalex_on=False)
-            axes.append(ax)
+                axes.append(ax)
 
         # On the last plot:
         if self.slstart:
@@ -842,8 +844,8 @@ def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
     if not outfile:
         plt.switch_backend('TkAgg')
 
-    align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, slice,
-                                       records, recordsfile, treefile,
+    align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, ungap,
+                                       slice, records, recordsfile, treefile,
                                        topology_only)
     if not compare_only:
         align_plot.measure()
@@ -854,6 +856,7 @@ def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
         if 'pars' in plotlist or 'tree' in plotlist:
             assert treefile is not None, \
                     "A treefile must be given to compute parsimony score or plot a tree."
+            # plotlist.remobe('pars') ## 'tree'
             if 'tree' not in plotlist and 'al' in plotlist:
                 plotlist.insert(plotlist.index('al'), 'tree')
     align_plot.makefig(figwidth, plotlist)
