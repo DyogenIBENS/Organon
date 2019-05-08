@@ -31,6 +31,9 @@ from seqtools.plot_al_conservation import reorder_al, get_position_stats, parsim
 from codeml.codemlparser2 import parse_mlc
 from find_non_overlapping_codeml_results import list_nonoverlapping_NG
 from codeml.prune2family import split_species_gene
+from seqtools.compo_freq import get_seq_counts
+from seqtools.gblocks_parser import parse_gb_html
+from seqtools.fillpositions import parse_seqranges
 
 import logging
 logger = logging.getLogger(__name__)
@@ -692,6 +695,77 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                 raise
 
 
+def get_cleaning_stats(genetreelistfile, ancestor, 
+                       rootdir='.', subtreesdir='subtreesCleanO2',
+                       ignore_error=True, **kwargs):
+    """Data removed from alignment with Gblocks/Hmmcleaner"""
+    stats_header = ['subtree', 'genetree', 'gb_Nblocks', 'gb_percent',
+                    'hmmc_nseqs', 'hmmc_propseqs', 'hmmc_max',
+                    'hmmc_mean_onlycleaned', 'hmmc_mean']
+
+    print('\t'.join(stats_header))
+    for alfile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
+                                                             ancestor,
+                                                             '_genes.fa',
+                                                             rootdir,
+                                                             subtreesdir):
+        ext_regex = re.compile(r'\.fa$')
+        try:
+            # parse Gblocks output
+            gb_logfile = alfile + '-gb.htm'
+            if op.exists(gb_logfile):
+                gb = parse_gb_html(gb_logfile)
+                output = [gb['Nblocks'], gb['positions']['percent']]
+            else:
+                output = [None, None]
+            
+            # parse hmmc output
+            hmmc_logfile = ext_regex.sub('_prot_hmm.log', alfile, count=1)
+            if op.exists(hmmc_logfile):
+                hmmc_ranges = parse_seqranges(hmmc_logfile)
+
+                al = AlignIO.read(alfile, format='fasta')
+                seqlabels = [record.name for record in al]
+                length, seq_nucls, seq_gaps, seq_N, _ = get_seq_counts(al)
+
+                ## stats by sequence:
+                ## - prop cleaned / alignment length
+                ## - prop cleaned / nongaps
+                ## - prop cleaned / known nucl
+                seq_stats = np.zeros((len(seqlabels), 3))
+
+                for i, label in enumerate(seqlabels):
+                    Ncleaned = float(sum(end-start
+                                         for (start, end) in hmmc_ranges[label]))
+                    seq_stats[i, :] = [Ncleaned / length,
+                                       Ncleaned / (length - seq_gaps[i]),
+                                       Ncleaned / (length - seq_gaps[i] - seq_N[i])]
+
+                cleaned_props = seq_stats[:,0]
+                cleaned_seqs = (cleaned_props > 0).sum()
+                
+                output += [cleaned_seqs,
+                           float(cleaned_seqs)/len(seqlabels),
+                           cleaned_props.max(),
+                           cleaned_props[cleaned_props > 0].mean(),
+                           cleaned_props.mean()]
+            else:
+                output += [None]*5
+            # was the outgroup cleaned?
+
+            print('\t'.join([subtree, genetree]
+                            + ['' if x is None else ('%g' % x)
+                                for x in output]))
+                
+            #treefiles_pattern = alfiles_pattern.replace('_genes.fa', '.nwk')
+        except BaseException as err:
+            if ignore_error:
+                logger.exception('At file %s', alfile)
+            else:
+                err.args = (str(err.args[0]) + '. At file %s' % alfile,) + err.args[1:]
+                raise
+
+
 if __name__ == '__main__':
     logger.setLevel(logging.INFO)
     try:
@@ -742,6 +816,9 @@ if __name__ == '__main__':
     treestats_parser.add_argument('-E', '--extended', action='store_true',
                                   help='Perform robustness test on nodes (instead of leaves VS root)')
     treestats_parser.set_defaults(func=make_subparser_func(get_tree_stats))
+    cleaning_parser = subp.add_parser('cleaning', parents=[parent_parser],
+                                      aliases=['cl'])
+    cleaning_parser.set_defaults(func=make_subparser_func(get_cleaning_stats))
 
     args = parser.parse_args()
     if args.debug:
