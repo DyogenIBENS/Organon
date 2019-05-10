@@ -16,7 +16,7 @@ import fileinput
 import re
 import os.path as op
 #from codemlparser import parse_mlc
-from codemlparser2 import parse_mlc
+from codeml.codemlparser2 import parse_mlc
 
 
 # space preceded by closing parenthesis
@@ -27,6 +27,7 @@ NAval = '-1.0000 (-1.0000 -1.0000)'
 
 def parse_NG(mlc):
     NGlines = mlc['Nei & Gojobori']['matrix']
+    assert len(NGlines[0]) == len(NGlines[1]), "Bad parsing of NG matrix."
     seqnames, nblines = zip(*NGlines)
     return seqnames, [RE_FIELD.findall(line) for line in nblines]
 

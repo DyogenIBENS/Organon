@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from __future__ import print_function
+import re
 from archiparse import ParseUnit, ParseBloc, floatlist, strlist, OrderedDict
 
 
@@ -34,20 +35,26 @@ mlc_parser = ParseBloc('mlc',
                  ParseBloc('Nei & Gojobori',
                            units=[
                             ParseUnit('Description',
-r'''^Nei & Gojobori 1986\. dN/dS \(dN, dS\)$'''),
+r'''^Nei & Gojobori 1986\. dN/dS \(dN, dS\)$
+(?:.+\n)+\n+'''),
 #\(Pairwise deletion\)
 #\(Note: This matrix is not used in later ML\. analysis\.
-#Use runmode = -2 for ML pairwise comparison\.\)$'''),
+#Use runmode = -2 for ML pairwise comparison\.\)\n+'''),
                             ParseUnit('matrix',
-                                '^(\w+)\ \ \ ?(.*)\n',
-                                types=[str, str],
-                                repeat=True)
+                                r'^((?:\w+ *(?:[0-9-].*|)\n)+)',
+                                flags=0,
+                                convert=re.compile(r'^(\w+) *([0-9-].*|)$',
+                                                   re.M).findall)
                             ]),
-                 ParseBloc('output', 
-                            units=[
+                 ParseBloc('output',
+                           units=[
                         ParseUnit('numbered topology',
-                                  r'^TREE # *\d+: +(.*;) +MP score: (-?\d+)$',
+                                  r'^TREE # *\d+: +(.*;) +MP score: (-?\d+)\n',
                                   keys=['tree', 'MP score'], types=[str, int]),
+                        ParseUnit('warnings',
+r'''^(This is a rooted tree. +Please check!)?
+(check convergence\.\.)?''',
+    flags=0, keys=['rooted tree', 'check convergence'], types=[bool, bool]),
                         ParseUnit('lnL',
                             r'^lnL\(ntime: *(\d+)\s+np: *(\d+)\):\s+([0-9.+-]+)\s+([0-9.+-]+)$',
                         keys=['ntime', 'np', 'loglik', 'error'],

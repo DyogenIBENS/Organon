@@ -98,6 +98,7 @@ class ParseBloc(object):
 
         return parsed, text
 
+#class RepeatBloc(ParseBloc):
 
 class ParseUnit(object):
     """

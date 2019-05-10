@@ -552,7 +552,7 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     stats_header = ['subtree', 'genetree']
     stats_name   = ['ls', 'ns', 'Nbranches',
                     'NnonsynSites', 'NsynSites', 'kappa',
-                    'prop_splitseq',
+                    'prop_splitseq', 'codemlMP', 'convergence_warning',
                     'treelen', 'dS_treelen', 'dN_treelen',
                     'brlen_mean', 'brlen_std', 'brlen_med', 'brlen_skew',
                     'brOmega_mean', 'brOmega_std', 'brOmega_med', 'brOmega_skew',
@@ -642,6 +642,8 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                          dNdS_rows[0][2],  # NsynSites
                          mlc['output']['kappa'],
                          prop_nonoverlap,
+                         mlc['output']['numbered topology']['MP score'],
+                         int(mlc['output']['warnings']['check convergence']),
                          \
                          sum(br_lengths),  # tree length
                          sum(dS_lengths),      # tree length for dS
