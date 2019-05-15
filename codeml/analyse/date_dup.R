@@ -618,8 +618,8 @@ if(!interactive()) {
   #options(error=function(){warnings();traceback();return(1)})
 
   args <- c("Simiiformes_m1w04_ages.subtreesGoodQualO2-ci",
-            "Simiiformes_m1w04_ages.subtreesGoodQualO2-um2-ci.tsv",
-            "Simiiformes_m1w04_ages.subtreesGoodQualO2-um2-ci.dSfulltrees.nwk",
+            "Simiiformes_m1w04_ages.subtreesGoodQualO2-ci-um2.tsv",
+            "Simiiformes_m1w04_ages.subtreesGoodQualO2-ci.dSsubtrees.nwk",
             1, 35)
   args <- commandArgs(trailingOnly=TRUE)
   if( !(length(args) %in% 3:5) ) {

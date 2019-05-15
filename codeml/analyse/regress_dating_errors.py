@@ -85,6 +85,13 @@ pd.set_option("display.show_dimensions", True)  # even on non truncated datafram
 mpl.rcParams['figure.figsize'] = (14, 10) # width, height
 
 
+# Useful variables: the name of statistics of interest:
+measures = ['dist', 'dS', 'dN', 't']
+dist_measures = ['branch_%s' % m for m in measures]
+rate_measures = ['%s_rate' % m for m in measures]
+rate_std_measures = [r + '_std' for r in rate_measures]
+
+
 # Convert "time used" into seconds.  # ~~> numbertools? timetools? converters?
 def time2seconds(time_str):
     factors = [1, 60, 3600, 3600*24]
@@ -96,6 +103,9 @@ def time2seconds(time_str):
 
 def load_stats_al(alfile):
     return pd.read_csv(alfile, index_col=0, sep='\t')
+
+load_any_stats = load_stats_al
+
 
 def load_stats_tree(treefile):
     ts = pd.read_csv(treefile, index_col=0, sep='\t',
@@ -119,7 +129,8 @@ def load_stats_codeml(codemlfile):
 
 stat_loaders = {'al':     load_stats_al,
                 'tree':   load_stats_tree,
-                'codeml': load_stats_codeml}
+                'codeml': load_stats_codeml,
+                'cleaning': load_any_stats}
 
 stat_loaders['codemlI'] = stat_loaders['codeml']
 stat_loaders['treeI'] = stat_loaders['tree']
@@ -137,7 +148,14 @@ def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
     for stattype in stattypes:
         filename = template.format(stattype=stattype)
         logger.info('Load %s', filename)
-        output_tables.append(stat_loaders[stattype](filename))
+        
+        try:
+            loader = stat_loaders[stattype]
+        except KeyError:
+            loader = load_any_stats
+            logger.warning('No specific parameters for loading %r',
+                    stattype)
+        output_tables.append(loader(filename))
 
     return tuple(output_tables)
 
@@ -151,7 +169,7 @@ def intersection_plot(**kwargs):
     ax.set_yticklabels(['%s ^ %s' % lab for lab in labels], size='large')
     return ax
 
-def check_load_subtree_stats(aS, ts, cs):
+def check_load_subtree_stats(aS, ts, cs, clS=None, figsize=(10,3)):
     logger.info("shapes: aS %s, ts %s, cs %s" % (aS.shape, ts.shape, cs.shape))
     logger.info("aS has dup: %s", aS.index.has_duplicates)
     logger.info("ts has dup: %s", ts.index.has_duplicates)
@@ -167,7 +185,16 @@ def check_load_subtree_stats(aS, ts, cs):
     logger.warning("%d only in al stats: %s" % (l_al, list(only_al)[:min(5, l_al)]))
     logger.warning("%d only in tree stats: %s" % (l_tr, list(only_tr)[:min(5, l_tr)]))
     logger.warning("%d only in codeml stats: %s" % (l_co, list(only_co)[:min(5, l_co)]))
-    ax = intersection_plot(aS=aS.index, ts=ts.index, cs=cs.index)
+
+    intersect_kwargs = dict(aS=aS.index, ts=ts.index, cs=cs.index)
+    if clS is not None:
+        logger.info("shape clS %s; clS has dup: %s; %d common subtrees.",
+                    clS.shape, clS.index.has_duplicates,
+                    len(common_subtrees & set(clS.index)))
+        intersect_kwargs['clS'] = clS.index
+
+    ax = intersection_plot(**intersect_kwargs)
+    ax.get_figure().set_size_inches(figsize)
 
 
 # ## Function to merge additional subgenetree information into `ages`
@@ -196,34 +223,6 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
     #ages[criterion] = criterion[ages.subgenetree]
     return ages_c
 
-
-def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
-    # Compute Number of duplications/speciation per tree.
-    sgg = subgenetree_groups = ages_p.groupby('subgenetree')
-    ts['Ndup'] = sgg.type.agg(lambda v: sum(v == "dup"))
-    print(ts.Ndup.describe())
-    ts['Nspe'] = sgg.type.agg(lambda v: sum(v == "spe"))
-    print(ts.Nspe.describe())
-    agg_funcs = {'consecutive_null_%s' %m: 'sum' for m in measures}
-    agg_funcs.update({'branch_%s' %m: lambda v: (v==0).mean()
-                      for m in measures})
-    ts.join(sgg.agg(agg_funcs)).rename(columns={'branch_%s' %m: 'freq_null_%s' %m
-                                                for m in measures})
-    # merge tree stats to select robust trees
-    ages_treestats = pd.merge(ages_p.drop('_merge', axis=1),
-                              ts[['Ndup', 'Nspe', 'really_robust',
-                                  'aberrant_dists', 'rebuilt_topo']],
-                              how='left',
-                              left_on='subgenetree',
-                              right_index=True,
-                              indicator=True, validate='many_to_one')
-    logger.info("Ndup %s; Nspe %s; ages_treestats %s",
-                (~ts.Ndup.isna()).sum(), (~ts.Nspe.isna()).sum(),
-                ages_treestats.shape)
-    logger.info('merge types:\n%s',
-                ages_treestats.groupby('_merge')['_merge'].count())
-    return ages_treestats
-    
 
 def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     """Load ages dataframe, join with parent information, and compute the
@@ -313,17 +312,72 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     logger.info("\nShape ages speciation to speciation branches (no dup): %s",
                 ages_spe2spe.shape)
     
-    #NOTE: already computed by `subtrees_stats` in current version.
-    for m in measures:
-        ages_p['consecutive_null_%s' %m] = \
-                ~ages_p[['branch_%s_parent' %m, 'branch_%s' %m]].any(axis=1)
-
     ages_treestats = add_robust_info(ages_p, ts)
 
     #ages_robust = ages_treestats[ages_treestats.really_robust & \
     #                             (ages_treestats.aberrant_dists == 0)]\
     #                        .drop(['really_robust', 'aberrant_dists'], axis=1)
     return ages_treestats
+
+
+def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
+    """
+    Compute Number of duplications/speciation per tree,
+    and additional tree specific statistics.
+    """
+    branch_measures = ['branch_'+m for m in measures]
+    #NOTE: already computed by `subtrees_stats` in current version.
+    for m in measures:
+        ages_p['consecutive_null_%s' %m] = \
+                ~ages_p[['branch_%s_parent' %m, 'branch_%s' %m]].any(axis=1)
+
+    sgg = subgenetree_groups = ages_p.groupby('subgenetree')
+    ts['Ndup'] = sgg.type.agg(lambda v: sum(v == "dup"))
+    print(ts.Ndup.describe())
+    ts['Nspe'] = sgg.type.agg(lambda v: sum(v == "spe"))
+    print(ts.Nspe.describe())
+
+    def freq_of_null(v):
+        return (v==0).mean()
+
+    agg_funcs = {'consecutive_null_%s' %m: 'sum' for m in measures}
+    agg_funcs.update({'branch_%s' %m: freq_of_null for m in measures})
+    ts = ts.join(sgg.agg(agg_funcs))\
+           .rename(columns={'branch_%s' %m: 'freq_null_%s' %m for m in measures})
+
+    # Now, count null branches **around** dated nodes (before/after)
+    #def freq_null_before_dated(g):
+    #    return g.loc[g.calibrated==0, branch_measures].mean()
+    # Alternatively:
+    sgg_before = ages_p[ages_p.calibrated==0].groupby('subgenetree')
+
+    #def freq_null_after_dated(g):
+    #    return g.loc[g.calibrated_parent==0, branch_measures].mean()
+    sgg_after = ages_p[ages_p.calibrated_parent==0].groupby('subgenetree')
+
+    ts = ts.join(sgg_before[branch_measures].agg(freq_of_null))\
+           .rename(columns={'branch_%s' %m: 'null_%s_before' %m
+                            for m in measures})\
+           .join(sgg_after[branch_measures].agg(freq_of_null))\
+           .rename(columns={'branch_%s' %m: 'null_%s_after' %m
+                            for m in measures})
+
+    # merge tree stats to select robust trees
+    ages_treestats = pd.merge(ages_p.drop('_merge', axis=1),
+                              ts[['Ndup', 'Nspe', 'really_robust',
+                                  'aberrant_dists', 'rebuilt_topo']],  # Is this useful?
+                              how='left',
+                              left_on='subgenetree',
+                              right_index=True,
+                              indicator=True, validate='many_to_one')
+    logger.info("Ndup %s; Nspe %s; ages_treestats %s",
+                (~ts.Ndup.isna()).sum(), (~ts.Nspe.isna()).sum(),
+                ages_treestats.shape)
+    logger.info('merge types:\n%s',
+                ages_treestats._merge.value_counts())
+
+    return ages_treestats, ts
+    
 
 
 # for averaging by taking into account branch length: with Omega.
@@ -474,26 +528,28 @@ def compute_dating_errors(ages_controled, control='median'):
     age_var = control + '_taxon_age'  # Control value
     brlen_var = control + '_brlen'    # Control value
 
-    ages_controled["abs_age_error"] = \
+    ages_controled["abs_age_dev"] = \
                 (ages_controled.age_dS - ages_controled[age_var]).abs()
-    ages_controled["signed_age_error"] = \
+    ages_controled["signed_age_dev"] = \
                 (ages_controled.age_dS - ages_controled[age_var])
-    ages_controled["abs_brlen_error"] = \
+    ages_controled["abs_brlen_dev"] = \
                 (ages_controled.age_dS_parent - ages_controled.age_dS - \
                  ages_controled[brlen_var]).abs()
-    ages_controled["signed_brlen_error"] = \
+    ages_controled["signed_brlen_dev"] = \
                 (ages_controled.age_dS_parent - ages_controled.age_dS - \
                  ages_controled[brlen_var])
 
     # Compute the mean only for nodes that were not calibrated.
     sgg = ages_controled.groupby("subgenetree")
     #dev_measures = ['abs_age_dev', 'signed_age_dev', 'abs_brlen_dev', 'signed_brlen_dev']
-    mean_errors = pd.concat((sgg[['abs_age_dev', 'signed_age_dev']].sum() \
-                             / sgg['calibrated'].agg(lambda v: (1-v).sum()),
-                             sgg[['abs_brlen_dev', 'signed_brlen_dev']].sum() \
-                             / sgg[['calibrated', 'calibrated_parent']]\
-                                .apply(lambda df: ((1-df.calibrated) | (1-df.calibrated_parent)).sum())),
-                            axis=1)
+    mean_errors = pd.concat((
+                    sgg[['abs_age_dev', 'signed_age_dev']].sum().div(
+                        sgg['calibrated'].agg(lambda v: (1-v).sum()), axis=0),
+                    sgg[['abs_brlen_dev', 'signed_brlen_dev']].sum().div(
+                        sgg[['calibrated', 'calibrated_parent']]\
+                           .apply(lambda df: ((1-df.calibrated) | (1-df.calibrated_parent)).sum()), axis=0)
+                    ),
+                    axis=1)
     return mean_errors
 
 
@@ -530,14 +586,22 @@ def display_evolutionary_rates():
 
 
 def compute_branchrate_std(ages_controled, dist_measures,
-                           branchtime='median_brlen', taxon_age=None):
-    
+                           branchtime='median_brlen', taxon_age=None,
+                           mean_condition=None,
+                           std_condition=None):
+    """
+    Example filter_condition for approximated dS:
+    '(calibrated==1) & (calibrated_parent==1)'
+    """
+
     groupby_cols = ["subgenetree", "taxon_parent", "taxon",
                     branchtime] + dist_measures
     if taxon_age is not None:
         groupby_cols.append(taxon_age)  ## "median_taxon_age"
     #ages_controled["omega"] = ages_controled.branch_dN / ages_controled.branch_dS
 
+    if mean_condition:
+        ages_controled = ages_controled.query(mean_condition)
     sgg = subgenetree_groups = ages_controled[groupby_cols].groupby('subgenetree')
 
     # ### Average (substitution) rates over the tree:
@@ -575,7 +639,7 @@ def compute_branchrate_std(ages_controled, dist_measures,
                 (lambda x, var, weight_var:
                                     sqrt(group_average(x, var, weight_var))),
                 dist_measures, branchtime)
-                
+
     cs_wstds.columns = [(r + '_std') for r in cs_rates.columns]  # Or multiindex
 
     return pd.concat((cs_rates, cs_wstds), axis=1)
@@ -725,6 +789,7 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
                 continue
         if var.min() == var.max():
             print("Variable %r is constant. Skipping." % ft)
+            # Why does it appear in `suggested_transform`?
             continue
         
         fig, axes = plt.subplots(1, 3, figsize=figsize)
@@ -868,11 +933,19 @@ def make_logpostransform_inc(inc=0):
     loginc.__name__ = "log10(%g+min+%%s)" % (inc)
     return loginc
 
-def discretize(bins=[0]):
+def discretizer(bins=[0]):
     """"""
-    def discrete(x):
+    def discretize(x):
         return np.digitize(x, bins, right=True)
-    return discrete
+    return discretize
+
+
+def binarize(x):
+    return np.digitize(x, [0], right=True)
+
+
+def zscore(x):
+    return (x - x.mean()) / x.std() # if x.std() else 1) )
 
 
 # ~~> datasci.routines ?

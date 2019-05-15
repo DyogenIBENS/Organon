@@ -27,6 +27,7 @@ def make_subparser_func(func, commanddest='commands'):
         dictargs.pop(commanddest)
         dictargs.pop('func')
         return func(**dictargs)
+    subp_func.__name__ = 'subp_' + func.__name__
     return subp_func
 
 

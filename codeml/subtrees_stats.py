@@ -17,6 +17,7 @@ import ete3
 
 import LibsDyogen.myPhylTree as PhylTree
 
+from UItools.autoCLI import make_subparser_func
 from genomicustools.identify import SP2GENEID, \
                                     convert_gene2species
 from dendro.reconciled import get_taxon, \
@@ -780,16 +781,6 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--debug', action='store_true',
                         help='Set logging to DEBUG level.')
     
-    def make_subparser_func(func):
-        """Transform a normal function so that it takes arguments from the Argparse args."""
-        def subp_func(args):
-            dictargs = vars(args)
-            dictargs.pop('commands')
-            dictargs.pop('func')
-            return func(**dictargs)
-        subp_func.__name__ = 'subp_' + func.__name__
-        return subp_func
-
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument('genetreelistfile', nargs='?',
                                type=argparse.FileType('r'), default=stdin)
