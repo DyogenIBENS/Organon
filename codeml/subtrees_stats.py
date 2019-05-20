@@ -30,7 +30,7 @@ from seqtools import ungap, \
                      make_al_compo
 from seqtools.plot_al_conservation import reorder_al, get_position_stats, parsimony_score
 from codeml.codemlparser2 import parse_mlc
-from find_non_overlapping_codeml_results import list_nonoverlapping_NG
+from codeml.find_non_overlapping_codeml_results import list_nonoverlapping_NG
 from codeml.prune2family import split_species_gene
 from seqtools.compo_freq import get_seq_counts
 from seqtools.gblocks_parser import parse_gb_html
@@ -390,7 +390,7 @@ def count_zero_combinations(tree):
             all_child_zeros = all(ch.dist==0 for ch in node.children)
             sister_zeros += all_child_zeros
 
-        if not node.is_root():
+        if not node.is_root():  # If using the ingroup, no node is the root...
             # Consecutive
             n_branches += 1
             if node.dist == 0 and node.up.dist == 0:
