@@ -81,3 +81,22 @@ def multi_vartest(y, hue, by, data=None):
     transformed_Y = rescale_groups(y, hue, by, data)
     return stats.levene(*(Y_group for _, Y_group in transformed_Y.groupby(hue)[y]))
     
+
+def MStot(Y):
+    """Mean of squared deviation from the average"""
+    return Y.var(ddof=0)
+    #return ( (Y - Y.mean())**2 ).mean()
+
+def MSres(Y, pred):
+    """Residual mean of squared errors (deviation from the predicted value)"""
+    return ((Y - pred)**2).mean()
+
+
+def Rsquared(Y, pred):
+    return 1 - (MSres(Y, pred) / MStot(Y))
+
+
+def adjRsquared(Y, pred, p):
+    """p: Number of explanatory variables in the model"""
+    n = len(Y)
+    return 1 - (MSres(Y, pred) / MStot(Y)) * (n - 1)/(n - p -1)

@@ -122,13 +122,14 @@ def stackedbar(x, arr, ax=None, zero=0, **kwds):
 
 def scatter_density(x, y, data=None, cmap='viridis', scale=None, ax=None, **kwargs):
     points = data[[x, y]].T.values if data is not None else np.array([x, y]) 
+    logger.debug("Shape of points: %s", points.shape)
     if not np.isfinite(points).all():
         notfinite = (~np.isfinite(points)).any(axis=0)
         logger.warning('Dropping %d not finite points', notfinite.sum())
-        points = points[~notfinite,:]
+        points = points[:,~notfinite]
     density = gaussian_kde(points)(points)
     scatter = ax.scatter if ax is not None else plt.scatter
-    collections = scatter(x, y, data=data, c=density, cmap=cmap, **kwargs)
+    collections = scatter(points[0], points[1], c=density, cmap=cmap, **kwargs)
     ax = ax if ax is not None else plt.gca()
     if scale is not None:
         ax.set_xscale(scale)

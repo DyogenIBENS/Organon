@@ -6,6 +6,9 @@
 #   ~/ws2/DUPLI_data85/alignments_analysis/subtrees_stats/subtrees_stats.ipynb
 
 import sys
+import os.path as op
+from functools import partial
+
 import warnings
 from copy import copy, deepcopy
 from io import StringIO
@@ -18,8 +21,6 @@ get_ipython().magic('matplotlib inline')
 import matplotlib.pyplot as plt
 import seaborn as sb
 
-import os.path as op
-
 from codeml.analyse.dSvisualizor import splitname2taxongenetree
 from seqtools.compo_freq import weighted_std
 from dendro.bates import dfw_pairs_generalized, dfw_pairs
@@ -30,7 +31,7 @@ from datasci.graphs import scatter_density, \
                            plot_features_radar, \
                            plottree, \
                            stackedbar
-from datasci.stats import normal_fit, cov2cor
+from datasci.stats import normal_fit, cov2cor, Rsquared, adjRsquared
 from datasci.dataframe_recipees import centered_background_gradient, magnify
 from datasci.compare import pairwise_intersections, align_sorted
 
@@ -294,11 +295,15 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     # (doesn't have an is_outgroup_parent info)
 
     child_of_root = ages_p.root == ages_p.parent
+    ingroup_root = ages_p.index.to_series() == ages_p.subgenetree
     #recognized_outgroups = (ages_p.is_outgroup == 1 | ages_orphans.is_outgroup_parent == 1)
-    to_remove = (~child_of_root & orphans
-                 | (ages_p.is_outgroup == 1)
-                 | ages_p.is_outgroup_parent == 1)
-    to_remove = (orphans
+    #to_remove = (~child_of_root & orphans
+    #             | (ages_p.is_outgroup == 1)
+    #             | ages_p.is_outgroup_parent == 1)
+    #to_remove = (orphans
+    #             | (ages_p.is_outgroup == 1)
+    #             | ages_p.is_outgroup_parent == 1)
+    to_remove = (~ingroup_root & orphans
                  | (ages_p.is_outgroup == 1)
                  | ages_p.is_outgroup_parent == 1)
 
@@ -311,13 +316,11 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
                           & (ages_p.type_parent == 'spe')]
     logger.info("\nShape ages speciation to speciation branches (no dup): %s",
                 ages_spe2spe.shape)
-    
-    ages_treestats = add_robust_info(ages_p, ts)
 
     #ages_robust = ages_treestats[ages_treestats.really_robust & \
     #                             (ages_treestats.aberrant_dists == 0)]\
     #                        .drop(['really_robust', 'aberrant_dists'], axis=1)
-    return ages_treestats
+    return add_robust_info(ages_p, ts)
 
 
 def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
@@ -329,7 +332,10 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
     #NOTE: already computed by `subtrees_stats` in current version.
     for m in measures:
         ages_p['consecutive_null_%s' %m] = \
-                ~ages_p[['branch_%s_parent' %m, 'branch_%s' %m]].any(axis=1)
+                ~ages_p[['branch_%s_parent' %m, 'branch_%s' %m]].any(axis=1,
+                                                                  skipna=False)
+        #NOTE: there's a pitfall with this method as the `branch_dist` of the ingroup node is not documented by `generate_dNdS.py`!
+        #-> with skipna=False, the NaN are True.
 
     sgg = subgenetree_groups = ages_p.groupby('subgenetree')
     ts['Ndup'] = sgg.type.agg(lambda v: sum(v == "dup"))
@@ -340,7 +346,10 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
     def freq_of_null(v):
         return (v==0).mean()
 
-    agg_funcs = {'consecutive_null_%s' %m: 'sum' for m in measures}
+    # Already computed by codeml.subtrees_stats.get_codeml_stats
+    agg_funcs = {'consecutive_null_%s' %m: 'mean' for m in measures}
+
+    #
     agg_funcs.update({'branch_%s' %m: freq_of_null for m in measures})
     ts = ts.join(sgg.agg(agg_funcs))\
            .rename(columns={'branch_%s' %m: 'freq_null_%s' %m for m in measures})
@@ -376,8 +385,8 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
     logger.info('merge types:\n%s',
                 ages_treestats._merge.value_counts())
 
+    # Should not be merged into ts
     return ages_treestats, ts
-    
 
 
 # for averaging by taking into account branch length: with Omega.
@@ -488,6 +497,9 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
 
 
 def check_control_dates_lengths(control_brlen, phyltree, root):
+    """Check NA values and if the branches fit the phylogenetic tree.
+    
+    Return: (unexpected_branches, lost_branches)"""
     get_phylchildren = lambda phyltree, ancdist: phyltree.items.get(ancdist[0], [])
 
     expected_branches, expected_dists = zip(*(((p[0],ch[0]),ch[1]) for p,ch in
@@ -497,6 +509,10 @@ def check_control_dates_lengths(control_brlen, phyltree, root):
 
     #logger.debug(expected_branches)
     #logger.debug(expected_dists)
+
+    na_brlen = control_brlen.isna().any(axis=1)
+    if na_brlen.any():
+        print("MISSING branch lengths:\n" + str(control_brlen[na_brlen]))
 
     median_brlen_sum = control_brlen.median_brlen.sum()
     print("Sum of median branch lengths =", median_brlen_sum, "My")
@@ -514,7 +530,7 @@ def check_control_dates_lengths(control_brlen, phyltree, root):
     if lost_branches:
         logger.error("Forgotten branches in phyltree:\n%s",
                      lost_branches)
-    
+
     median_treelen_phyltree = control_brlen.reindex(list(expected_branches)).median_brlen.sum()
     timetree_treelen_phyltree = control_brlen.reindex(list(expected_branches)).timetree_brlen.sum()
     print("Sum of median branch lengths for branches found in phyltree =",
@@ -794,7 +810,7 @@ def all_test_transforms(alls, variables, figsize=(14, 5)):
         
         fig, axes = plt.subplots(1, 3, figsize=figsize)
         #axes[i, 0].set_ylabel(ft)
-        axes[0].set_ylabel(ft)
+        axes[0].set_ylabel(ft, fontsize='large')
 
         axes[0].hist(var, bins=nbins, density=True)
         axes[0].plot(*normal_fit(var), '-')
@@ -948,6 +964,25 @@ def zscore(x):
     return (x - x.mean()) / x.std() # if x.std() else 1) )
 
 
+def decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
+    if src_data is None:
+        src_data = data
+
+    kwargs.update({'R%s' % v[0]: v for v in args})
+
+    return data.assign(**{newvar: decorrfunc(src_data[var],src_data[corrvar])
+                          for newvar, (var, corrvar) in kwargs.items()})\
+               .drop([var for var,_ in kwargs.values()],
+                     axis=1, errors='ignore')
+
+decorrelate = partial(decorrelator, np.divide)
+logdecorrelate = partial(decorrelator, np.subtract)
+
+renorm_decorrelate = partial(decorrelator,
+                             lambda v,cv: zscore(np.divide(v,cv)))
+renorm_logdecorrelate = partial(decorrelator,
+                                lambda v,cv: zscore(np.subtract(v,cv)))
+
 # ~~> datasci.routines ?
 def detailed_pca(alls_normed, features):
 
@@ -1043,6 +1078,10 @@ def check_decorrelate(var, correlated_var, data, logdata=None):
     scatter_density(correlated_var, var, alpha=0.5, s=9, data=data, ax=ax0)
     
     # Plot the uncorrelated variables
+    #if var not in data.columns and re.search(r'[+-/*]', var):
+    #    var = data[var]
+    #    correlated_var = data[correlated_var]
+
     uncor_var = data[var] / data[correlated_var]
     uncor_null = (data[var] == 0) & (data[correlated_var] == 0)
     uncor_var[uncor_null] = 0
@@ -1986,29 +2025,8 @@ if __name__ == '__main__':
     ax1.set_xlabel("N sequences")
     ax1.set_ylabel("N dup");
 
-    # _, (ax0, ax1) = plt.subplots(1,2)
-    # ax0.plot("ingroup_glob_len", "lnL", '.', alpha=0.5, data=X)
-    # ax1.plot("ls", "lnL", '.', alpha=0.5, data=X);
-    check_decorrelate("lnL", "ingroup_glob_len", alls, X)
-
     a = alls
     plt.plot(a.NsynSites / (a.ls*3), a.NnonsynSites / (a.ls*3), '.', alpha=0.7); # Alright, Ok.
-
-    check_decorrelate("NsynSites", "ls", alls, X)
-    check_decorrelate("ingroup_std_N", "ingroup_mean_N", alls, logdata=None)
-    check_decorrelate("brlen_std", "brlen_mean", alls, alls_transformed)
-    check_decorrelate("brdS_std", "brdS_mean", alls, X)
-    #plt.plot(X.brdS_mean, X.brdS_std / X.brdS_mean, '.', alpha=0.5);
-
-    check_decorrelate("t_rate_std", "t_rate", alls, alls_transformed)
-    check_decorrelate("dS_rate_std", "dS_rate", alls, X)
-    #plt.plot(X.brdS_mean, X.brdS_std / X.brdS_mean, '.', alpha=0.5);
-
-    check_decorrelate("dN_rate_std", "dN_rate", alls, X)
-    #plt.plot(X.brdS_mean, X.brdS_std / X.brdS_mean, '.', alpha=0.5);
-
-    check_decorrelate("dist_rate_std", "dist_rate", alls, X)
-    #plt.plot(X.brdS_mean, X.brdS_std / X.brdS_mean, '.', alpha=0.5);
 
     # There is an outlier point with super high dS_rate and dN_rate and std for each
     alls.sort_values(["dS_rate", "dS_rate_std"], ascending=False).head(10)
