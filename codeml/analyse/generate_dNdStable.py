@@ -640,7 +640,8 @@ def get_tocalibrate(key):
 
 def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                     unweighted=False, method2=False,
-                    tocalibrate="isdup", keeproot=False):
+                    tocalibrate="isdup", keeproot=False,
+                    allow_unequal_children_age=1.):
     """normalize duplication node position between speciation nodes.
      
      Scaling:
@@ -742,11 +743,10 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                 # Since it is a duplication, this should be the same for
                 # children[0] and children[1]:
                 ch_ages = [subtree[ch.name]['age'] for ch in node.children]
-                if len(set(ch_ages)) > 1:
+                if max(ch_ages) - min(ch_ages) > allow_unequal_children_age:
 
                     logger.warning("At %r: unequal children's ages (next "
                                     "calibrated ages): %s", scname, ch_ages)
-                    #showtree(fulltree)
                     subtree[scname]['age'] = np.NaN
                 else:
                     # This 'age' will *later* be modified (rescaled according to dS)
@@ -952,13 +952,14 @@ def set_subtrees_distances(subtrees, measure):
 #def process_toages(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
 def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='.nwk',
             measures=['dS'], method2=False, unweighted=False, tocalibrate="isdup", 
-            keeproot=False):
+            keeproot=False, allow_unequal_children_age=False):
     fulltree = setup_fulltree(mlcfile, phyltree, replace_nwk, replace_by, measures)
     
     ages, subtrees = bound_average(fulltree, ensembl_version, phyltree.ages,
                                    measures=measures, unweighted=unweighted,
                                    method2=method2, tocalibrate=tocalibrate, 
-                                   keeproot=keeproot)
+                                   keeproot=keeproot,
+                                   allow_unequal_children_age=allow_unequal_children_age)
     showtree(fulltree)
     set_subtrees_distances(subtrees, measures[0])
     return ages, fulltree, subtrees
@@ -968,7 +969,8 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
          phyltreefile=PHYLTREEFILE, method2=False,
          measures=['t', 'dN', 'dS', 'dist'], unweighted=False, verbose=False,
          show=None, replace_nwk='.mlc', replace_by='.nwk', ignore_errors=False,
-         saveas='ages', tocalibrate='isdup', keeproot=False):
+         saveas='ages', tocalibrate='isdup', keeproot=False,
+         allow_unequal_children_age=False):
     nb_mlc = len(mlcfiles)
     
     loglevel = logging.DEBUG if verbose else logging.WARNING
@@ -984,7 +986,8 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                   "     unweighted    %s\n"
                   "     replace_nwk   %s\n"
                   "     replace_by    %s\n"
-                  "     ignore_errors %s\n",
+                  "     ignore_errors %s\n"
+                  "     keeproot      %s\n",
                   outfile,
                   (mlcfiles[:5], '...' * (nb_mlc>5)),
                   ensembl_version,
@@ -995,7 +998,8 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                   unweighted,
                   replace_nwk,
                   replace_by,
-                  ignore_errors)
+                  ignore_errors,
+                  keeproot)
 
 
     
@@ -1025,7 +1029,8 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                 result = process(mlcfile, ensembl_version, phyltree,
                                  replace_nwk, replace_by, measures,
                                  method2=method2, unweighted=unweighted,
-                                 tocalibrate=tocalibrate, keeproot=keeproot)
+                                 tocalibrate=tocalibrate, keeproot=keeproot,
+                                 allow_unequal_children_age=allow_unequal_children_age)
                 save_result(result[saveas_i], out)
             except BaseException as err:
                 print()
@@ -1077,6 +1082,12 @@ if __name__=='__main__':
     gr.add_argument('-k', '--keeproot', action='store_true', 
                     help="Calibrate data immediately following the root " \
                          "(not recommended).")
+    gr.add_argument('--allow-uneq-ch-age', type=float, default=0,
+                    dest='allow_unequal_children_age',
+                    help="tolerance threshold to output the Mean Path Length "\
+                         "value of a node, when the next calibrated children "
+                         "have different ages"\
+                         "(Use carefully) [%(default)s].")
     gr.add_argument("-i", "--ignore-errors", action="store_true", 
                     help="On error, print the error and continue the loop.")
     
