@@ -184,7 +184,7 @@ def plot_cov(ft_cov, features, cmap='seismic', figax=None, cax=None,
     not normalized.
     """
     cmap = plt.get_cmap(cmap)
-    norm = mpl.colors.Normalize(-1, 1)
+    norm = mpl.colors.Normalize(-1 if (ft_cov<0).any() else 0, 1)
     fig, ax = plt.subplots() if figax is None else figax
     img = ax.imshow(ft_cov, cmap=cmap, norm=norm, aspect='auto', origin='lower') #plt.pcolormesh
     ax.set_xticks(np.arange(len(features)))

@@ -92,11 +92,11 @@ def MSres(Y, pred):
     return ((Y - pred)**2).mean()
 
 
-def Rsquared(Y, pred):
+def r_squared(Y, pred):
     return 1 - (MSres(Y, pred) / MStot(Y))
 
 
-def adjRsquared(Y, pred, p):
+def adj_r_squared(Y, pred, p):
     """p: Number of explanatory variables in the model"""
     n = len(Y)
     return 1 - (MSres(Y, pred) / MStot(Y)) * (n - 1)/(n - p -1)
