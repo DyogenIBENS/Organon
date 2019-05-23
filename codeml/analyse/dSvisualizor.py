@@ -202,7 +202,7 @@ class DataVisualizor(object):
         # graphical parameters:
         self.vertical = False
 
-        self.all_ages = pd.read_table(ages_file, sep='\t') #, names=['name','age','type'])
+        self.all_ages = pd.read_csv(ages_file, sep='\t') #, names=['name','age','type'])
 
         # Check the integrity of the file (dtype object means some rows are wrong,
         # for example there is a header row in the middle of the document)
