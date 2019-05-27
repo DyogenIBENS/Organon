@@ -316,7 +316,7 @@ def get_dNdS(mlc):  # ~~> codeml.codeml_parser?
     while not reg_dNdS.match(line):
         line = mlc.readline().rstrip()
     assert mlc.readline().rstrip() == ''  # skip blank line
-    dNdS = {}
+    dNdS = {}  # OrderedDict
     dNdS['colnames'] = line.split()[1:]
     line = mlc.readline().rstrip()
     while line != '':
@@ -328,14 +328,15 @@ def get_dNdS(mlc):  # ~~> codeml.codeml_parser?
     line = mlc.readline().rstrip()
     while not reg_dStree.match(line):
         line = mlc.readline().rstrip()
-    dStree = mlc.readline().rstrip()
+    dStreeline = mlc.readline().rstrip()
     
     line = mlc.readline().rstrip()
     while not reg_dNtree.match(line):
         line = mlc.readline().rstrip()
-    dNtree = mlc.readline().rstrip()
+    dNtreeline = mlc.readline().rstrip()
     
-    return dNdS, dStree, dNtree
+    #TODO: np.array(dNdS)
+    return dNdS, dStreeline, dNtreeline
     
 
 def tree_nb_annotate(tree, id2nb, tree_nbs):  # ~~> codeml.codeml_parser?
@@ -350,7 +351,7 @@ def tree_nb_annotate(tree, id2nb, tree_nbs):  # ~~> codeml.codeml_parser?
                     parent_nbs[tuple(sorted(ch.nb for ch in node.children))])
 
 
-def dNdS_precise(dNdS, br_tw, dStree, dNtree, id2nb, tree_nbs):  # ~~> codeml_parser?
+def dNdS_precise(dNdS, br_tw, dSnwk, dNnwk, id2nb, tree_nbs):  # ~~> codeml_parser?
     """Make the dNdS table from the codeml output file more precise:
     dS and dN values have more decimal in the tree string than in the table."""
     # First, update the dNdS table with the more accurate values br_lengths
@@ -361,16 +362,27 @@ def dNdS_precise(dNdS, br_tw, dStree, dNtree, id2nb, tree_nbs):  # ~~> codeml_pa
         dNdS[br][colindex['dN/dS']] = br_w   # 'dN/dS'
 
     # Then update the dNdS table with the more accurate values in dStree dNtree
-    dStr = ete3.Tree(dStree)
-    dNtr = ete3.Tree(dNtree)
+    dStr = ete3.Tree(dSnwk)
+    dNtr = ete3.Tree(dNnwk)
     tree_nb_annotate(dStr, id2nb, tree_nbs)
     tree_nb_annotate(dNtr, id2nb, tree_nbs)
-    for col, tr in ((colindex['dS'], dStr), (colindex['dN'], dNtr)):
+    col_dS, col_dN = colindex['dS'], colindex['dN']
+    #col_S, col_N = colindex['S'], colindex['N']
+
+    for col, tr in ((col_dS, dStr), (col_dN, dNtr)):
         for node in tr.traverse():
             if not node.is_leaf():
                 for child in node.children:
                     br = '%s..%s' % (node.nb, child.nb)
                     dNdS[br][col] = child.dist
+    # N*dN and S*dS could also be more precise by calculating the product, 
+    # but this amount of precision might not be relevant.
+
+    for branch, row in dNdS.items():  # Isn't it time for vectorized operations?
+        if branch != 'colnames':
+            #print(row, file=sys.stderr)
+            row[colindex['S*dS']] = row[colindex['S']] * row[col_dS]
+            row[colindex['N*dN']] = row[colindex['N']] * row[col_dN]
     return dNdS
 
 
@@ -471,7 +483,10 @@ def rm_erroneous_ancestors(fulltree, phyltree):  # ~~> genomicustools
 
 
 def sum_average_dNdS(dNdS, nb2id, tree_nbs):
-    """Compute the average dS depth of each node (between this node and
+    """
+    DEPRECATED: use `bound_average` with unweighted=True and method2=False.
+
+    Compute the average dS depth of each node (between this node and
     leaves).
     
     Probably the roughest method. Use rather `bound_average_dS`"""
@@ -639,26 +654,28 @@ def get_tocalibrate(key):
     
 
 def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
-                    unweighted=False, method2=False,
-                    tocalibrate="isdup", keeproot=False,
-                    allow_unequal_children_age=1.):
-    """normalize duplication node position between speciation nodes.
-     
+                  unweighted=False, method2=False,
+                  tocalibrate="isdup", keeproot=False,
+                  allow_unequal_children_age=1.):
+    """
+    Normalize duplication node position between speciation nodes.
+
      Scaling:
      --------
        method1: d / (D' + d) with D' modified (UPGMA/WPGMA)
-       method2: d / (D' + d) with D' as the original measure.
-        - d: average (WPGMA/UPGMA-like) of branch length leading to next
-             speciation, in units of 'measure'.
-             'measure' must be an attribute present in fulltree ('dS', 'dist').
-        - D': branch length from the previous speciation to this duplication.
-          
+       method2: d / (D' + d) with D' as the original measure (supporting branch).
+       - d: average (WPGMA/UPGMA-like) of branch length leading to next
+            speciation, in units of 'measure'.
+            'measure' must be an attribute present in fulltree ('dS', 'dist').
+       - D': branch length from the previous speciation to this duplication.
+
     Arguments:
     ----------
       - calibration: dictionary of taxon -> age
       - tocalibrate: function returning True when the node should be calibrated.
                      Takes 2 params: (node, taxon).
-                     By default: check whether node is a duplication."""
+                     By default: check whether node is a duplication.
+    """
 
     rec_average = rec_average_u if unweighted else rec_average_w
 
@@ -674,7 +691,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
     n_measures = len(measures)
     # initial measure while passing a speciation for the first time
     measures_zeros = np.zeros(n_measures)
-    is_subtree_leaf = lambda node: (not node.is_root() and node.cal is True)
+    is_subtree_leaf = lambda node: (not node.is_root() and node.cal)
 
     for node in fulltree.traverse('postorder'):
         scname = node.name
@@ -691,7 +708,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
         #        raise
         if node.is_leaf():
             eventtype = 'leaf'
-            node.add_features(type='leaf', cal=True)
+            node.add_features(type='leaf', cal=1)
             try:
                 taxon = convert_gene2species(scname, ensembl_version)
                 leaf_age = 0 # TODO: take From the calibration dictionary
@@ -736,7 +753,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
 
             if tocalibrate(node, taxon, subtree):
                 # it is uncalibrated:
-                node.add_feature('cal', False)
+                node.add_feature('cal', 0)
                 logger.debug(debug_msg + "Uncal.; m=%s", subtree[scname]['tmp_m'])
 
                 # Store the age of the **next calibrated** node (propagate down).
@@ -754,7 +771,7 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
 
             else:
                 # it is calibrated.
-                node.add_feature('cal', True)
+                node.add_feature('cal', 1)
                 logger.debug(debug_msg + "Calibrated")
                 # store the age of this taxon
                 node_age = subtree[scname]['age'] = calibration[taxon]
@@ -854,7 +871,9 @@ def bound_average(fulltree, ensembl_version, calibration, measures=['dS'],
                     for clfch in clf.children:
                         clfch.detach()
                 
-                subtrees.append(nodecopy)
+                # No need to save subtrees that only contain calibrated nodes.
+                if set(cal_leaves) != set(nodecopy.children):
+                    subtrees.append(nodecopy)
 
                 # then reset measure (dS, dist) to zero
                 subtree[scname]['tmp_m'] = measures_zeros
@@ -917,12 +936,12 @@ def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
                    measures=['dS']):
     fulltree = load_fulltree(mlcfile, replace_nwk, replace_by)
     rm_erroneous_ancestors(fulltree, phyltree)
-    if set(('dN', 'dS', 't')) & set(measures):
+    if set(('dN', 'dS', 't', 'N*dN', 'S*dS')) & set(measures):
         with open(mlcfile) as mlc:
             id2nb, nb2id, tree_nbs, br_tw = branch2nb(mlc, fulltree)
-            dNdS, dStree, dNtree = get_dNdS(mlc)
+            dNdS, dStreeline, dNtreeline = get_dNdS(mlc)
 
-        dNdS = dNdS_precise(dNdS, br_tw, dStree, dNtree, id2nb, tree_nbs)
+        dNdS = dNdS_precise(dNdS, br_tw, dStreeline, dNtreeline, id2nb, tree_nbs)
         set_dNdS_fulltree(fulltree, id2nb, dNdS)
     return fulltree
 
@@ -1094,9 +1113,9 @@ if __name__=='__main__':
     ### Output options
     go = parser.add_argument_group('OUTPUT PARAMETERS')
     
-    go.add_argument('--measures', nargs='*',
+    go.add_argument('-m', '--measures', nargs='*',
                     default=['t', 'dN', 'dS', 'dist'],
-                    choices=['t', 'dN', 'dS', 'dist'],
+                    choices=['t', 'dN', 'dS', 'dist', 'N*dN', 'S*dS'],
                     help='Which distance measure: dist (from the newick ' \
                          'tree) or dS,dN,t (from codeml)')
     go.add_argument('-t', '--tofulltree', dest='saveas', action='store_const',

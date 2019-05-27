@@ -25,6 +25,7 @@ load_calibration <- function(agefile) {
   if( any(dup_rownames) ) {
     cat('WARNING: drop', sum(dup_rownames), 'duplicate row.names from ages:\n',
         paste(head(ages[dup_rownames,'name'], 20), collapse='\n '), '...\n', file=stderr())
+    #TODO: remove, based on the 'is_outgroup' flag.
     ages <- ages[!dup_rownames,]
   }
   rownames(ages) <- ages[,'name']
