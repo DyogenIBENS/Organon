@@ -100,3 +100,12 @@ def adj_r_squared(Y, pred, p):
     """p: Number of explanatory variables in the model"""
     n = len(Y)
     return 1 - (MSres(Y, pred) / MStot(Y)) * (n - 1)/(n - p -1)
+
+
+def multicol_test(X):
+    """Values >20 mean high colinearity."""
+    norm_xtx = np.dot(X.T, X)
+
+    eigs = np.linalg.eigvals(norm_xtx)
+    #condition_number
+    return np.sqrt(eigs.max() / eigs.min())

@@ -29,7 +29,7 @@ from datasci.graphs import scatter_density, \
                            plottree, \
                            stackedbar
 from datasci.compare import pairwise_intersections, align_sorted
-from datasci.stats import r_squared, adj_r_squared
+from datasci.stats import r_squared, adj_r_squared, multicol_test
 from datasci.routines import *
 
 from dendro.any import myPhylTree as phyltree_methods, ete3 as ete3_methods
@@ -38,7 +38,7 @@ import ete3
 from LibsDyogen import myPhylTree
 
 from sklearn.decomposition import PCA, FactorAnalysis
-from sklearn.linear_model import LinearRegression, Lasso
+from sklearn.linear_model import LinearRegression, Lasso  # Lasso doesn't work.
 from sklearn.preprocessing import StandardScaler
 import statsmodels.api as sm
 #import statsmodels.formula.api as smf
@@ -218,7 +218,7 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
     return ages_c
 
 
-def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
+def load_prepare_ages(ages_file, measures=['dist', 'dS', 'dN', 't']):
     """Load ages dataframe, join with parent information, and compute the
     'robust' info"""
     ages = pd.read_csv(ages_file, sep='\t', index_col=0)
@@ -315,10 +315,10 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     #ages_robust = ages_treestats[ages_treestats.really_robust & \
     #                             (ages_treestats.aberrant_dists == 0)]\
     #                        .drop(['really_robust', 'aberrant_dists'], axis=1)
-    return add_robust_info(ages_p, ts, measures)
+    return add_robust_info(ages_p, measures)
 
 
-def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
+def add_robust_info(ages_p, measures=['dist', 'dS', 'dN', 't']):
     """
     Compute Number of duplications/speciation per tree,
     and additional tree specific statistics.
@@ -363,7 +363,10 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
                             for m in measures})\
            .join(sgg_after[branch_measures].agg(freq_of_null))\
            .rename(columns={'branch_%s' %m: 'null_%s_after' %m
-                            for m in measures})
+                            for m in measures})\
+           .join(ns.index.to_series()\
+                 .str.extract(r'^[A-Z][a-zA-Z_]+ENSGT00(\d\d)0.*').astype(int)\
+                 .set_axis(['ensembl_version'], axis=1, inplace=False))
            #.join(sgg_after[['branch_dN', 'branch_dS']]\
            #      .apply(lambda r: (r==0).all(axis=1))
 
