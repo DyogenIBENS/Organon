@@ -7,15 +7,15 @@ from sys import stdin
 import os.path as op
 
 
-def read_multinewick(lines):
+def read_multinewick(lines, stripchars='\r\n'):
     newick = ''
     for line in lines:
-        parts = line.strip().split(';')
+        parts = line.strip(stripchars).split(';')
         newick += parts.pop(0)
         while parts:
             yield newick + ';'
             newick = parts.pop(0)
-    if newick.strip():
+    if newick.strip(stripchars):
         yield newick + ';'
 
 
