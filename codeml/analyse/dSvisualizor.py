@@ -59,7 +59,7 @@ import numpy as np
 import pandas as pd
 import LibsDyogen.myPhylTree as PhylTree
 
-from dendro.bates import dfw_descendants_generalized
+from dendro.bates import rev_dfw_descendants
 from dendro.sorter import ladderize
 
 import logging
@@ -217,6 +217,7 @@ class DataVisualizor(object):
 
         filtered = True if filter is None else getattr(self.all_ages[col], CMP_METHODS[comp])(val)
         self.ages = self.all_ages[filtered & (self.all_ages['calibrated'] == 0)].copy()
+        #TODO: self.all_ages.query(filter)
         logger.debug('shape: %s', self.ages.shape)
 
         if no_edited:
@@ -233,7 +234,7 @@ class DataVisualizor(object):
         self.taxa_evt = sorted(k for k in self.taxa_evt_ages.groups.keys() if k[1] != 'leaf')
         self.taxa = sorted(set(taxon for taxon, evt in self.taxa_evt))
         self.all_taxa = self.all_ages.taxon.unique() # useful when considering extra groups
-        #print('taxa:', ', '.join(self.taxa))
+        #print('taxa:', ', '.join(self.taxa))]
 
         #"""A dot is used to separate words (genre.species)"""
         
@@ -246,6 +247,8 @@ class DataVisualizor(object):
         self.phyltree = PhylTree.PhylogeneticTree(
                             os.path.expanduser(
                                 phyltreefile.format(ensembl_version)))
+        self.taxa.sort(key=lambda t: -self.phyltree.ages[t])
+        self.taxa_evt.sort(key=lambda te: -self.phyltree.ages[te[0]])
 
     ### Plotting utility methods ###
     def save_or_show(self, outfile=None):
@@ -339,6 +342,7 @@ class DataVisualizor(object):
         data = [self.taxa_evt_ages.get_group((lab, evt))[self.age_key].dropna().values \
                     for lab, evt in self.taxa_evt \
                     if lab in taxa]
+        # WARNING: not sorted as `taxa`
                     #if lab in self.taxa_ages.groups else [] \
         #data = [self.taxa_ages.groups.get(lab, {self.age_key: []})[self.age_key].dropna() \
         #           for lab in taxa
@@ -410,10 +414,9 @@ class DataVisualizor(object):
         #for anc, children in subtree.items():
         #    logger.debug(label_fmt % anc, children)
         get_children = lambda tree, node: tree.get(node, [])
-        dfw = dfw_descendants_generalized(subtree, get_children, queue=[root])#,
+        return rev_dfw_descendants(subtree, get_children, queue=[root])#,
                                           #include_leaves=True)
                                           #queue=get_children(subtree, root))
-        return reversed(list(dfw))
 
 
     def assign_subplots(self):
@@ -427,7 +430,7 @@ class DataVisualizor(object):
         """'species': (x, y) i.e (age, subplot)"""
 
         self.subs_taxa = []
-        """at each index: tuple of taxa appearing on the corresponding subplot"""
+        """at each index: list of taxa appearing on the corresponding subplot"""
 
         self.treeforks = []
         """segment to be drawn on figure to visualize the tree: (x, y0, y1)"""
@@ -442,14 +445,14 @@ class DataVisualizor(object):
                 _, sub = self.hist_coords.get(anc2, (None, None))
                 if sub is None:
                     sub = len(self.subs_taxa)
-                    self.subs_taxa.append(set((anc2,)))
+                    self.subs_taxa.append([anc2])
                     self.hist_coords[anc2] = (self.phyltree.ages[anc2], sub)
                 subs.append(sub)
             age_anc1 = self.phyltree.ages[anc1]
             low_sub = max(subs)
             self.treeforks.append((age_anc1, low_sub, min(subs)))
             self.hist_coords[anc1] = (age_anc1, low_sub)
-            self.subs_taxa[low_sub].add(anc1)
+            self.subs_taxa[low_sub].append(anc1)
 
         assert len(self.subs_taxa), \
                 "No subplots for taxa [%s]. Use the 'lineage' command." % ", ".join(self.taxa)
@@ -624,7 +627,7 @@ class DataVisualizor(object):
             axes[-1].set_ylim(ylim)
 
         # draw tree branches
-        logger.debug("n_subs =", n_subs)
+        logger.debug("n_subs = %d", n_subs)
         for anc1_age, sub1, sub2 in self.treeforks:
             #print(label_fmt % anc1, "%3d %2d %2d" % (anc1_age, sub1, sub2))
             ax1 = axes[sub1]
@@ -785,7 +788,7 @@ if __name__=='__main__':
     parent_parser.add_argument('-f', '--filter',
                                help="Filter rows on the value of a given "\
                                     "column.  e.g: 'type==\"spe\"' ")
-    parent_parser.add_argument('-v', '--verbose', action='store_true')
+    parent_parser.add_argument('-v', '--verbose', action='count')
     
     process_edited_parser = parent_parser.add_mutually_exclusive_group()
     # these two options must be given the treeforest file.
@@ -821,7 +824,13 @@ if __name__=='__main__':
     
     dictargs = vars(args)
     
-    loglevel = logging.INFO if dictargs.pop('verbose') else logging.WARNING
+    verbosity = dictargs.pop('verbose')
+    if verbosity>1:
+        loglevel = logging.DEBUG
+    elif verbosity>0:
+        loglevel = logging.INFO
+    else:
+        loglevel = logging.WARNING
     logger.setLevel(loglevel)
 
     #print(dictargs)
