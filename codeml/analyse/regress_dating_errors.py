@@ -218,7 +218,7 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
     return ages_c
 
 
-def load_prepare_ages(ages_file, measures=['dist', 'dS', 'dN', 't']):
+def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     """Load ages dataframe, join with parent information, and compute the
     'robust' info"""
     ages = pd.read_csv(ages_file, sep='\t', index_col=0)
@@ -315,10 +315,10 @@ def load_prepare_ages(ages_file, measures=['dist', 'dS', 'dN', 't']):
     #ages_robust = ages_treestats[ages_treestats.really_robust & \
     #                             (ages_treestats.aberrant_dists == 0)]\
     #                        .drop(['really_robust', 'aberrant_dists'], axis=1)
-    return add_robust_info(ages_p, measures)
+    return add_robust_info(ages_p, ts, measures)
 
 
-def add_robust_info(ages_p, measures=['dist', 'dS', 'dN', 't']):
+def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
     """
     Compute Number of duplications/speciation per tree,
     and additional tree specific statistics.
@@ -326,6 +326,7 @@ def add_robust_info(ages_p, measures=['dist', 'dS', 'dN', 't']):
     branch_measures = ['branch_'+m for m in measures]
     #NOTE: already computed by `subtrees_stats` in current version.
     for m in measures:
+        logger.debug('measure: %s' %m)
         ages_p['consecutive_null_%s' %m] = \
                 ~ages_p[['branch_%s_parent' %m, 'branch_%s' %m]].any(axis=1,
                                                                   skipna=False)
@@ -372,8 +373,9 @@ def add_robust_info(ages_p, measures=['dist', 'dS', 'dN', 't']):
 
     # merge tree stats to select robust trees
     ages_treestats = pd.merge(ages_p.drop('_merge', axis=1),
-                              ns[['Ndup', 'Nspe', 'really_robust',
-                                  'aberrant_dists', 'rebuilt_topo']],  # Is this useful?
+                              ns[['Ndup', 'Nspe']].join(
+                                  ts[['really_robust', 'aberrant_dists',
+                                      'rebuilt_topo']]),  # Is this useful?
                               how='left',
                               left_on='subgenetree',
                               right_index=True,
@@ -384,7 +386,7 @@ def add_robust_info(ages_p, measures=['dist', 'dS', 'dN', 't']):
     logger.info('merge types:\n%s',
                 ages_treestats._merge.value_counts())
 
-    return ages_treestats, ns
+    return ages_p, ns
 
 
 # for averaging by taking into account branch length: with Omega.
