@@ -8,6 +8,12 @@ date_forest.R <datasetname> <calibfile> <treefile> <ncores>
 library(ape)
 library(parallel)
 
+# Helper function for interactive investigation:
+display_edges <- function(tree) {
+  data.frame(tree$edge,
+        node.label=c(tree$tip.label, tree$node.label)[tree$edge[,2]],
+        edge.length=tree$edge.length)
+}
 
 load_calibration <- function(agefile) {
   #ages <- read.delim(agefile, row.names=1)
@@ -55,36 +61,55 @@ subset_calibration <- function(ages, tree, age_col="age_dist", leaf_age=0) {
                          row.names=subcalib_names)[calibrated,]
 }
 
+
 # the MPL algo works only with purely dichotomic trees. So I need to (randomly)
 # convert multifurcations to bifurcations, but then convert them back with the
 # correct length
-restore_multi_custom <- function(tree, max_number) {
-  # Remove all nodes that are above the given number, and transfer its
-  # edge length to its descendants.
-  ntips <- Ntip(tree)
-
-  e  <- tree$edge
+delete_edges <- function(tree, removed_edges) {
+  #tree <- reorder(tree, "cladewise")
+  # attr(tree, 'order') == 'cladewise'
+  
+  e <- tree$edge
   el <- tree$edge.length
-  
-  # Update the edge matrix
-  #removed_base <- which(tree$edge[,1] > max_number)
-  removed_ends <- which(e[,2] > max_number)
-  
-  # Put the dist into descendants branches and set dist to zero
-  for (i in removed_ends) {
-    removed_i_base <- which(e[,1] == e[i, 2])
-    tree$edge.length[removed_i_base] <- el[removed_i_base] + el[i]
-    
-    # update the node indexing of the edges (short-circuit the node to delete)
-    e[removed_i_base,1] <- e[i,2]
+
+  # iterate in reverse order (normally from leaves to root)
+  removed_edges <- sort(removed_edges, decreasing=TRUE)
+  removed_nodes <- e[removed_edges,2]
+  removed_int_nodes <- removed_nodes - Ntip(tree)
+
+  tree$node.label <- tree$node.label[-removed_int_nodes]
+
+  for (i in removed_edges) {
+    # Find the edges *starting* with this node.
+    removed_node <- e[i,2]
+    children_edges <- which(e[,1] == removed_node)
+
+    # Update the branch start to the base of the deleted edge
+    e[children_edges, 1] <- e[i,1]
+
+    # Add the length of the current edge to the descendant edges
+    el[children_edges] <- el[children_edges] + el[i]
   }
-  tree$edge.length[removed_ends] <- 0
 
-  # Update the edge matrix
-  tree$edge <- e[-removed_ends,]
+  tree$edge.length <- el[-removed_edges]
 
-  # Delete nodes
-  tree$node.label <- tree$node.label[1:(max_number - ntips)]
+  # Update the node numbering.
+  for (i in removed_nodes) {
+    # All edges should be numbered consecutively, to be assigned to an edge.length
+    e[e>i] <- as.integer(e[e>i] - 1)
+  }
+
+  tree$edge <- e[-removed_edges,]
+  tree$Nnode <- as.integer(tree$Nnode - length(removed_edges))
+
+  a <- attributes(tree)
+
+  if( "stderr" %in% names(a) )
+    attr(tree, 'stderr') <- attr(tree, 'stderr')[-removed_int_nodes]
+  if( "Pval" %in% names(a) )
+    attr(tree, 'Pval') <- attr(tree, 'Pval')[-removed_int_nodes]
+
+  #checkValidPhylo(tree)
   return(tree)
 }
 
@@ -106,21 +131,15 @@ mark_extra_edges <- function(tree, condition, value=-10^6) {
   return(tree)
 }
 
-restore_multi <- function(multi_tree, dicho_tree) {
+restore_multi <- function(dicho_tree, orig_pattern='\\.orig$') {
   ntips <- Ntip(dicho_tree)
   all_labels <- c(dicho_tree$tip.label, dicho_tree$node.label)
 
-  # In case there are negative values
-  min_el <- min(0, dicho_tree$edge.length)
-  
-  dicho_tree_marked <- mark_extra_edges(dicho_tree,
-                                        function(nnb){
-                                          (nnb > ntips) &
-                                          !grepl('\\.orig$',
-                                             all_labels[nnb])
-                                        },
-                                        min_el-1)
-  return(di2multi(dicho_tree_marked, tol=min_el-0.5))
+  nnb <- dicho_tree$edge[,2]
+
+  return(delete_edges(dicho_tree,
+                      which((nnb > ntips)
+                            & !grepl(orig_pattern, all_labels[nnb]))))
 }
 
 # Available dating methods:
@@ -202,19 +221,16 @@ date_C <- function(subtree, subcalib) {
 
 date_MPL <- function(subtree, subcalib) {
   is_multi <- !is.binary(subtree)
-  disubtree <- subtree  # Copy
   if(is_multi) {
     # Mark original nodes
-    disubtree$node.label <- paste0(disubtree$node.label, '.orig')
-    disubtree <- multi2di(disubtree)
+    subtree$node.label <- paste0(subtree$node.label, '.orig')
+    subtree <- multi2di(subtree)
   }
-  chronogram <- chronoMPL(disubtree, se=TRUE, test=TRUE)
+  chronogram <- chronoMPL(subtree, se=TRUE, test=TRUE)
   #neg_branchlen <- chronogram$edge.length < 0
   if( is_multi ) {
-    chronogram <- restore_multi(subtree, chronogram)
+    chronogram <- restore_multi(chronogram, '\\.orig$')
     chronogram$node.label <- sub('\\.orig$', '', chronogram$node.label)
-    attr(chronogram, "stderr") <- attr(chronogram, "stderr")[1:Nnode(subtree)]
-    attr(chronogram, "Pval")   <- attr(chronogram, "Pval")[1:Nnode(subtree)]
   }
   # And rescale edge lengths
   MPL_depth <- max(node.depth.edgelength(chronogram))
@@ -392,7 +408,8 @@ make_error_catcher <- function(date_func) {
                                                     #substitute(date_func),
                                                     date_func_name,
                                                     ': ', tree$node.label[1])
-                                cat('Unexpected error:', e, file=stderr())
+                                cat('Unexpected error:', as.character(e),
+                                    file=stderr())
                                 return(e)
                               }})
     #if (data.class(dtree) != "chronos") {
@@ -585,7 +602,8 @@ date_all_trees_all_methods <- function(datasetname, agefile, treefile, ncores=6,
                                       proto=data.frame(root=character()))$root
                e$message <- paste0(e$message, ': ', rootname)
                #traceback()
-               cat('Error in at least one dating method:', e, file=stderr())
+               cat('Error in at least one dating method:', as.character(e),
+                   file=stderr())
                stop(e)
              })
   }
