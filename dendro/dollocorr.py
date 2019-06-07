@@ -299,8 +299,9 @@ def place_single_events(n:int, phyltree, get_phylchildren=get_phylchildren,
 
         node_counts[parent] = pcount
 
-    node_counts[root][1] -= 1  # Consider the root has no leading branch.
-    return node_counts[root]
+    root_counts = node_counts.setdefault(root, init_count)
+    root_counts[1] -= 1  # Consider the root has no leading branch.
+    return root_counts
 
 
 def detachAfter(phyltree, nodes):
@@ -334,7 +335,8 @@ def update_subtree_combinations(n, tot, roots_1_counts, tree_0):
     return p0 * p1_n
 
 
-def maddison_test(observed_1, tot, tree, roots_1, root=None, check=False):
+def maddison_test(observed_1, tot, tree, roots_1, root=None, roots_0=None,
+                  alternative='>=', check=False):
     """
     :param: `tree`:       The complete tree. Needed to compute possibilities
                           regardless of the branch background states.
@@ -348,67 +350,85 @@ def maddison_test(observed_1, tot, tree, roots_1, root=None, check=False):
 
     if root is None:
         root = tree.root
+    if roots_0 is None:
+        roots_0 = []
 
     observed_0 = tot - observed_1
     n1 = len(roots_1)
+    n0 = len(roots_0)
+    assert set(roots_0) <= set().union(*(tree.allDescendants[r] for r in roots_1))
+    
+    # Tree whose leaves end after the subtrees_1 (before the given roots_0)
+    tree_1 = detachAfter(tree, roots_0) if roots_0 else tree
+    tree_0 = detachAfter(tree_1, roots_1)
+
     # 1. Count all possibilities to get more than `observed_1` events below roots_1.
 
     # 1 row: counts of possibilities
-    roots_1_counts = np.array([place_single_events(tot, tree, root=r)
-                               for r in roots_1])
-    roots_1_counts[:,1] += 1  # One possibility of 1 event on the leading branches.
-    init_leaf_counts = np.zeros((n1, tot+1), dtype=int)
+    if roots_0:
+        roots_0_counts = np.array([place_single_events(tot, tree, root=r)
+                                   for r in roots_0])  #ndmin=2
+        roots_0_counts[:,1] += 1  # One possibility of 1 event on the leading branches.
+        init_leaf0_counts = np.zeros((n0, tot+1), dtype=int)
+    else:
+        roots_1_counts = np.array([place_single_events(tot, tree, root=r)
+                                   for r in roots_1])
+        roots_1_counts[:,1] += 1  # One possibility of 1 event on the leading branches.
+    init_leaf1_counts = np.zeros((n1, tot+1), dtype=int)
 
     #if tree.root not in roots_1:
     #    p_leading_branch_events[1] += 1
 
     p1_more_than_obs = 0
 
-    tree_0 = detachAfter(tree, roots_1)
+    alternatives = {'>=': range(observed_1, tot+1),
+                    '>': range(observed_1+1, tot+1),
+                    '<=': range(observed_1+1),
+                    '<': range(observed_1),
+                    '=': (observed_1,)}
+    # Here the number of computations would be optimized by choosing the shortest range,
+    # and if needed subtracting it to the total.
+    complementary = {'>=': '<', '>': '<=', '<=': '>', '<': '>='}
 
-    for n in range(observed_1, tot+1):
-        logger.debug('Proba of %d events in roots_1 & %d total events', n, tot)
+    for n in alternatives[alternative]:
+        logger.debug('Proba of %d events in subtrees_1 & %d total events', n, tot)
         #p1_more_than_obs += update_subtree_combinations(n, tot, roots_1_counts, tree_0)
         
-        # All possible unordered ways to sum to `n` using n1 terms.
-        for terms in integer_n_partition(n, n1):
-            selected_roots_1_counts = roots_1_counts[range(n1),terms]
-            logger.debug('⋅ selected roots_1 nb of events %s with possibilities: %s',
-                         terms, '×'.join(str(x) for x in selected_roots_1_counts))
-            if selected_roots_1_counts.all():
-                # Limit possibilities to the selected roots_1
-                detached_leaf_counts = init_leaf_counts.copy()
+        # If there are reversions to background state 0 (roots_0):
+        for terms0 in integer_n_partition(tot-n, n0+1):
+            # Recompute the roots_1_counts based on those starting values
+            logger.debug('# terms0: %s', terms0)
+            if roots_0:
+                selected_roots_0_counts = roots_0_counts[range(n0),terms0[:-1]]
+                detached_leaf0_counts = init_leaf0_counts.copy()
                 # Select the n1 terms. ('term' column for each row).
-                detached_leaf_counts[range(n1), terms] = selected_roots_1_counts
-                detached_leaf_counts = dict(zip(roots_1, detached_leaf_counts))
+                detached_leaf0_counts[range(n0), terms0[:-1]] = selected_roots_0_counts
+                detached_leaf0_counts = dict(zip(roots_0, detached_leaf0_counts))
+                roots_1_counts = np.array([place_single_events(tot, tree_1, root=r,
+                                                   leaf_counts=detached_leaf0_counts)
+                                           for r in roots_1])
+                roots_1_counts[:,1] += 1  # One possibility of 1 event on the leading branches.
 
-                # Possibilities of `tot` events constrained on `n` events after roots_1
-                ptot_n = place_single_events(tot, tree_0, root=root,
-                                             leaf_counts=detached_leaf_counts)
-                logger.debug('+ %d', ptot_n[tot])
-
-                p1_more_than_obs += ptot_n[tot]
-
-    ptot = place_single_events(tot, tree, root=root)[tot]
-
-    if check:
-        p1_less_than_obs = 0
-        for n in range(0, observed_1):
-            for terms in integer_n_partition(n, n1):
+            # All possible unordered ways to sum to `n` using n1 terms.
+            for terms in integer_n_partition(n+terms0[:-1].sum(), n1):
                 selected_roots_1_counts = roots_1_counts[range(n1),terms]
+                logger.debug('⋅ selected roots_1 nb of events %s with possibilities: %s',
+                             terms, '×'.join(str(x) for x in selected_roots_1_counts))
                 if selected_roots_1_counts.all():
                     # Limit possibilities to the selected roots_1
-                    detached_leaf_counts = init_leaf_counts.copy()
+                    detached_leaf1_counts = init_leaf1_counts.copy()
                     # Select the n1 terms. ('term' column for each row).
-                    detached_leaf_counts[range(n1), terms] = selected_roots_1_counts
-                    detached_leaf_counts = dict(zip(roots_1, detached_leaf_counts))
+                    detached_leaf1_counts[range(n1), terms] = selected_roots_1_counts
+                    detached_leaf1_counts = dict(zip(roots_1, detached_leaf1_counts))
 
                     # Possibilities of `tot` events constrained on `n` events after roots_1
                     ptot_n = place_single_events(tot, tree_0, root=root,
-                                                 leaf_counts=detached_leaf_counts)
+                                                 leaf_counts=detached_leaf1_counts)
+                    logger.debug('+ %d', ptot_n[tot])
 
-                    p1_less_than_obs += ptot_n[tot]
-        assert ptot == p1_more_than_obs + p1_less_than_obs
+                    p1_more_than_obs += ptot_n[tot]
+
+    ptot = place_single_events(tot, tree, root=root)[tot]
 
     return p1_more_than_obs, ptot
 

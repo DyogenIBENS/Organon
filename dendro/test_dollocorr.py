@@ -121,9 +121,25 @@ p1more, ptot = maddison_test(1, 2, tree4caterpillar, ['ab'])
 assert p1more == 7
 assert ptot == 9
 
+tree5caterpillar = myPhylTree.PhylogeneticTree(StringIO("((((A:1,B:1)ab:0.5,C:1.5)abc:0.5,D:2.5)abcd:0.5,E:3)r;"))
+r = place_single_events(6, tree5caterpillar)
+place_single_events(3, tree5caterpillar, root='abc')
+
+assert (r == [1,8,16,14,6,1,0]).all()
+
+assert (14,16) == maddison_test(1, 2, tree5caterpillar, ['abc'])
+assert (2,16) == maddison_test(1, 2, tree5caterpillar, ['abc'], alternative='<')
+
+assert (12,16) == maddison_test(1, 2, tree5caterpillar, ['abc'], roots_0=['A'])
+assert (4,16) == maddison_test(1, 2, tree5caterpillar, ['abc'], roots_0=['A'], alternative='<')
+
 # Fig. 2 from Maddison 1990 (Correlated evolution of two binary characters)
 tree_Maddison2 = myPhylTree.PhylogeneticTree(StringIO("((((a,b)ab,c)abc,d)G,((u,v)uv,(w,x)wx)H)F;"))
 # From the article: 69 ways to have 2 gains (and zero loss)
 assert 69 == place_single_events(2, tree_Maddison2)[2]
 
+maddison_test(2, 2, tree_Maddison2, ['G', 'uv'], roots_0=['ab'])
+maddison_test(1, 2, tree_Maddison2, ['G', 'uv'], roots_0=['ab'], alternative='=')
+maddison_test(0, 2, tree_Maddison2, ['G', 'uv'], roots_0=['ab'], alternative='=')
 
+assert (55,69) == maddison_test(1, 2, tree_Maddison2, ['G', 'uv'], roots_0=['ab'])
