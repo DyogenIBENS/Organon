@@ -386,7 +386,8 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
     logger.info('merge types:\n%s',
                 ages_treestats._merge.value_counts())
 
-    return ages_p, ns
+    return ages_treestats, ns
+    #return ages_p, ns
 
 
 # for averaging by taking into account branch length: with Omega.
