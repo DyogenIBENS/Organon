@@ -31,6 +31,8 @@ PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0:d}/PhylTree.E
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9_.-]+)ENS')
 # ~~> genomicus.my_identify?
 
+def ls(array):
+    return str(array).replace('\n', '')
 
 def printtree(tree, indent='', features=None, **kwargs):
     line = indent + tree.name
@@ -395,6 +397,12 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
     and divide proportionnally to each segment dist."""
 
     colindex = {colname: i for i, colname in enumerate(dNdS['colnames'])}
+    branchnames = list(dNdS)
+    branchnames.remove('colnames')
+
+    # Set up the root values: N and S
+    fulltree.add_features(S=dNdS[branchnames[0]][colindex['S']],
+                          N=dNdS[branchnames[0]][colindex['N']])
 
     for node in fulltree.get_descendants('postorder'): # exclude root
         if len(node.children) != 1:
@@ -582,17 +590,41 @@ def rec_combine_weighted_paths(node, subtree, tmp_m='tmp_m', weight_key='w'):
                                             subtree[ch.name]['cal_paths']
                                             for ch in node.children])  # 'cal_' + tmp_m
     subtree[node.name]['cal_leaves'] = sum(subtree[ch.name]['cal_leaves'] for ch in node.children)
+    # For the computation of confidence intervals (not good with internal calibrations)
+    children_leaves = np.array([subtree[ch.name]['leaves'] for ch in node.children])[:,None]
+    #if weight_key:
+    #    children_leaves *= np.array([
+    children_sds = np.array([subtree[ch.name]['sd'] for ch in node.children])
+    children_brlen = np.array([subtree[ch.name]['br_m'] for ch in node.children])
+    subtree[node.name]['leaves'] = children_leaves.sum()
 
+    if weight_key:
+        subtree[node.name][weight_key] = np.concatenate([
+                                                frac * subtree[ch.name][weight_key]
+                                                for ch in node.children])
+        #children_leaves *= 
+        logger.debug('%r update sd: children_sds=%s; children_brlen=%s',
+                     node.name, ls(children_sds), ls(children_brlen))
+        subtree[node.name]['sd'] = np.sqrt(((children_sds**2).sum(axis=0) +
+                                            (children_brlen).sum(axis=0)
+                                           )) * frac
+    else:
+        logger.debug('%r update sd: children_sds=%s; children_brlen=%s; children_leaves=%s',
+                     node.name, ls(children_sds), ls(children_brlen), ls(children_leaves))
+        subtree[node.name]['sd'] = np.sqrt(
+                                    (((children_sds*children_leaves)**2).sum()
+                                     + (children_brlen*children_leaves**2).sum(axis=0)
+                                    ) / sum(children_leaves)**2)
+
+    # Shape checks
     expected_shape = (sum(subtree[ch.name][tmp_m].shape[0] for ch in node.children),
                       subtree[node.children[0].name][tmp_m].shape[1])
     assert subtree[node.name][tmp_m].shape == expected_shape, subtree[node.name][tmp_m].shape
     assert subtree[node.name]['cal_paths'].shape == expected_shape, subtree[node.name]['cal_paths'].shape
 
     assert subtree[node.name]['cal_ages'].shape == (expected_shape[0],), subtree[node.name]['cal_ages'].shape
+    assert subtree[node.name]['sd'].shape == (expected_shape[1],)
     if weight_key:
-        subtree[node.name][weight_key] = np.concatenate([
-                                                frac * subtree[ch.name][weight_key]
-                                                for ch in node.children])
         assert subtree[node.name][weight_key].shape == (expected_shape[0],), subtree[node.name][weight_key].shape
 
 
@@ -612,7 +644,7 @@ def timescale_paths(previous_node, previous_path, nodename, subtree, tmp_m='tmp_
     cal_paths = subtree[nodename]['cal_paths']  # 'cal_' + tmp_m
     paths = subtree[nodename][tmp_m]
     
-    logger.debug('previous_path= %s / cal_paths= %s', previous_path, cal_paths)
+    logger.debug('previous_path= %s / cal_paths= %s', ls(previous_path), ls(cal_paths))
     
     logger.debug('Expect broadcastable shapes: cal_ages %s; paths %s; cal_paths %s.',
                  cal_ages.shape, paths.shape, cal_paths.shape)
@@ -684,37 +716,67 @@ def timescale_paths(previous_node, previous_path, nodename, subtree, tmp_m='tmp_
 # update_rootward(**kw)
 
 ##TODO:
-def clock_test(node, scname, children_ms, measures=['dS']):
+def clock_test(node, subtree, measures=['dS'], weight_key=None):
     """Assuming total number of substitution > 30 for normal approx"""
-    assert len(measures) == children_ms.shape[1]
+    children_ws = [subtree[ch.name][weight_key] for ch in node.children] \
+                  if weight_key else [None]*len(node.children)
+    children_vars = np.array([subtree[ch.name]['sd']**2 + subtree[ch.name]['br_m'][0]
+                             for ch in node.children])
+    assert children_vars.shape == (len(node.children), len(measures)), children_vars.shape
 
-    children_subst = children_ms.copy()
-    #weighting
-    root = node.get_tree_root()
-    for i,m in enumerate(measures):
-        if m in ('dN', 'dS'):
-            children_subst *= getattr(root, m[1])
-        elif m in ('t', 'dist'):
-            children_subst *= (getattr(root, 'N') + getattr(root, 'S'))
-            if m=='dist':
-                # Because 'dist' is in unit/nucleotide
-                children_subst *= 3
+    #if not weight_key:  #NO!
+    #    children_leaves = np.array([subtree[ch.name]['leaves'] for ch in node.children])
+    #    children_vars *= children_leaves[:,None]**2 #* len(node.children) / children_leaves.sum()**5
+
+    sd_d = np.sqrt(children_vars.sum(axis=0))
+
+    #sd_d = subtree[node.name]['sd'] * (len(node.children) if weight_key
+    #                                 else subtree[node.name]['leaves'])
+
+    children_ms = [subtree[ch.name]['tmp_m']+subtree[ch.name]['br_m'] \
+                   for ch in node.children]
+    children_ms = np.array([np.average(ch_m, axis=0, weights=ch_w) for ch_m,ch_w
+                            in zip(children_ms, children_ws)])
+    assert children_ms.shape == (len(node.children), len(measures)), children_ms.shape
+    assert sd_d.shape == (len(measures),)
+
+    logger.debug('%r clock test with children_ms=%s; sd_d=%s', node.name,
+                 ls(children_ms), ls(sd_d))
+
     # Since the process is assumed to be Poisson, variance is equal to mean.
-    # Overall standard deviation:
-    sds = np.sqrt((children_subst**2).sum(axis=0))
+    # standard deviation of the difference:
+    #sds = np.sqrt(children_vars.sum(axis=0))
 
     if len(node.children)==2:
         d = children_ms[0] - children_ms[1]
+        # Proba of being more extreme: 2-tailed.
         p = np.array([
             st.norm.cdf(x, 0, s) if x<0 else st.norm.sf(x, 0, s)
-            for x,s in zip(d, sds)])
+            for x,s in zip(d, sd_d)]) * 2
+        # Note: it probably breaks the t-test assumption that group variances are equal...
     else:
         # Do ANOVA (We don't know the degrees of freedom).
         # Chi2 in the PATHd8 publication?
         #raise NotImplementedError('Multifurcation Clock test')
+
+        children_subst = children_ms.copy()
+        #weighting
+        root = node.get_tree_root()
+        for i,m in enumerate(measures):
+            if m in ('dN', 'dS'):
+                children_subst[:,i] *= getattr(root, m[1])
+            elif m in ('t', 'dist'):
+                try:
+                    children_subst[:,i] *= (getattr(root, 'N') + getattr(root, 'S'))
+                    if m=='dist':
+                        # Because 'dist' is in unit/nucleotide
+                        children_subst[:,i] *= 3
+                except AttributeError:
+                    pass
         p = np.array([st.chisquare(x) for x in children_subst.T])[:,1]
 
     return p
+
 
 # Functions used to determine whether a node should be calibrated in `bound_average`
 def isdup(node, subtree):
@@ -836,7 +898,7 @@ def bound_average(fulltree, calibration,
                   measures=['dS'],  # should default to 'dist'
                   unweighted=False, method2=False,
                   tocalibrate=isdup, keeproot=False,
-                  allow_unequal_children_age=1.,
+                  allow_unequal_children_age=1., fix_negative_branches=True,
                   calib_selecter=None, node_info=None, node_feature_setter=None):
 
     """
@@ -860,7 +922,7 @@ def bound_average(fulltree, calibration,
                      Takes 2 params: (node, subtree).
                      By default: check whether node is a duplication.
       - node_info: paired list of functions retrieving additional info
-                    (ex: {"taxon": get_taxon}  function `None` will just use `getattr`)
+                    (ex: ("taxon", get_taxon). Tuple of length 1 will just use `getattr`)
     """
     # BEFORE 12/06/19
     #rec_rootward = rec_average
@@ -874,9 +936,9 @@ def bound_average(fulltree, calibration,
     calibration[None] = np.NaN
 
     node_info = [] if node_info is None \
-                else [(attr, lambda node: getattr(node, attr, None))
-                      if getinfo is None else (attr, getinfo)
-                      for attr,getinfo in node_info]
+                else [(getinfo[0], lambda node: getattr(node, attr, None))
+                      if len(getinfo)==1 else getinfo
+                      for getinfo in node_info]
     if node_feature_setter is None:
         node_feature_setter = []
 
@@ -887,6 +949,8 @@ def bound_average(fulltree, calibration,
 
     subtree = {} # temporary subtree while traversing from one calibration to
                  # another
+    discarded_nodes = {}
+
     if calib_selecter is None:
         def select_calib_id(node):
             return node
@@ -928,17 +992,18 @@ def bound_average(fulltree, calibration,
 
             subtree[scname].update({
                                'tmp_m': measures_zeros,
-                               'total_m': measures_zeros,
+                               #'total_m': measures_zeros,
                                'age': leaf_age,
-                               'p': measures_zeros, # Concatenated path values of each cal_leaf.
                                'w': np.array([1]),   # Weights (path fraction)
+                               'sd': np.zeros(n_measures),
                                'cal_ages': np.array([leaf_age]),
                                'cal_paths': measures_zeros,
                                'cal_leaves': 1, # number of descendant calibrated nodes
                                'leaves': 1}) # number of descendant leaves
             #ages[scname] = 0
             ages.append([scname] + branch_measures.tolist() +
-                        list(measures_zeros.flat) +
+                        [leaf_age] * n_measures +
+                        [np.NaN] * n_measures +
                         [1,
                          getattr(node.up, 'name', None)] +
                         [subtree[scname][attr] for attr,_ in node_info] +
@@ -959,10 +1024,14 @@ def bound_average(fulltree, calibration,
             #rec_rootward(node, subtree, 'total_m')
             #rec_average(node, subtree, measures, weight_key='cal_leaves')
 
+            subtree[scname]['p_clock'] = clock_test(node, subtree, measures, weight_key)
+
             if tocalibrate(node, subtree):
                 # it is uncalibrated:
                 node.add_feature('cal', 0)
-                logger.debug(debug_msg + "Uncal.; m=%s", subtree[scname]['tmp_m'])
+                logger.debug(debug_msg + "Uncal.; m=%s; sd=%s",
+                             ls(subtree[scname]['tmp_m']),
+                             ls(subtree[scname]['sd']))
 
                 # Move the following into `rec_average`
 
@@ -986,13 +1055,15 @@ def bound_average(fulltree, calibration,
             else:
                 # it is calibrated.
                 node.add_feature('cal', 1)
-                logger.debug(debug_msg + "Calibrated")
+                logger.debug(debug_msg + "Calibrated. sd=%s", ls(subtree[scname]['sd']))
                 # store the age of this taxon
 
                 node_age = subtree[scname]['age'] = calibration[select_calib_id(node)]
+                discarded_nodes[scname] = subtree[scname]
 
                 ages.append([scname] + branch_measures.tolist() +
                             [node_age] * n_measures +
+                            list(subtree[scname]['p_clock'].flat) +
                             [1, # calibrated
                              getattr(node.up, 'name', None)] +
                             [subtree[scname][attr] for attr,_ in node_info] +
@@ -1026,9 +1097,11 @@ def bound_average(fulltree, calibration,
                     # need to get the age of next speciation and compute the
                     # time between the two speciation.
 
-                    logger.debug("    climb up to next calibration: " \
-                                 "scaling_m=%s tmp_m=%s" \
-                                     % (scaling_m, subtree[scname]['tmp_m']))
+                    logger.debug("    climb up to next calibration: "
+                                 "scaling_m=%s tmp_m=%s sd=%s",
+                                 ls(scaling_m),
+                                 ls(subtree[scname]['tmp_m']),
+                                 ls(subtree[scname]['sd']))
                     # Dynamic list during the climbing:
                     # store (node, measures for this node's branch)
                     # TODO: deque
@@ -1044,7 +1117,7 @@ def bound_average(fulltree, calibration,
                         logger.debug("    - %s: measure(to calib)=%s"\
                                          "; measure(from calib)=%s" % \
                                             (nextnode.name,
-                                             nextnode_m, next_path_m))
+                                             ls(nextnode_m), ls(next_path_m)))
                         # or: any(nextnode_m > measures_zeros) ?
                         if nextnode_m is measures_zeros:
                         #if nextnode.cal == 1:
@@ -1066,19 +1139,28 @@ def bound_average(fulltree, calibration,
                             if any(scaling_m == 0):
                                 logger.warning("Scaling measure = %s ("
                                                 "cannot divide) at %r",
-                                                scaling_m, nextnode.name)
+                                                ls(scaling_m), nextnode.name)
+
+                            if np.isnan(subtree[nextnode.name]['age']):
+                                pass  #TODO old_timescale_paths
 
                             age = timescale_paths(scname, scaling_m,
                                                   nextnode.name, subtree,
                                                   weight_key=weight_key)
+                            parent_age = discarded_nodes[nextnode.up.name]['age']
+                            if fix_negative_branches:
+                                if isinstance(parent_age, (int, float)):
+                                    age[age > parent_age] = parent_age
+                                else:
+                                    age[age > parent_age] = parent_age[age > parent_age]
+
+                            subtree[nextnode.name]['age'] = age
                             logger.debug("shape of age: %s", age.shape)
 
-                            if np.isnan(subtree[nextnode.name]['age']):
-                                pass  #TODO
-
                             nextnode_measures = list(subtree[nextnode.name]['br_m'].flat)
-                            ages.append([nextnode.name] + nextnode_measures + \
-                                        list(age.flat) + \
+                            ages.append([nextnode.name] + nextnode_measures +
+                                        list(age.flat) +
+                                        list(subtree[nextnode.name]['p_clock'].flat) +
                                         [0, #dated
                                          nextnode.up.name] +
                                         [subtree[nextnode.name][attr]
@@ -1094,7 +1176,7 @@ def bound_average(fulltree, calibration,
                             nextnodes.extend(
                                     (nch, subtree[nch.name]['br_m'] + next_path_m)
                                     for nch in nextnode.children)
-                        subtree.pop(nextnode.name)
+                        discarded_nodes[nextnode.name] = subtree.pop(nextnode.name)
 
                 # copy the node so that it becomes a rooted tree
                 nodecopy = node.copy()
@@ -1297,10 +1379,11 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
     
     with Stream(outfile, 'w') as out:
         if saveas == 'ages':
-            header = ['name'] + ['branch_'+m for m in measures] + \
-                     ['age_'+m for m in measures] + \
-                     ['calibrated', 'parent', 'is_outgroup', 'taxon', 'type',
-                      'root', 'subgenetree']
+            header = ['name'] + \
+                     ['%s_%s' % (s,m) for s in ('branch', 'age', 'p_clock')
+                                      for m in measures] + \
+                     ['calibrated', 'parent', 'is_outgroup',
+                      'taxon', 'type', 'root', 'subgenetree']
             out.write('\t'.join(header) + '\n')
 
         for i, mlcfile in enumerate(mlcfiles, start=1):
