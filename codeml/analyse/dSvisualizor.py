@@ -190,14 +190,14 @@ class DataVisualizor(object):
         self.phyltree = None
 
         # Parse the filter command:
-        if filter is not None:
-            try:
-                col, comp, val = RE_FILTER.match(filter).groups()
-            except AttributeError:
-                raise
+        #if filter is not None:
+        #    try:
+        #        col, comp, val = RE_FILTER.match(filter).groups()
+        #    except AttributeError:
+        #        raise
 
-            quoted_match = RE_QUOTED.match(val)
-            val = quoted_match.group(1) if quoted_match else float(val)
+        #    quoted_match = RE_QUOTED.match(val)
+        #    val = quoted_match.group(1) if quoted_match else float(val)
 
         # graphical parameters:
         self.vertical = False
@@ -215,9 +215,10 @@ class DataVisualizor(object):
         if not set(('taxon', 'genetree')) & set(self.all_ages.columns):
             self.all_ages = splitname2taxongenetree(self.all_ages, "name")
 
-        filtered = True if filter is None else getattr(self.all_ages[col], CMP_METHODS[comp])(val)
-        self.ages = self.all_ages[filtered & (self.all_ages['calibrated'] == 0)].copy()
-        #TODO: self.all_ages.query(filter)
+        #filtered = True if filter is None else getattr(self.all_ages[col], CMP_METHODS[comp])(val)
+        #self.ages = self.all_ages[filtered & (self.all_ages['calibrated'] == 0)].copy()
+
+        self.ages = self.all_ages.query("(%s) & (calibrated==0)" % filter)
         logger.debug('shape: %s', self.ages.shape)
 
         if no_edited:
@@ -225,7 +226,7 @@ class DataVisualizor(object):
             self.not_edited = self.ages.name.apply(lambda x: x not in self.edited_set)
             self.ages = self.ages[self.not_edited]
         
-        self.ages.drop_duplicates(inplace=True)
+        self.ages = self.ages.drop_duplicates()
         assert self.ages.shape[0] > 0, "All data was filtered out."
         logger.debug('shape after drop_dup: %s', self.ages.shape)
         self.ages.reset_index(drop=True, inplace=True)
@@ -333,10 +334,9 @@ class DataVisualizor(object):
         """Given the selected taxa, return the appropriate data, colors, legend.
         This data is given to matplotlib to plot a single histogram."""
         
-        label_len = max(len(lab) for lab in self.taxa)
-        label_fmt = "%%-%ds (%%s)" % label_len
-
         taxa = taxa if taxa is not None else self.taxa
+        label_len = max(len(lab) for lab in taxa)
+        label_fmt = "%%-%ds (%%s)" % label_len
 
         #duptaxa = [k for k in self.taxa if k in self.taxa_ages.groups]
         data = [self.taxa_evt_ages.get_group((lab, evt))[self.age_key].dropna().values \
@@ -788,7 +788,7 @@ if __name__=='__main__':
     parent_parser.add_argument('-f', '--filter',
                                help="Filter rows on the value of a given "\
                                     "column.  e.g: 'type==\"spe\"' ")
-    parent_parser.add_argument('-v', '--verbose', action='count')
+    parent_parser.add_argument('-v', '--verbose', action='count', default=0)
     
     process_edited_parser = parent_parser.add_mutually_exclusive_group()
     # these two options must be given the treeforest file.
