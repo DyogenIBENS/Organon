@@ -1154,7 +1154,7 @@ def bound_average(fulltree, calibration,
 
                         age = timescale_paths(scname, scaling_m,
                                               nextnode.name, subtree,
-                                              unweighted)
+                                              unweighted, method='mine')
                         parent_age = discarded_nodes[nextnode.up.name]['age']
                         if fix_conflict_ages:
                             child_age = subtree[nextnode.name]['cal_ages'].max()
@@ -1503,7 +1503,7 @@ Example to date all internal nodes except a calibrated speciation:
                     default=['t', 'dN', 'dS', 'dist'],
                     choices=['t', 'dN', 'dS', 'dist', 'N*dN', 'S*dS'],
                     help='Which distance measure: dist (from the newick ' \
-                         'tree) or dS,dN,t (from codeml)')
+                         'tree) or dS,dN,t,S*dS,N*dN (from codeml)')
     go.add_argument('-t', '--tofulltree', dest='saveas', action='store_const',
                     const='fulltree', default='ages',
                     help='Do not compute the table, but save trees in one'\
