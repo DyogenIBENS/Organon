@@ -73,11 +73,11 @@ calib = {'R': 2}
 
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=False,
-              method2=False,
               todate=todate,
+              unweighted=False,
+              original_leading_paths=False,
+              correct_unequal_calibs='default',
               keeproot=False,
-              allow_unequal_children_age=0,
               calib_selecter='name')
 
 # Because of `keeproot=False`, nothing gets estimated
@@ -85,13 +85,23 @@ assert set('ABC') == set(ages.index)
 
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=False, method2=False,
+              unweighted=False, original_leading_paths=False,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 
 assert ages.age_dist['x'] == 1
 assert round(ages.p_clock_dist['x'],3) == 0.777  # 2*st.norm.sf(0.4, 0, np.sqrt(2))
+
+# Compare with other corrections:
+for correct_uneq_calibs in ('ignore', 'mine', 'pathd8'):
+    assert agesdf(tree, calib,
+                  measures=['dist'],
+                  unweighted=False, original_leading_paths=False,
+                  todate=todate, keeproot=True,
+                  correct_unequal_calibs=correct_uneq_calibs,
+                  calib_selecter='name').age_dist['x'] == 1
+# => No effect when there is no extra calibration point.
 
 calib = {'R': 3, 'y': 2, 'y0': 1}
 tree = ete3.Tree('(((A:0.8,B:1)x0:1,C:2.2)x:1,D:3)R;', format=1)
@@ -100,31 +110,38 @@ def get_name(node, subtree):
     return node.name
 
 # Test the `node_feature_setter`
-
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=True, method2=False,
+              unweighted=True, original_leading_paths=False,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name', node_feature_setter=[('name2', get_name)])
-assert (ages.name2 == ages.index).all()
+assert (ages.name2 == ages.index).all(), "Node features improperly set."
 assert ages.age_dist['x'] == 2
 assert round(ages.p_clock_dist['x'],4) == 0.8752  # 2*st.norm.sf(2.2-1.9, 0, np.sqrt(2.2+(0.8+1+1*4)/4))
 
+for correct_uneq_calibs in ('ignore', 'mine', 'pathd8'):
+    assert agesdf(tree, calib,
+                  measures=['dist'],
+                  unweighted=True, original_leading_paths=False,
+                  todate=todate, keeproot=True,
+                  correct_unequal_calibs=correct_uneq_calibs,
+                  calib_selecter='name').age_dist['x'] == 2
+
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=False, method2=False,
+              unweighted=False, original_leading_paths=False,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 assert ages.age_dist['x'] > 2
 
 tree = ete3.Tree('(((A:0.8,B:1)x0:1,C:2.2)y:0.8,D:3)R;', format=1)
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=True, method2=False,
+              unweighted=True, original_leading_paths=False,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 assert ages.cal['y'] == 1
 assert ages.age_dist['y'] == 2
@@ -133,25 +150,25 @@ assert ages.age_dist['x0'] == 0.9
 
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=False, method2=False,
+              unweighted=False, original_leading_paths=False,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 assert ages.age_dist['y'] == 2
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=True, method2=True,
+              unweighted=True, original_leading_paths=True,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 assert ages.age_dist['y'] == 2
 
 tree = ete3.Tree('(((A:0.8,B:1)y0:1,C:2.2)x:0.8,D:3)R;', format=1)
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=True, method2=False,
+              unweighted=True, original_leading_paths=False,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 assert ages.cal['y0'] == 1
 assert ages.age_dist['y0'] == calib['y0']
@@ -163,15 +180,23 @@ mx_C = 2.2
 mx = ((my0+1)*2 + 2.2)/3  # = 2
 mR = ((mx+0.8)*3 + 3)/4   # = 2.85
 
-# method 'mine': ax = ( 2*(1 + (mx - my0)*(3-0)/(3-1)) + 2.2) / 3  # = 2.5
+# method 'mine':
+ax = ( 2*(3 * (mx - my0)/mR*(3-0)/(3-1)) + 3*mx_C/mR) / 3  # = 1.9298
+# method 'default':
 ax = ( 2*(1 + (3 - 1)*(mx_y0-my0)/(mR - my0)) + 3*mx_C/mR ) / 3  # = 2.122357
 assert round(ages.age_dist['x'], 4) == 2.1224
+assert agesdf(tree, calib,
+              measures=['dist'],
+              unweighted=True, original_leading_paths=False,
+              todate=todate, keeproot=True,
+              correct_unequal_calibs='default',
+              calib_selecter='name').age_dist.round(4)['x'] == 2.5  ## NOPE!
 
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=False, method2=False,
+              unweighted=False, original_leading_paths=False,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 mx = ((my0+1) + 2.2)/2  # = 2.05
 mR = ((mx+0.8) + 3)/2   # = 2.85
@@ -190,27 +215,27 @@ tree.S = float(tree.S)
 # Succeed all broadcasting operations?
 ages = agesdf(tree, calib,
               measures=['dist', 'dS'],
-              unweighted=False, method2=False,
+              unweighted=False, original_leading_paths=False,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 ages = agesdf(tree, calib,
               measures=['dist', 'dS'],
-              unweighted=True, method2=False,
+              unweighted=True, original_leading_paths=False,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 ages = agesdf(tree, calib,
               measures=['dist', 'dS'],
-              unweighted=False, method2=True,
+              unweighted=False, original_leading_paths=True,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 ages = agesdf(tree, calib,
               measures=['dist', 'dS'],
-              unweighted=True, method2=True,
+              unweighted=True, original_leading_paths=True,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 
 # Compare method2 (scaling by keeping the original supporting branch length) VS method1
@@ -218,17 +243,17 @@ calib = {'R':2}
 tree = ete3.Tree('((A:1,B:1)x:0.25,C:2.75)R;', format=1)
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=False, method2=False,
+              unweighted=False, original_leading_paths=False,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 assert ages.age_dist['x'] == 1.0
 
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=False, method2=True,
+              unweighted=False, original_leading_paths=True,
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
+              correct_unequal_calibs='default',
               calib_selecter='name')
 assert ages.age_dist['x'] == 1.6  # 1/1.25 * 2
 
@@ -238,18 +263,18 @@ assert ages.age_dist['x'] == 1.6  # 1/1.25 * 2
 tree = ete3.Tree('((A:1,B:1)x:0.25,C:0.3)R;', format=1)
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=False, method2=False,
+              unweighted=False, original_leading_paths=False,
+              correct_unequal_calibs='default',
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
               calib_selecter='name')
 assert ages.age_dist['x'] == 2.0
 
 tree = ete3.Tree('(((A:0.8,B:1)y0:1,C:0.2)x:0.2,D:0.3)R;', format=1)
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=False, method2=False,
+              unweighted=False, original_leading_paths=False,
+              correct_unequal_calibs='default',
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
               calib_selecter='name')
 assert ages.age_dist['x'] == 1
 
@@ -258,9 +283,9 @@ tree = ete3.Tree('(Uvularia perfoliata:15,(Uvularia Pudica:8,Disporum:20)x0:3)R:
 ## Check p-values of unclocklikeliness
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=True, method2=False,
+              unweighted=True, original_leading_paths=False,
+              correct_unequal_calibs='default',
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
               calib_selecter='name')
 # s²(x0) = (8+20)/4 = 7  =>  s(x0) = 2.64  OK.
 # s²(R) = ((8+20 + 15) + 3×2²) / 3² = 55 / 9 = 6.11
@@ -277,8 +302,8 @@ assert round(ages.p_clock_dist['R'], 3) == 0.689
 
 ages = agesdf(tree, calib,
               measures=['dist'],
-              unweighted=False, method2=False,
+              unweighted=False, original_leading_paths=False,
+              correct_unequal_calibs='default',
               todate=todate, keeproot=True,
-              allow_unequal_children_age=0,
               calib_selecter='name')
 # No difference for the unweighted algo if ≤3 leaves

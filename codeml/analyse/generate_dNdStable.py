@@ -623,7 +623,7 @@ def get_taxon(node, ensembl_version=ENSEMBL_VERSION):
 
 def sum_average_dNdS(dNdS, nb2id, tree_nbs):
     """
-    DEPRECATED: use `bound_average` with unweighted=True and method2=False.
+    DEPRECATED: use `bound_average` with unweighted=True and original_leading_paths=False.
 
     Compute the average dS depth of each node (between this node and
     leaves).
@@ -777,7 +777,7 @@ def rec_combine_weighted_paths(node, subtree, unweighted=True):
 
 
 def old_timescale_paths(previous_node, previous_path, nodename, subtree,
-                        tmp_m='tmp_m', weight_key=None, method2=False):
+                        tmp_m='tmp_m', weight_key=None, original_leading_paths=False):
     previous_age = subtree[previous_node]['age']
 
     if np.isnan(subtree[nodename]['age']):
@@ -790,7 +790,7 @@ def old_timescale_paths(previous_node, previous_path, nodename, subtree,
 
 # Then root-to-leaf computations (preorder)
 def timescale_paths(previous_node, previous_path, nodename, subtree,
-                    unweighted=True, method='default'):
+                    unweighted=True, correct_unequal_calibs='default'):
     previous_age = subtree[previous_node]['age']
     cal_ages = subtree[nodename]['cal_ages'][:,None]  # transposing the vector.
     cal_paths = subtree[nodename]['cal_paths']  # 'cal_' + tmp_m
@@ -804,18 +804,21 @@ def timescale_paths(previous_node, previous_path, nodename, subtree,
     assert cal_ages.shape[0] == paths.shape[0] == cal_paths.shape[0]
 
     # Correction when the path end is at an age>0
-    if method=='default':
+    if correct_unequal_calibs=='default':
         ages = cal_ages + (previous_age-cal_ages) * (paths-cal_paths) / (previous_path - cal_paths)
         #if (previous_paths - cal_paths < 0).any():
         #if (paths-cal_paths < 0).any():
-    elif method=='mine':
+    elif correct_unequal_calibs=='mine':
         durations = previous_age - cal_ages
         corrections = durations.max() / durations
-        ages = cal_ages.min() + (paths - cal_paths) * corrections
-    elif method=='pathd8':
+        ages = (previous_age - cal_ages.min()) * (paths - cal_paths) * corrections
+        ages /= (previous_path - cal_paths)
+    elif correct_unequal_calibs=='pathd8':
         # Classical MPL. See PATHd8 (Britton et al. 2007)
         # But it's theoretically wrong (non homogeneous formula)
         ages = (cal_ages + (previous_age-cal_ages) * (paths-cal_paths)) / (previous_path - cal_paths)
+    elif correct_unequal_calibs=='ignore':
+        ages = previous_age * paths / previous_path
 
     cal_leaves = subtree[nodename]['cal_leaves']
     weights = cal_leaves if unweighted else subtree[nodename]['w']
@@ -930,11 +933,13 @@ def clock_test(node, subtree, measures=['dS'], unweighted=True): #weight_key=Non
 
 
 
-def bound_average(fulltree, calibration,
+def bound_average(fulltree, calibration, todate=isdup,
                   measures=['dS'],  # should default to 'dist'
-                  unweighted=False, method2=False,
-                  todate=isdup, keeproot=False,
-                  allow_unequal_children_age=1., fix_conflict_ages=True,
+                  unweighted=False,
+                  original_leading_paths=False,
+                  correct_unequal_calibs='default',  # 'mine','pathd8','ignore'
+                  fix_conflict_ages=True,
+                  keeproot=False,
                   calib_selecter=None, node_info=None, node_feature_setter=None):
 
     """
@@ -942,8 +947,8 @@ def bound_average(fulltree, calibration,
 
      Scaling:
      --------
-       method1: d / (D' + d) with D' modified (UPGMA/WPGMA)
-       method2: d / (D' + d) with D' as the original measure (supporting branch).
+       * d / (D' + d) with D' modified (Mean-Path-Length)
+       * original_leading_paths: d / (D' + d) with D' as the original measure (supporting branch).
        - d: average (WPGMA/UPGMA-like) of branch length leading to next
             speciation, in units of 'measure'.
             'measure' must be an attribute present in fulltree ('dS', 'dist').
@@ -951,12 +956,12 @@ def bound_average(fulltree, calibration,
 
     Arguments:
     ----------
-      - calib_selecter: the entries of `calibration`. Typically `taxon`.
-                   This is a field in node to search, or the attr from `node_attr_getter`.
       - calibration: dictionary of `calib_selecter` -> age
       - todate: function returning True when the node should be calibrated.
-                     Takes 2 params: (node, subtree).
-                     By default: check whether node is a duplication.
+                Takes 2 params: (node, subtree).
+                By default: check whether node is a duplication.
+      - calib_selecter: the entries of `calibration`. Typically `taxon`.
+                   This is a field in node to search, or the attr from `node_attr_getter`.
       - node_info: paired list of functions retrieving additional info
                     (ex: ("taxon", get_taxon). Tuple of length 1 will just use `getattr`)
     """
@@ -1094,7 +1099,7 @@ def bound_average(fulltree, calibration,
                 scaling_weights = subtree[scname]['cal_leaves'] if unweighted else subtree[scname]['w']
                 next_tmp_m = np.average(subtree[scname]['tmp_m'], axis=0, weights=scaling_weights)
                 #scaling_m = subtree[scname]['tmp_m'] * dist_to_calib/mean_dist_to_calib
-                if method2:
+                if original_leading_paths:
                     # Defined at each node
                     scaling_m = None
                 else:
@@ -1134,7 +1139,7 @@ def bound_average(fulltree, calibration,
                     #if nextnode_m is measures_zeros:
 
                     if not nextnode.cal:
-                        if method2:
+                        if original_leading_paths:
                             logger.debug("          measure(from calib)=%s",
                                          ls(next_path_m))
                             scaling_weights = (subtree[nextnode.name]['cal_leaves']
@@ -1154,12 +1159,13 @@ def bound_average(fulltree, calibration,
 
                         age = timescale_paths(scname, scaling_m,
                                               nextnode.name, subtree,
-                                              unweighted, method='mine')
+                                              unweighted,
+                                              correct_unequal_calibs)
                         parent_age = discarded_nodes[nextnode.up.name]['age']
                         if fix_conflict_ages:
                             child_age = subtree[nextnode.name]['cal_ages'].max()
-                            too_recent = child_age > age
-                            too_old = age > parent_age
+                            too_recent = (child_age > age)
+                            too_old = (age > parent_age)
                             if isinstance(parent_age, (int, float)):
                                 age[too_old] = parent_age
                             else:
@@ -1317,8 +1323,9 @@ def set_subtrees_distances(subtrees, measure):
 
 #def process_toages(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
 def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='.nwk',
-            measures=['dS'], method2=False, unweighted=False, todate="isdup", 
-            keeproot=False, allow_unequal_children_age=False):
+            measures=['dS'], todate="isdup", unweighted=False,
+            original_leading_paths=False, correct_unequal_calibs='default',
+            keeproot=False):
     fulltree = setup_fulltree(mlcfile, phyltree, replace_nwk, replace_by, measures)
 
     # Convert argument to function
@@ -1345,13 +1352,12 @@ def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='
     #def get_event_type(node, subtree):
     #    return 'leaf' if node.is_leaf() else 'dup' if isdup(node, subtree) else 'spe'
 
-    ages, subtrees = bound_average(fulltree, phyltree.ages,
-                                   measures=measures,
-                                   unweighted=unweighted,
-                                   method2=method2,
-                                   todate=todate,
+    ages, subtrees = bound_average(fulltree, phyltree.ages, todate,
+                                   measures,
+                                   unweighted,
+                                   original_leading_paths,
+                                   correct_unequal_calibs,
                                    keeproot=keeproot,
-                                   allow_unequal_children_age=allow_unequal_children_age,
                                    calib_selecter='taxon',
                                    node_info=[('taxon', this_get_taxon),
                                               ('is_outgroup', is_outgroup)],
@@ -1362,11 +1368,11 @@ def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='
 
 
 def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
-         phyltreefile=PHYLTREEFILE, method2=False,
-         measures=['t', 'dN', 'dS', 'dist'], unweighted=False, verbose=False,
+         phyltreefile=PHYLTREEFILE, measures=['t', 'dN', 'dS', 'dist'],
+         unweighted=False, original_leading_paths=False,
+         correct_unequal_calibs='default', verbose=False,
          show=None, replace_nwk='.mlc', replace_by='.nwk', ignore_errors=False,
-         saveas='ages', todate='isdup', keeproot=False,
-         allow_unequal_children_age=False):
+         saveas='ages', todate='isdup', keeproot=False):
     nb_mlc = len(mlcfiles)
     
     loglevel = logging.DEBUG if verbose else logging.WARNING
@@ -1378,8 +1384,9 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                   "     measures      %s\n"
                   "     verbose       %s\n"
                   "     show          %s\n"
-                  "     method2       %s\n"
                   "     unweighted    %s\n"
+                  "     original_leading_paths %s\n"
+                  "     correct_unequal_calibs %s\n"
                   "     replace_nwk   %s\n"
                   "     replace_by    %s\n"
                   "     ignore_errors %s\n"
@@ -1390,8 +1397,9 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                   measures,
                   verbose,
                   show,
-                  method2,
                   unweighted,
+                  original_leading_paths,
+                  correct_unequal_calibs,
                   replace_nwk,
                   replace_by,
                   ignore_errors,
@@ -1424,10 +1432,10 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                   end=' ')
             try:
                 result = process(mlcfile, ensembl_version, phyltree,
-                                 replace_nwk, replace_by, measures,
-                                 method2=method2, unweighted=unweighted,
-                                 todate=todate, keeproot=keeproot,
-                                 allow_unequal_children_age=allow_unequal_children_age)
+                                 replace_nwk, replace_by, measures, todate,
+                                 unweighted, original_leading_paths,
+                                 correct_unequal_calibs,
+                                 keeproot=keeproot)
                 save_result(result[saveas_i], out)
             except BaseException as err:
                 print()
@@ -1436,7 +1444,7 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                 else:
                     raise
     print()
-    
+
 
 def readfromfiles(filenames):  # ~~> CLItools
     lines = []
@@ -1471,9 +1479,6 @@ if __name__=='__main__':
     ### Run options
     gr = parser.add_argument_group('RUN PARAMETERS')
     
-    gr.add_argument('-2', '--method2', action='store_true')
-    gr.add_argument('-u', '--unweighted', action='store_true', 
-                    help='average weighted by the size of clusters')
     gr.add_argument('-d', '--todate', default="isdup", metavar='TESTS',
                     help=combine_boolean_funcs.__doc__ + """
     - tests may be any of: 'isdup', 'isinternal', 'taxon'.
@@ -1484,15 +1489,23 @@ Example to date all internal nodes except a calibrated speciation:
 'isdup | isinternal !taxon:Simiiformes'
 
 [%(default)r]""")
+    gr.add_argument('-u', '--unweighted', action='store_true', 
+                    help='average weighted by the size of clusters')
+    gr.add_argument('-2', '--orig-leading-path', dest='original_leading_paths',
+                    action='store_true')
+    gr.add_argument('-c', '--correct-uneq-calib', dest='correct_unequal_calibs',
+                    choices=['default', 'mine', 'pathd8', 'ignore'], default='default',
+                    help='Formula to adjust path lengths when they end at ' \
+                         'different calibrations [%(default)s]')
     gr.add_argument('-k', '--keeproot', action='store_true',
-                    help="Calibrate data immediately following the root " \
+                    help="Date the nodes immediately following the root " \
                          "(not recommended).")
-    gr.add_argument('--allow-uneq-ch-age', type=float, default=0,
-                    dest='allow_unequal_children_age',
-                    help="tolerance threshold to output the Mean Path Length "\
-                         "value of a node, when the next calibrated children "
-                         "have different ages"\
-                         "(Use carefully) [%(default)s].")
+    #gr.add_argument('--allow-uneq-ch-age', type=float, default=0,
+    #                dest='allow_unequal_children_age',
+    #                help="tolerance threshold to output the Mean Path Length "\
+    #                     "value of a node, when the next calibrated children "
+    #                     "have different ages"\
+    #                     "(Use carefully) [%(default)s].")
     gr.add_argument("-i", "--ignore-errors", action="store_true", 
                     help="On error, print the error and continue the loop.")
     
@@ -1524,9 +1537,10 @@ Example to date all internal nodes except a calibrated speciation:
                   'other value: save to file'))
     gd.add_argument('-v', '--verbose', action='store_true', 
                     help='print progression along tree')
+
     args = parser.parse_args()
     dictargs = vars(args)
     if dictargs.pop('fromfile'):
         dictargs['mlcfiles'] = readfromfiles(dictargs['mlcfiles'])
-    main(**dictargs)
 
+    main(**dictargs)

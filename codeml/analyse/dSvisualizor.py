@@ -218,7 +218,8 @@ class DataVisualizor(object):
         #filtered = True if filter is None else getattr(self.all_ages[col], CMP_METHODS[comp])(val)
         #self.ages = self.all_ages[filtered & (self.all_ages['calibrated'] == 0)].copy()
 
-        self.ages = self.all_ages.query("(%s) & (calibrated==0)" % filter)
+        filter = "(%s) & (calibrated==0)" % filter if filter else "calibrated==0"
+        self.ages = self.all_ages.query(filter)
         logger.debug('shape: %s', self.ages.shape)
 
         if no_edited:

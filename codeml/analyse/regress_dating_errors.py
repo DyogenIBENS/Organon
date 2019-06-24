@@ -7,6 +7,7 @@
 
 import sys
 import os.path as op
+from collections import namedtuple
 
 import warnings
 from copy import copy, deepcopy
@@ -18,7 +19,6 @@ get_ipython().magic('matplotlib inline')
 import matplotlib.pyplot as plt
 import seaborn as sb
 
-from codeml.analyse.dSvisualizor import splitname2taxongenetree
 from seqtools.compo_freq import weighted_std
 from dendro.bates import dfw_pairs_generalized, dfw_pairs
 from datasci.graphs import scatter_density, \
@@ -784,9 +784,31 @@ def violin_spe_ages_vs_criterion(ages, criterion_serie, criterion_name=None,
                                 annot_ages[annot_ages.taxon != 'Simiiformes'],
                                 criterion_name, isin, split, order, **kwargs)
 
+age_analysis_data = namedtuple('age_analysis_data', ['ages_controled',
+                               'ages_controled_withnonrobust', 'ns',
+                               'control_ages', 'control_brlen', 'mean_errors'])
+
+def analyse_age_errors(ages_file, anc, phyltree, timetree_ages_CI, ts): #, aS, cs, clS=None
+    ages, ns = load_prepare_ages(ages_file, ts)
+    ages_controled_withnonrobust, control_ages, control_brlen =\
+        add_control_dates_lengths(ages, phyltree, timetree_ages_CI)
+    ages_controled = ages_controled_withnonrobust.query('really_robust & aberrant_dists == 0').copy(deep=False)
+    unexpected_branches, lost_branches = check_control_dates_lengths(control_brlen, phyltree, anc)
+    control_brlen.drop(unexpected_branches, inplace=True)
+    # Rates
+    #cs_rates = compute_branchrate_std(ages_controled, dist_measures)
+    #cs_rates_approx
+    #cs_rates_onlyAnc
+    #cs_rates_withoutAnc
+
+    mean_errors = compute_dating_errors(ages_controled)
+    return age_analysis_data(ages_controled, ages_controled_withnonrobust, ns, control_ages, control_brlen, mean_errors)
+    
+
 
 from siphon import dependency_func, dependency, auto_internalmethod
 from functools import wraps
+
 
 class analysis(object):
     """Analysis pipeline and environment"""
@@ -849,8 +871,21 @@ class analysis(object):
         return load_stats_codeml(stats_template.format(stattype=stattypes[2]))
 
     @dependency
-    def ages_treestats(self):
+    def clS(self):
+        return load_any_stats(stats_template.format(stattype=stattypes[3]))
+
+    @dependency_func
+    @wraps(load_prepare_ages)
+    def load_prepare_ages(self):
         return load_prepare_ages(self.ages_file, self.ts)
+
+    @dependency
+    def ages_treestats(self):
+        return self.load_prepare_ages()[0]
+
+    @dependency
+    def ns(self):
+        return self.load_prepare_ages()[1]
 
     @auto_internalmethod
     @wraps(add_control_dates_lengths)
