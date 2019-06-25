@@ -358,7 +358,7 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
              age_from_root=False,
              topology_only=False,
              label_params=None, edge_colors=None,
-             edge_cmap='afmhot', add_edge_axes=None, **kwargs):
+             edge_cmap='afmhot', add_edge_axes=None, style='squared', **kwargs):
     """Plot an ete3 tree, from left to right.
     
     param: edge_colors dict-like object with keys being the nodes, and values ~~a color string~~
@@ -463,10 +463,15 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
                 for ch,chdist in sorted_items:
                     #xy += [(child_coords[ch].x, nodecoord.x, nodecoord.x),
                     #       (child_coords[ch].y, child_coords[ch].y, nodecoord.y)]
-                    segments.append(
-                             [(child_coords[ch].x, child_coords[ch].y),
-                              (nodecoord.x, child_coords[ch].y),
-                              (nodecoord.x, nodecoord.y)])
+                    if style=='squared':
+                        segments.append(
+                                 [(child_coords[ch].x, child_coords[ch].y),
+                                  (nodecoord.x, child_coords[ch].y),
+                                  (nodecoord.x, nodecoord.y)])
+                    elif style=='V':
+                        segments.append(
+                                 [(child_coords[ch].x, child_coords[ch].y),
+                                  (nodecoord.x, nodecoord.y)])
                     if edge_colors is not None:
                         line_edge_values.append(edge_colors[ch])
                     if add_edge_axes:
@@ -503,17 +508,19 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
 
     #lines = plot(x, y, *args, **default_kwargs)
     #lines = ax.plot(*xy, **default_kwargs)
-    lines = mc.LineCollection(segments, colors=line_color, cmap=edge_cmap)#, norm=edge_norm)
+    lines = mc.LineCollection(segments, colors=line_color, cmap=edge_cmap, **kwargs)#, norm=edge_norm)
 
     if edge_colors is not None:
         lines.set_array(np.array(line_edge_values))  # Value to be converted to colors.
 
     lines.set_clip_on(False)
     ax.add_collection(lines)
-    ax.set(**kwargs)
+    #ax.set(**kwargs)
 
-    ax.plot(extended_x, extended_y, 'k--', alpha=0.4,
-            linewidth=kwargs.get('linewidth', mpl.rcParams['lines.linewidth'])/2.)
+    ax.plot(extended_x, extended_y, 'k--',
+            alpha=kwargs.pop('alpha', 1)/2.,
+            linewidth=kwargs.pop('linewidth', mpl.rcParams['lines.linewidth'])/2.,
+            **kwargs)
 
     ax.set_xlim(min(root_age, root_age-rootdist), depth+root_age)
     ax.set_ylim(-0.5, len(leafdists))
