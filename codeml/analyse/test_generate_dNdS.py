@@ -4,9 +4,24 @@
 #%run -n ~/scripts/codeml/analyse/generate_dNdStable.py
 from codeml.analyse.generate_dNdStable import *
 import pandas as pd
+from types import GeneratorType
 
 logging.basicConfig(format=logging.BASIC_FORMAT)
 logger.setLevel(logging.DEBUG)
+
+# Numpy sugar
+def a(*args, **kw):
+    if len(args) == 1 and isinstance(args[0], (GeneratorType, range)):
+        args = list(args[0])
+    return np.array(args, **kw)
+
+def c(*args, **kw):
+    if len(args) == 1 and isinstance(args[0], (GeneratorType, range)):
+        args = list(args[0])
+    return np.concatenate(args, **kw)
+
+m = np.nanmean
+
 
 # Output formatter for interactive examinations
 def agesdf(*args, **kwargs):
@@ -179,17 +194,20 @@ mx_y0 = my0 + 1  # 1.9
 mx_C = 2.2
 mx = ((my0+1)*2 + 2.2)/3  # = 2
 mR = ((mx+0.8)*3 + 3)/4   # = 2.85
+mR_y0 = 1.8
+
+# method 'default':
+ax = ( 2*(1 + (3 - 1)*(mx-my0)/(mR - my0)) + 3*mx/mR ) / 3  # = 2.12056  # = 2.122357
+assert round(ages.age_dist['x'], 4) == 2.1206
 
 # method 'mine':
-ax = ( 2*(3 * (mx - my0)/mR*(3-0)/(3-1)) + 3*mx_C/mR) / 3  # = 1.9298
-# method 'default':
-ax = ( 2*(1 + (3 - 1)*(mx_y0-my0)/(mR - my0)) + 3*mx_C/mR ) / 3  # = 2.122357
-assert round(ages.age_dist['x'], 4) == 2.1224
+ax = ( 2*((mx - my0)/(mR-my0)*(3-0)/(3-1)) + mx/mR*3) / 3  # = 1.9298
+
 assert agesdf(tree, calib,
               measures=['dist'],
               unweighted=True, original_leading_paths=False,
               todate=todate, keeproot=True,
-              correct_unequal_calibs='default',
+              correct_unequal_calibs='mine',
               calib_selecter='name').age_dist.round(4)['x'] == 2.5  ## NOPE!
 
 ages = agesdf(tree, calib,
@@ -278,7 +296,75 @@ ages = agesdf(tree, calib,
               calib_selecter='name')
 assert ages.age_dist['x'] == 1
 
-# Numeric example of Britton 2002
+
+# Check that there is no *overweighting* with correct='default' formula.
+tree = ete3.Tree('(((A:0.9,B:1.1)y0:0.7,C:2)x:1.2,D:3)R;', format=1)
+ages = agesdf(tree, calib,
+              measures=['dist'],
+              unweighted=True, original_leading_paths=False,
+              correct_unequal_calibs='default',
+              todate=todate, keeproot=True,
+              calib_selecter='name')
+# We must set constraints:
+# mR/aR == my0/ay0  ->  method 'ignore' *should* give the same result.
+# my0 + dy0 != dC   ->  We will detect any overweighting of the y0 side.
+# 1. 'ignore' method:
+px = a(1.6, 1.8, 2)
+mx = 1.8  # m(px)
+pR = a(2.8, 3, 2.2, 3)  # c(px + 1.2, [3])
+mR = 3.0  # m(pR)
+ax = mx/mR * 3  # == mx
+
+# 2. 'default' method  with constant rates, should always equal 'ignore'.
+my0 = 1
+mx = 1.8   # == ((my0 + 0.7)*2 + 2) / 3
+mR = 3.0   # == ((my0 + 0.7 + 1.2)*2 + 3.2 + 3) / 4
+# => MPL values are the same. What about ages?
+
+# Paths going through y0 are shorter. If overweighting, this should attract the mean more.
+
+# Method 'default':
+# ax = (2 * (1 + (mx - my0)/(mR - my0)*(3-1)) + 3*mx/mR ) / 3
+#    = (2 * (1 + (1.8 - 1)/(3-1)*(3-1)) + 3*1.8/3 ) / 3
+assert ages.age_dist['x'] == 1.8
+assert agesdf(tree, calib,
+              measures=['dist'],
+              unweighted=True, original_leading_paths=False,
+              correct_unequal_calibs='ignore',
+              todate=todate, keeproot=True,
+              calib_selecter='name').age_dist['x'] == 1.8
+# Check that there is equality in the weighted computation
+assert agesdf(tree, calib,
+              measures=['dist'],
+              unweighted=False, original_leading_paths=False,
+              correct_unequal_calibs='ignore',
+              todate=todate, keeproot=True,
+              calib_selecter='name'
+              ).age_dist['x'] == agesdf(tree, calib,
+                                      measures=['dist'],
+                                      unweighted=False, original_leading_paths=False,
+                                      correct_unequal_calibs='ignore',
+                                      todate=todate, keeproot=True,
+                                      calib_selecter='name').age_dist['x']
+(tree&'y0').name = 'x0'
+assert agesdf(tree, calib,
+              measures=['dist'],
+              unweighted=True, original_leading_paths=False,
+              correct_unequal_calibs='default',
+              todate=todate, keeproot=True,
+              calib_selecter='name').age_dist['x'] == 1.8
+
+assert agesdf(tree, calib,
+              measures=['dist'],
+              unweighted=False, original_leading_paths=False,
+              correct_unequal_calibs='ignore',
+              todate=todate, keeproot=True,
+              calib_selecter='name'
+              ).age_dist.round(4)['x'] == 1.8347
+
+
+### Numeric example of Britton 2002
+
 tree = ete3.Tree('(Uvularia perfoliata:15,(Uvularia Pudica:8,Disporum:20)x0:3)R:6;', format=1)
 ## Check p-values of unclocklikeliness
 ages = agesdf(tree, calib,
@@ -307,3 +393,111 @@ ages = agesdf(tree, calib,
               todate=todate, keeproot=True,
               calib_selecter='name')
 # No difference for the unweighted algo if ≤3 leaves
+
+### Simulations
+
+tree = ete3.Tree('(((A,B)y0,C)x,D)R;', format=1)
+def simulate_brlen(tree, ages=None, rates=None, mean=None, stddev=None):
+    # Assuming normal law for branch lengths with sd=length*rate
+    nbranches = sum(1 for n in tree.iter_descendants())
+    
+    expected_subst = None
+    if mean is None or stddev is None:
+        if ages is None:
+            ages = {n.name: (0 if n.is_leaf()
+                             else 1+n.get_farthest_leaf(topology_only=True)[1])
+                    for n in tree.traverse()}
+        if rates is None:
+            rates = {}
+        real_brlen = a(ages[n.up.name] - ages[n.name] for n in tree.iter_descendants())
+        br_rates = a(rates.get(n.name, 1) for n in tree.iter_descendants())
+
+        expected_subst = real_brlen * br_rates
+
+    if mean is None:
+        mean = expected_subst
+    if stddev is None:
+        stddev = expected_subst
+
+    size = nbranches if (np.isscalar(mean) and np.isscalar(stddev)) else None
+
+    sim_brlen = np.random.normal(mean, stddev, size=size)
+    sim_brlen[sim_brlen<0] = 0
+
+    for n, brlen in zip(tree.iter_descendants(), sim_brlen):
+        n.dist = brlen
+
+    return tree
+
+def date_tree(tree, ages, age_col='age_dist'):
+    for n in tree.iter_descendants():
+        n.dist = ages.loc[n.up.name, age_col] - ages.loc[n.name, age_col]
+    return tree
+
+sim_ages_x = []
+for i in range(500):
+    sim_ages_x.append(agesdf(simulate_brlen(tree), calib, measures=['dist'],
+                             unweighted=False, original_leading_paths=False,
+                             correct_unequal_calibs='default',
+                             todate=todate, keeproot=True,
+                             calib_selecter='name').age_dist['x'])
+sim_ages_x = []
+for i in range(500):
+    sim_ages_x.append(agesdf(simulate_brlen(tree), calib, measures=['dist'],
+                             unweighted=False, original_leading_paths=False,
+                             correct_unequal_calibs='default',
+                             fix_conflict_ages=False,
+                             todate=todate, keeproot=True,
+                             calib_selecter='name').age_dist['x'])
+
+sim_ages_x = []
+for i in range(500):
+    sim_ages_x.append(agesdf(simulate_brlen(tree, stddev=1), calib, measures=['dist'],
+                             unweighted=False, original_leading_paths=False,
+                             correct_unequal_calibs='default',
+                             fix_conflict_ages=True,
+                             todate=todate, keeproot=True,
+                             calib_selecter='name').age_dist['x'])
+
+from datasci.graphs import plottree
+from dendro.any import ete3 as ete3_methods
+get_items = ete3_methods.get_items
+get_label = ete3_methods.get_label
+
+plottree(tree, get_items, get_label, style='V', alpha=0.05); ax = plt.gca()
+for i in range(50):
+    simtree = simulate_brlen(tree, stddev=0.5)
+    maxlength = simtree.get_farthest_leaf()[1]
+    for n in simtree.iter_descendants():
+        n.dist *= 3./maxlength
+    plottree(simtree, get_items, get_label, style='V', ax=ax, alpha=0.05)
+
+plottree(tree, get_items, get_label, style='V', alpha=0.05); ax = plt.gca()
+for i in range(50):
+    simtree = simulate_brlen(tree, stddev=0.5)
+    maxlength = simtree.get_farthest_leaf()[1]
+    for n in simtree.iter_descendants():
+        n.dist *= 3./maxlength
+    plottree(simtree, get_items, get_label, style='V', ax=ax, alpha=0.05)
+
+niter = 500
+alpha = 5./niter
+sim_ages_x = []
+fig, (ax1, ax2) = plt.subplots(1, 2)
+for i in range(niter):
+    simtree = simulate_brlen(tree, stddev=0.5)
+    maxlength = simtree.get_farthest_leaf()[1]
+    for n in simtree.iter_descendants():
+        n.dist *= 3./maxlength
+    plottree(simtree, get_items, get_label, style='V', ax=ax1, alpha=alpha)
+
+    ages = agesdf(simtree, calib, measures=['dist'],
+                                  unweighted=False, original_leading_paths=False,
+                                  correct_unequal_calibs='default',
+                                  fix_conflict_ages=True,
+                                  todate=todate, keeproot=True,
+                                  calib_selecter='name')
+    sim_ages_x.append(-ages.age_dist['x'])
+    dated_tree = date_tree(simtree, ages)
+    plottree(dated_tree, get_items, get_label, style='V', ax=ax2, alpha=alpha)
+ax2.hist(sim_ages_x, bins=50, bottom=-1, density=True, alpha=0.6)

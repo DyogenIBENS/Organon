@@ -798,34 +798,45 @@ def timescale_paths(previous_node, previous_path, nodename, subtree,
     
     logger.debug('        previous_path=%s cal_paths=%s', ls(previous_path), ls(cal_paths))
     
-    logger.debug('        Expect broadcastable shapes: cal_ages %s; paths %s; cal_paths %s.',
-                 cal_ages.shape, paths.shape, cal_paths.shape)
     assert (cal_ages.shape[1] == 1) and (paths.shape[1] == cal_paths.shape[1])
     assert cal_ages.shape[0] == paths.shape[0] == cal_paths.shape[0]
+    
+    cal_leaves = subtree[nodename]['cal_leaves']
+    weights = cal_leaves if unweighted else subtree[nodename]['w']
+    meanpath = np.average(paths, axis=0, weights=weights)
+
+    logger.debug('        Expect broadcastable shapes: cal_ages %s; paths %s; '
+                 'cal_paths %s; meanpath %s',
+                 cal_ages.shape, paths.shape, cal_paths.shape, meanpath.shape)
 
     # Correction when the path end is at an age>0
     if correct_unequal_calibs=='default':
-        ages = cal_ages + (previous_age-cal_ages) * (paths-cal_paths) / (previous_path - cal_paths)
-        #if (previous_paths - cal_paths < 0).any():
+        ages = cal_ages + (previous_age-cal_ages) * (meanpath-cal_paths) / (previous_path - cal_paths)
+        #if (previous_path - cal_paths < 0).any():
         #if (paths-cal_paths < 0).any():
     elif correct_unequal_calibs=='mine':
         durations = previous_age - cal_ages
-        corrections = durations.max() / durations
-        ages = (previous_age - cal_ages.min()) * (paths - cal_paths) * corrections
+        corrections = durations.max() / durations  # Or rescale with the min ?
+        ages = (previous_age - cal_ages.min()) * (meanpath - cal_paths) * corrections
         ages /= (previous_path - cal_paths)
     elif correct_unequal_calibs=='pathd8':
         # Classical MPL. See PATHd8 (Britton et al. 2007)
         # But it's theoretically wrong (non homogeneous formula)
-        ages = (cal_ages + (previous_age-cal_ages) * (paths-cal_paths)) / (previous_path - cal_paths)
+        ages = (cal_ages + (previous_age-cal_ages) * (meanpath-cal_paths)) / (previous_path - cal_paths)
     elif correct_unequal_calibs=='ignore':
         ages = previous_age * paths / previous_path
+    elif correct_unequal_calibs=='rates':
+        rate = previous_path/previous_age
+        cal_rates = np.where(cal_ages>0, cal_paths/cal_ages, rate)
 
-    cal_leaves = subtree[nodename]['cal_leaves']
-    weights = cal_leaves if unweighted else subtree[nodename]['w']
+        # previous_paths must be rescaled as well.
+        ages = previous_age * (paths - cal_paths + cal_paths*rate/cal_rates) / previous_path
+    else:
+        raise ValueError('`correct_unequal_calibs` should be default/mine/pathd8/ignore/rates.')
 
-    logger.debug('    -> Inputs: ages=%s; weights=%s',
-                 ls(ages), ls(weights))
-    age = np.average(ages, axis=0, weights=weights)
+    logger.debug('    -> Inputs: mpl=%s weights=%s ages=%s',
+                 meanpath, ls(weights), ls(ages))
+    age = np.average(ages, axis=0, weights=weights)  # Potentially applying twice the weights.
 
     assert age.shape == (paths.shape[1],), "Shapes: age %s; paths %s" %(
             age.shape, paths.shape)
