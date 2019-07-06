@@ -1219,9 +1219,15 @@ def bound_average(fulltree, calibration, todate=isdup,
                 nodecopy = node.copy()  # Could be avoided?
                 cal_nodes = nodecopy.get_leaves(is_leaf_fn=is_next_cal)
                 # No need to save subtrees that only contain calibrated nodes.
+                logger.debug('=> next cal: %s',
+                             ' '.join(n.name for n in cal_nodes))
                 if set(cal_nodes) != set(nodecopy.children):
+                    logger.debug('=> subtree %s', nodecopy.name)
                     for clf in cal_nodes:
-                        for clfch in clf.children:
+                        logger.debug('=> clf children: %s',
+                                ' '.join(c.name for c in clf.children))
+                        for clfch in clf.get_children():  # Copy!!
+                            logger.debug('=> detach %s', clfch.name)
                             clfch.detach()
                 
                     subtrees.append(nodecopy)
@@ -1325,18 +1331,26 @@ def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
 
 def set_subtrees_distances(subtrees, measure):
     """Set the new branch lengths to the given measure (dS, dN or t)"""
-    for subtree in subtrees:
-        for node in subtree.traverse():
-            node.add_feature("branch_dist", node.dist)
-            newvalue = getattr(node, measure)
-            node.dist = 0 if np.isnan(newvalue) else newvalue
+    if measure != 'dist':
+        for subtree in subtrees:
+            for node in subtree.traverse():
+                node.add_feature("branch_dist", node.dist)
+                try:
+                    newvalue = getattr(node, measure)
+                except AttributeError as err:
+                    if node.is_root():
+                        newvalue = np.NaN
+                    else:
+                        raise
+
+                node.dist = 0 if np.isnan(newvalue) else newvalue
 
 
 #def process_toages(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
 def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='.nwk',
             measures=['dS'], todate="isdup", unweighted=False,
             original_leading_paths=False, correct_unequal_calibs='default',
-            keeproot=False):
+            fix_conflict_ages=True, keeproot=False):
     fulltree = setup_fulltree(mlcfile, phyltree, replace_nwk, replace_by, measures)
 
     # Convert argument to function
@@ -1368,20 +1382,32 @@ def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='
                                    unweighted,
                                    original_leading_paths,
                                    correct_unequal_calibs,
+                                   fix_conflict_ages=fix_conflict_ages,
                                    keeproot=keeproot,
                                    calib_selecter='taxon',
                                    node_info=[('taxon', this_get_taxon),
                                               ('is_outgroup', is_outgroup)],
                                    node_feature_setter=[('type', get_eventtype)])
     showtree(fulltree)
-    set_subtrees_distances(subtrees, measures[0])
+    if not keeproot:
+        ingroup_nodes = [n for n in fulltree.children
+                            if int(getattr(n, 'is_outgroup', 0)) == 0]
+        treename = getattr(fulltree, 'treename', None)
+        try:
+            fulltree, = ingroup_nodes
+            if treename:
+                fulltree.add_feature('treename', treename)
+        except ValueError:
+            logger.warning("Ingroup node not found (%d candidates)",
+                            len(ingroup_nodes))
+
     return ages, fulltree, subtrees
 
 
 def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
          phyltreefile=PHYLTREEFILE, measures=['t', 'dN', 'dS', 'dist'],
          unweighted=False, original_leading_paths=False,
-         correct_unequal_calibs='default', verbose=False,
+         correct_unequal_calibs='default', fix_conflict_ages=True, verbose=False,
          show=None, replace_nwk='.mlc', replace_by='.nwk', ignore_errors=False,
          saveas='ages', todate='isdup', keeproot=False):
     nb_mlc = len(mlcfiles)
@@ -1398,6 +1424,7 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                   "     unweighted    %s\n"
                   "     original_leading_paths %s\n"
                   "     correct_unequal_calibs %s\n"
+                  "     fix_conflict_ages %s\n"
                   "     replace_nwk   %s\n"
                   "     replace_by    %s\n"
                   "     ignore_errors %s\n"
@@ -1411,11 +1438,11 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                   unweighted,
                   original_leading_paths,
                   correct_unequal_calibs,
+                  fix_conflict_ages,
                   replace_nwk,
                   replace_by,
                   ignore_errors,
                   keeproot)
-
 
     
 
@@ -1445,8 +1472,13 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                 result = process(mlcfile, ensembl_version, phyltree,
                                  replace_nwk, replace_by, measures, todate,
                                  unweighted, original_leading_paths,
-                                 correct_unequal_calibs,
+                                 correct_unequal_calibs, fix_conflict_ages,
                                  keeproot=keeproot)
+                if saveas=='fulltree':
+                    set_subtrees_distances([result[1]], measures[0])
+                elif saveas=='subtrees':
+                    set_subtrees_distances(result[2], measures[0])
+
                 save_result(result[saveas_i], out)
             except BaseException as err:
                 print()
@@ -1508,6 +1540,9 @@ Example to date all internal nodes except a calibrated speciation:
                     choices=['default', 'mine', 'pathd8', 'ignore'], default='default',
                     help='Formula to adjust path lengths when they end at ' \
                          'different calibrations [%(default)s]')
+    gr.add_argument('-F', '--nofix-conflicts', dest='fix_conflict_ages',
+                    action='store_false',
+                    help='Do not constrain estimates within calibration boundaries.')
     gr.add_argument('-k', '--keeproot', action='store_true',
                     help="Date the nodes immediately following the root " \
                          "(not recommended).")
