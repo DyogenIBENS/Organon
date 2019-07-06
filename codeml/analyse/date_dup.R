@@ -41,18 +41,20 @@ load_calibration <- function(agefile) {
 
 subset_calibration <- function(ages, tree, age_col="age_dist", leaf_age=0) {
   # return a "calibration" dataframe formatted for ape::chronos.
-  # Does not retrieve leaf ages.
-  ntips <- Ntip(tree)
+  
+  ### Does not retrieve leaf ages, because chronos doesn't accept them.
+  ntips = Ntip(tree)
   subcalib_names <- tree$node.label
-  subcalib_nodes <- seq_along(subcalib_names) + ntips
+  subcalib_nodes <- ntips + seq_along(subcalib_names)
   subcalib_agemin <- ages[subcalib_names, age_col] - leaf_age
   
   calibrated <- ages[subcalib_names, "calibrated"] == 1
   # handle NA type nodes (not found in ages: duplication as root)
   # Or it is the outgroup # Better to export the subtrees with generate_dNdStable.py
-  max_age <- max(subcalib_agemin, na.rm=TRUE)
-  subcalib_agemin[is.na(calibrated)] <- max_age
-  calibrated[is.na(calibrated)] <- TRUE  # Need those nodes before the first calibration for MPL stats.
+
+  #max_age <- max(subcalib_agemin, na.rm=TRUE)
+  #subcalib_agemin[is.na(calibrated)] <- max_age
+  #calibrated[is.na(calibrated)] <- TRUE  # Need those nodes before the first calibration for MPL stats.
 
   subcalib <- data.frame(node=subcalib_nodes,
                          age.min=subcalib_agemin,
@@ -296,6 +298,7 @@ process_line <- function(line, calibration, outfile,
                          #date_func_list=list(
                          age_col="age_dist", datation.env=new.env(),
                          col.names=TRUE, ...) {
+  ### DEPRECATED
   count_iter <<- ifelse(exists("count_iter"), count_iter + 1, 0)
   rescale <- identical(date_func, date_MPL)
   tree <- read.tree(text=line)
@@ -312,13 +315,13 @@ process_line <- function(line, calibration, outfile,
 
     dtree <- tryCatch(date_func(tree, calibration=subcalib, ...),
                             error=function(e) {
-                                    cat(" Got Error:")
+                                    cat(" Got Error:", file=stderr())
                                     if (e$message == "NA/NaN gradient evaluation") {
-                                      cat("known error", e$message)
+                                      cat("known error", e$message, file=stderr())
                                       warning(e)
                                       return(e)
                                     } else {
-                                      cat("unknown")
+                                      cat("unknown", file=stderr())
                                       stop(e)
                                     }})
     if (data.class(dtree) != "chronos") {
@@ -394,22 +397,27 @@ make_error_catcher <- function(date_func) {
   date_func_name <- match.call()[2]
   catch_date_func <- function(tree, calibration, ...) {
     #withCallingHandlers
+    # See <https://github.com/cran/ape/blob/master/R/chronos.R> search 'stop('
+    # for possible errors.
     dtree <- tryCatch(
                       date_func(tree, calibration, ...),
                       error=function(e) {
-                              if (grepl("NA/NaN gradient evaluation", e$message,
-                                        fixed=TRUE)) {
-                                #cat("known error", e$message)
+                              if (grepl(paste('NA/NaN gradient evaluation',
+                                              'cannot find reasonable starting dates',
+                                              sep='|'),
+                                        e$message)) {
+                                #cat("known error", e$message, file=stderr())
                                 warning(paste0('Caught expected:', paste0(e, collapse=':')))
                                 return(e)
                               } else {
-                                traceback()
+                                #traceback()  # No traceback available
                                 e$message <- paste0(e$message, '. In function ',
                                                     #substitute(date_func),
                                                     date_func_name,
                                                     ': ', tree$node.label[1])
                                 cat('Unexpected error:', as.character(e),
                                     file=stderr())
+                                #stop(e)
                                 return(e)
                               }})
     #if (data.class(dtree) != "chronos") {
@@ -444,7 +452,11 @@ date_all_methods <- function(line, calibration,
   count_iter <<- count_iter + 1  # Not correct with parallel.
   tree <- read.tree(text=line)
   cat("\n", count_iter, tree$node.label[1], "     ")
+
+  if( !is.rooted(tree) ) stop(paste('Tree not rooted!', tree$node.label[1]))
+
   leaf_ages <- calibration[tree$tip.label, age_col]
+
   # In case tips are not in the table, ignore (assume leaf age is zero)
   leaf_ages[is.na(leaf_ages)] <- 0
   subcalib <- subset_calibration(calibration, tree, age_col=age_col, leaf_age=leaf_ages[1])
@@ -480,7 +492,9 @@ date_all_methods <- function(line, calibration,
     dating_edgeinfo <- sapply(dtrees[c("PL1", "PL100", "PL10000", "NPRS", "R1",
                                        "R100", "R10000")],
                               extract_rate_edgeinfo, tree)
-    dating_edgeinfo <- cbind(dating_edgeinfo, C=attr(dtrees[["C"]], "rates"))
+    rateC <- attr(dtrees[["C"]], "rates", exact=TRUE)
+    if ( is.null(rateC) ) rateC <- NA
+    dating_edgeinfo <- cbind(dating_edgeinfo, C=rateC)
     dating_edgeinfo <- rbind(NA, dating_edgeinfo)
     rownames(dating_edgeinfo)[1] <- tree$node.label[1]
     # Reorder based on the nodes then the tips, as in the other data.frames
@@ -517,6 +531,7 @@ date_all_methods <- function(line, calibration,
 
 date_all_trees <- function(allnewicks, calib, outfilename, date_func=date_PL,
                            age_col="age_dist", ...) {
+  ### DEPRECATED
   datation.env <- new.env()
   count_iter  <<- 0
   outfile <- file(outfilename, "w")
@@ -528,7 +543,8 @@ date_all_trees <- function(allnewicks, calib, outfilename, date_func=date_PL,
   skipped <- sum(r[1,] == "skip")
   calibrated <- sum(r[1,] == "calibrate")
   failed <- ncol(r) - skipped - calibrated
-  cat("Calibrated:", calibrated, "Skipped:", skipped, "Failed:", failed, "\n")
+  cat("Calibrated:", calibrated, "Skipped:", skipped, "Failed:", failed, "\n",
+      file=stderr())
   return(t(r))
 }
 
@@ -620,6 +636,7 @@ date_all_trees_all_methods <- function(datasetname, agefile, treefile, ncores=6,
   out_runs <- do.call(rbind, lapply(out, `[[`, "run"))
   #names(out) <- NULL  # Otherwise, those names will prefix each row name.
   out_ages <- do.call(rbind, c(lapply(unname(out), `[[`, "ages"), deparse.level=0))  # Do not check row names
+  #TODO: Do not append 'age' before 'MPL.Pval' and 'MPL.stderr'
 
   # Just for a shorter representation and lighter files.
   out_logs[3:ncol(out_logs)] <- apply(out_logs[3:ncol(out_logs)], 2,
@@ -627,10 +644,19 @@ date_all_trees_all_methods <- function(datasetname, agefile, treefile, ncores=6,
                                       levels=c("TRUE", "FALSE"),
                                       labels=c('T', 'F'))
 
-  #return(list(out_ages, out_runs, out_logs))
+  cat("Total:", nrow(out_logs),
+      "Calibrated:", sum(out_logs$action == "calibrate"),
+      "Skipped:", sum(out_logs$action == "skip"),
+      "Failed:", sum(apply(out_runs, 1,
+                             function(r){any(grepl('^Error', r), na.rm=TRUE)})
+                      ),
+      "\n",
+      file=stderr())
+
   write.table(out_logs, outfile_logs, quote=FALSE, sep="\t", na="", row.names=FALSE)
   write.table(out_runs, outfile_runs, quote=FALSE, sep="\t", na="")
   write.table(out_ages, outfile_ages, quote=FALSE, sep="\t", na="")
+  #return(list(out_ages, out_runs, out_logs))
 }
 
 if(!interactive()) {
@@ -638,7 +664,10 @@ if(!interactive()) {
 
   args <- c("Simiiformes_m1w04_ages.subtreesGoodQualO2-ci",
             "Simiiformes_m1w04_ages.subtreesGoodQualO2-ci-um2.tsv",
-            "Simiiformes_m1w04_ages.subtreesGoodQualO2-ci.dSsubtrees.nwk",
+            "Simiiformes_m1w04_ages.subtreesGoodQualO2-ci.dSsubtrees.nwk",1,35)
+  args <- c("ages/Simiiformes_m1w04_ages.subtreesGoodQualO2-cCatarrhini",
+            "ages/Simiiformes_m1w04_ages.subtreesGoodQualO2-cCatarrhini-um1.new.tsv",
+            "trees/Simiiformes_m1w04_ages.subtreesGoodQualO2-cCatarrhini.dSfulltrees.nwk",
             1, 35)
   args <- commandArgs(trailingOnly=TRUE)
   if( !(length(args) %in% 3:5) ) {
