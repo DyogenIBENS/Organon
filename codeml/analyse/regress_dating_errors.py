@@ -218,10 +218,12 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
     return ages_c
 
 
+
 def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     """Load ages dataframe, join with parent information, and compute the
     'robust' info"""
-    ages = pd.read_csv(ages_file, sep='\t', index_col=0)
+    ages = pd.read_csv(ages_file, sep='\t', index_col=0)\
+            .rename(columns={n: n.replace('.', '_')})  # If coming from date_dup.R
 
     logger.info("Shape ages: %s; has dup: %s" % (ages.shape, ages.index.has_duplicates))
     n_nodes = ages.shape[0]
@@ -302,7 +304,7 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
 
     ages_p = ages_p.loc[~to_remove].copy(deep=False)
     if ages_p.index.has_duplicates:
-        debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age', 'branch_dS', 'age_dS']
+        debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_age', 'branch_dS', 'age_dS']
         logger.error("Failed to remove index duplicates in 'ages_p':\n%s\n...",
                      ages_p.loc[ages_p.index.duplicated(), debug_columns].head(10))
 
@@ -323,7 +325,7 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
     Compute Number of duplications/speciation per tree,
     and additional tree specific statistics.
     """
-    branch_measures = ['branch_'+m for m in measures]
+    branch_measures = ['branch_'+m for m in measures]  # global dist_measures
     #NOTE: already computed by `subtrees_stats` in current version.
     for m in measures:
         logger.debug('measure: %s' %m)
@@ -420,7 +422,8 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
     median_taxon_ages = ages_forcontrol[ages_forcontrol.type\
                                                        .isin(("spe", "leaf"))]\
                                        .groupby("taxon").age_dS.median()\
-                                       .rename('median_taxon_age')
+                                       .rename('median_age')
+    #TODO: change for each measure as in `join_extra_ages`
 
     timetree_ages = median_taxon_ages.index.to_series()\
                                      .apply(phyltree.ages.get)\
@@ -441,7 +444,7 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
     invalid_nodes = invalid_taxon_parent & ~invalid_measures
     # calibrated | branch_dS.isna()
     # Should be nodes whose parent node is the root.
-    debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_taxon_age', 'branch_dS', 'age_dS']
+    debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_age', 'branch_dS', 'age_dS']
     if invalid_nodes.any():
         #assert (ages_controled[invalid_taxon_parent].parent == \
         #        ages_controled[invalid_taxon_parent].root).all()
@@ -463,17 +466,17 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
         logger.error("Failed to filter out duplications:\n%s",
                      ages_controled_spe2spe[same_sp].head(15))
 
-    #TODO: NaN for data not in ages_forcontrol?
-    ages_controled['median_brlen'] = \
-        ages_controled_spe2spe.taxon_parent.apply(control_ages.median_taxon_age.get) \
-        - ages_controled_spe2spe.median_taxon_age
-    #control_ages.reindex(ages_controled.taxon_parent)\
-    #        .set_axis(ages_controled.index, inplace=False)
-    # would be more 'Pandas-like'.
-
     ages_controled['timetree_brlen'] = \
         ages_controled_spe2spe.taxon_parent.apply(control_ages.timetree_age.get) \
         - ages_controled_spe2spe.timetree_age
+
+    #TODO: NaN for data not in ages_forcontrol?
+    ages_controled['median_brlen'] = \
+        ages_controled_spe2spe.taxon_parent.apply(control_ages.median_age.get) \
+        - ages_controled_spe2spe.median_age
+    #control_ages.reindex(ages_controled.taxon_parent)\
+    #        .set_axis(ages_controled.index, inplace=False)
+    # would be more 'Pandas-like'.
 
     # Resulting branch lengths
     branch_info = ["taxon_parent", "taxon"]
@@ -481,7 +484,7 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
     #                    ~ages_controled.duplicated(branch_info),
     control_brlen = ages_controled.query('type != "dup" & type_parent != "dup"')\
                     .groupby(branch_info)\
-                    [["median_brlen", "median_taxon_age", "timetree_brlen",
+                    [["median_brlen", "median_age", "timetree_brlen",
                       "timetree_age"]]\
                     .first()#agg(lambda s: s[0])
                 #.sort_values('timetree_age')
@@ -497,7 +500,8 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
     return ages_controled, control_ages, control_brlen
 
 
-def check_control_dates_lengths(control_brlen, phyltree, root):
+def check_control_dates_lengths(control_brlen, phyltree, root,
+                                measures=dist_measures):
     """Check NA values and if the branches fit the phylogenetic tree.
     
     Return: (unexpected_branches, lost_branches)"""
@@ -515,7 +519,8 @@ def check_control_dates_lengths(control_brlen, phyltree, root):
     if na_brlen.any():
         print("MISSING branch lengths:\n" + str(control_brlen[na_brlen]))
 
-    median_brlen_sum = control_brlen.median_brlen.sum()
+    median_measures = ['median_brlen_%s' % m for m in measures]
+    median_brlen_sum = control_brlen[median_measures].sum()
     print("Sum of median branch lengths =", median_brlen_sum, "My")
     timetree_brlen_sum = control_brlen.timetree_brlen.sum()
     print("Sum of timetree branch lengths =", timetree_brlen_sum, "My")
@@ -532,7 +537,7 @@ def check_control_dates_lengths(control_brlen, phyltree, root):
         logger.error("Forgotten branches in phyltree:\n%s",
                      lost_branches)
 
-    median_treelen_phyltree = control_brlen.reindex(list(expected_branches)).median_brlen.sum()
+    median_treelen_phyltree = control_brlen.reindex(list(expected_branches))[median_measures].sum()
     timetree_treelen_phyltree = control_brlen.reindex(list(expected_branches)).timetree_brlen.sum()
     print("Sum of median branch lengths for branches found in phyltree =",
           median_treelen_phyltree)
@@ -541,34 +546,140 @@ def check_control_dates_lengths(control_brlen, phyltree, root):
     return unexpected_branches, lost_branches
 
 
-def compute_dating_errors(ages_controled, control='median'):
-    age_var = control + '_taxon_age'  # Control value
-    brlen_var = control + '_brlen'    # Control value
+def compute_dating_errors(ages_controled, control='median', measures=['dS']):
+    """:param: `control` in median/timetree"""
+    if measures is None:
+        # For example when `control == "timetree"`
+        age_vars = ['age']
+        brlen_vars = ['brlen']
+    else:
+        age_vars = ['age_%s' % m for m in measures]  # Control value
+        brlen_vars = ['brlen_%s' % m for m in measures]    # Control value
 
-    ages_controled["abs_age_dev"] = \
-                (ages_controled.age_dS - ages_controled[age_var]).abs()
-    ages_controled["signed_age_dev"] = \
-                (ages_controled.age_dS - ages_controled[age_var])
-    ages_controled["abs_brlen_dev"] = \
-                (ages_controled.age_dS_parent - ages_controled.age_dS - \
-                 ages_controled[brlen_var]).abs()
-    ages_controled["signed_brlen_dev"] = \
-                (ages_controled.age_dS_parent - ages_controled.age_dS - \
-                 ages_controled[brlen_var])
+    control = control + '_'
+
+    ### Inplace
+    for age_var, brlen_var in zip(age_vars, brlen_vars):
+        #ages_controled = ages_controled.assign(**{
+        
+        # 1. Symetrical method
+        ages_controled["signed_dev_" + age_var] = (ages_controled[age_var]
+                                                   - ages_controled[control+age_var])
+        ages_controled["abs_dev_" + age_var] = ages_controled["signed_dev_" + age_var].abs()
+        ages_controled["signed_dev_" + brlen_var] = (ages_controled[age_var+'_parent']
+                                                     - ages_controled[age_var]
+                                                     - ages_controled[control+brlen_var])
+        ages_controled["abs_dev_" + brlen_var] = ages_controled["signed_dev_" + brlen_var].abs()
+        # 2. Asymetrical method. Let c be the real age, c0 and c1 the calibrations before and after, and x the estimation:
+        # if x - c > 0 (the estimation is older) => normalize by c0 - c
+        # if x - c < 0 (the estimation is younger) => normalize by c1 - c
+        #ages_controled["sym_dev_" + age_var] = (ages_controled["signed_dev_" + age_var]
+        #                                        /( - ages_controled[control+age_var]))
 
     # Compute the mean only for nodes that were not calibrated.
     sgg = ages_controled.groupby("subgenetree")
     #dev_measures = ['abs_age_dev', 'signed_age_dev', 'abs_brlen_dev', 'signed_brlen_dev']
     mean_errors = pd.concat((
-                    sgg[['abs_age_dev', 'signed_age_dev']].sum().div(
+                    sgg[[dev+age_var for age_var in age_vars
+                            for dev in ('abs_dev_', 'signed_dev_')]].sum().div(
                         sgg['calibrated'].agg(lambda v: (1-v).sum()), axis=0),
-                    sgg[['abs_brlen_dev', 'signed_brlen_dev']].sum().div(
+                    sgg[[dev+brlen_var for brlen_var in brlen_vars
+                            for dev in ('abs_dev_', 'signed_dev_')]].sum().div(
                         sgg[['calibrated', 'calibrated_parent']]\
                            .apply(lambda df: ((1-df.calibrated) | (1-df.calibrated_parent)).sum()), axis=0)
                     ),
                     axis=1)
+
     return mean_errors
 
+
+def join_extra_ages(new_ages_file, ages_data,
+                    control_condition='really_robust & aberrant_dists == 0'):
+    # Re-use output of `analyse_age_errors`/`load_prepare_ages`/`add_control_dates_lengths`
+    extra_ages = pd.read_csv(new_ages_file, sep='\t', index_col=0)\
+                   .rename(columns=lambda n: n.replace('.', '_'))\
+                   .rename_axis(index='name')\
+                   .reset_index()\
+                   .assign(subgenetree=lambda df: df.subgenetree.fillna(method='ffill'))
+    age_measures = [colname for colname in extra_ages.columns
+                        if colname.startswith('age_')]
+    # Needs to concat the parent data!! (for compute_mean_errors of 'brlen')
+    extra_ages = pd.merge(extra_ages,
+                          extra_ages.loc[extra_ages.type!='leaf',
+                                         ['name', 'subgenetree'] + age_measures],
+                      how="left",
+                      left_on=["parent", "subgenetree"],
+                      right_on=["name", "subgenetree"],
+                      suffixes=('', '_parent'),
+                      indicator=True, validate='many_to_one')
+    if set(ages_data.ages_controled.columns).intersection(age_measures):
+        logger.warning('New ages already in the data: %s', age_measures)
+
+    # Join to the previous data.
+    ages = pd.merge(
+               extra_ages.drop(columns=['calibrated', 'type', 'parent', 'taxon']),
+               ages_data.ages_controled_withnonrobust.reset_index(),
+               'inner',  # to remove what has been removed (outgroups)
+               on=['name', 'subgenetree'],
+               suffixes=('_extra', ''),
+               sort=False)\
+           .set_index('name')
+    logger.debug('New ages shape: %s', ages.shape)
+
+    # Rerun a small part of `add_control_dates_lengths`
+    ages_forcontrol = ages.query(control_condition)
+    logger.info("%d nodes from robust trees", ages_forcontrol.shape[0])
+
+    median_taxon_ages = ages_forcontrol[ages_forcontrol.type\
+                                                       .isin(("spe", "leaf"))]\
+                                   .groupby("taxon")[age_measures].median()\
+                                   .rename(columns={am: 'median_'+am
+                                                    for am in age_measures})
+    control_ages = pd.concat((median_taxon_ages, ages_data.control_ages),
+                             axis=1, sort=False)
+
+    #print(control_ages.sort_values('timetree_age', ascending=False))
+
+    ages_controled = pd.merge(ages,
+                              control_ages[['median_'+am for am in age_measures]],
+                              left_on="taxon", right_index=True,
+                              validate="many_to_one")
+
+    ages_controled_spe2spe = ages_controled.dropna(subset=['taxon_parent']).query('type != "dup" & type_parent != "dup"')
+    same_sp = ages_controled_spe2spe.taxon == ages_controled_spe2spe.taxon_parent
+    if same_sp.any():
+        logger.error("Failed to filter out duplications:\n%s",
+                     ages_controled_spe2spe[same_sp].head(15))
+
+    # Median branch lengths from the given measures.
+    ages_controled = ages_controled.assign(**{
+        ('median_brlen_%s' % am[4:]):
+            (ages_controled_spe2spe.taxon_parent\
+                        .apply(control_ages['median_%s' % am].get)
+             - ages_controled_spe2spe['median_%s' % am])
+        for am in age_measures})
+
+    branch_info = ["taxon_parent", "taxon"]
+    #control_brlen = ages_controled.loc[
+    #                    ~ages_controled.duplicated(branch_info),
+    control_brlen = ages_data.control_brlen.join(
+                        ages_controled.query('type != "dup" & type_parent != "dup"')\
+                        .groupby(branch_info)\
+                        [['median_%s' % am for am in age_measures]]\
+                        .first())
+    #check_control_dates_lengths(control_brlen, phyltree, root, measures)
+
+    ages_controled_cond = ages_controled.query(control_condition).copy(deep=False)
+    # copy to silence the `SettingWithCopyWarning`. Alternatively, set `_is_copy=None`
+    mean_errors = compute_dating_errors(ages_controled_cond,
+                                    measures=[am[4:] for am in age_measures])
+
+    return age_analysis_data(ages_controled_cond,
+                             ages_controled,
+                             None,  # ns
+                             control_ages,
+                             control_brlen,
+                             mean_errors)
 
 
 def display_evolutionary_rates():
@@ -603,7 +714,7 @@ def display_evolutionary_rates():
 
 
 def compute_branchrate_std(ages_controled, dist_measures,
-                           branchtime='median_brlen', taxon_age=None,
+                           branchtime='median_brlen_dS', taxon_age=None,
                            mean_condition=None,
                            std_condition=None):
     """
@@ -614,7 +725,7 @@ def compute_branchrate_std(ages_controled, dist_measures,
     groupby_cols = ["subgenetree", "taxon_parent", "taxon",
                     branchtime] + dist_measures
     if taxon_age is not None:
-        groupby_cols.append(taxon_age)  ## "median_taxon_age"
+        groupby_cols.append(taxon_age)  ## "median_age"
     #ages_controled["omega"] = ages_controled.branch_dN / ages_controled.branch_dS
 
     if mean_condition:
@@ -941,486 +1052,8 @@ if __name__ == '__main__':
 
     # # Load data
 
-    aS, ts, cs = load_subtree_stats("subtrees_{stattype}stats-Simiiformes.tsv")
-    check_load_subtree_stats(aS, ts, cs)
-
-    al_params = ["ingroup_glob_len", "ingroup_mean_GC", "ingroup_mean_N",
-                 "ingroup_mean_gaps", "ingroup_mean_CpG", "ingroup_std_len",
-                 "ingroup_std_GC",  "ingroup_std_N",  "ingroup_std_gaps",
-                 "ingroup_std_CpG"]
-    tree_params = ["robust"]
-    cl_params = cs.columns.tolist()[1:]
-    cl_params.remove('time used')
-
-    # ### Group columns by type
-
-    s = pd.merge(aS, ts.drop(['subgenetree'], axis=1), how='inner')
-
-    ingroup_cols = s.columns.str.startswith('ingroup')
-    outgroup_cols = ~ingroup_cols
-    # Keep the genetree column
-    ingroup_cols[0] = True
-
-    s_out = s[s.columns[outgroup_cols]]
-    s_in  = s[s.columns[ingroup_cols]]
-
-    glob_cols = s_out.columns.str.startswith('glob')
-    mean_cols = s_out.columns.str.startswith('mean')
-    med_cols  = s_out.columns.str.startswith('med')
-    std_cols  = s_out.columns.str.startswith('std')
-    w_mean_cols = s_out.columns.str.startswith('w_mean')
-    w_std_cols  = s_out.columns.str.startswith('w_std')
-
-    s_out_glob = s_out[['genetree'] + s_out.columns[glob_cols].tolist()]
-    s_out_mean = s_out[['genetree'] + s_out.columns[mean_cols].tolist()]
-    s_out_med =  s_out[['genetree'] + s_out.columns[med_cols].tolist()]
-    s_out_std =  s_out[['genetree'] + s_out.columns[std_cols].tolist()]
-    s_out_w_mean = s_out[['genetree'] + s_out.columns[w_mean_cols].tolist()]
-    s_out_w_std =  s_out[['genetree'] + s_out.columns[w_std_cols].tolist()]
-
-    s_in_glob = s_in[['genetree'] + s_in.columns[glob_cols].tolist()]
-    s_in_mean = s_in[['genetree'] + s_in.columns[mean_cols].tolist()]
-    s_in_med =  s_in[['genetree'] + s_in.columns[med_cols].tolist()]
-    s_in_std =  s_in[['genetree'] + s_in.columns[std_cols].tolist()]
-    s_in_w_mean = s_in[['genetree'] + s_in.columns[w_mean_cols].tolist()]
-    s_in_w_std =  s_in[['genetree'] + s_in.columns[w_std_cols].tolist()]
-
-    s_in.head()
-    s_out.head()
-    s_out_glob.head()
-    s.columns
-
 
     # ## Load ages
-
-    ages_file = "../ages/Simiiformes_m1w04_ages.subtreesCleanO2-um2-ci-grepoutSG.tsv"
-    outbase = "Simiiformes_m1w04_ages.subtreesCleanO2-um2-ci-grepoutSG"
-
-    ages = pd.read_csv(ages_file, sep='\t', index_col=0)
-    #if not set(('taxon', 'genetree')) & set(ages.columns):
-    #    ages = splitname2taxongenetree(ages, "name")
-
-    # ### Compute the number of duplications and speciations in the tree
-
-    #add_robust_info(ages, ts)
-
-    Ndup = ages.groupby('subgenetree').type.agg(lambda v: sum(v == "dup"))
-    Ndup.name = 'Ndup'
-    Ndup.describe()
-
-    ages = merge_criterion_in_ages(Ndup, ages)
-
-    Nspe = ages.groupby('subgenetree').type.agg(lambda v: sum(v == "spe"))
-    Nspe.name = 'Nspe'
-    Nspe.describe()
-
-    ages = merge_criterion_in_ages(Nspe, ages)
-
-    robust_info = pd.concat((ts, Ndup, Nspe), join='outer', axis=1, sort=False)
-
-    robust_info.shape
-
-    robust_info[~robust_info.robust & (robust_info.Ndup == 0) & (robust_info.Nspe == 7)]
-
-    # First row has a _split gene_ (removed by me, so shows up as correct in terms of Ndup and Nspe).
-    bad_robusts = robust_info[robust_info.robust & ((robust_info.Ndup > 0) | (robust_info.Nspe != 7))]
-    print(bad_robusts.shape)
-    bad_robusts.head()
-
-    robust_info.root_location.unique()
-
-    ages = merge_criterion_in_ages(robust_info.robust, ages)
-
-    print(ages.columns)
-    ages.head()
-
-
-    # ### Fetch parent node info
-
-    # LEFT JOIN to keep 'Simiiformes', or INNER JOIN to discard it.
-    ages_p = pd.merge(ages,
-                      ages[['taxon', 'type', 'age_t', 'age_dS', 'age_dN',
-                            'age_dist', 'calibrated']],
-                      how="left", left_on="parent", right_index=True,
-                      suffixes=('', '_parent'))
-
-    # Select only branches without duplications (from a speciation to another)
-    ages_spe2spe = ages_p[(ages_p.type.isin(('spe', 'leaf'))) & (ages_p.type_parent == 'spe')]
-
-
-    # ### Subset node ages data (robusts gene trees)
-
-    ages_nodup = ages_p[ages_p.Ndup == 0].drop("Ndup", axis=1)
-
-    ages_robust = ages_p[ages_p.robust & (ages_p.Ndup == 0) & (ages_p.Nspe == 7)].drop(["robust", "Ndup", "Nspe"], axis=1)
-
-    ages_robust.shape
-
-    # Robust AND with valid parent node
-    ages_best = ages_spe2spe[ages_spe2spe.robust & (ages_spe2spe.Ndup == 0) & (ages_spe2spe.Nspe == 7)].drop(['Ndup', 'Nspe'], axis=1)
-    print(ages_best.shape)
-
-
-    # ### Merge control dates
-
-    #add_control_dates_lengths(ages_treestats, ages_robust, phyltree, timetree_ages_CI=None)
-
-    median_taxon_ages = ages_robust[ages_robust.type.isin(("spe", "leaf"))]\
-                                   .groupby("taxon").age_dS.median()
-                                   #& (ages_robust.taxon != 'Simiiformes')]\
-    median_taxon_ages.name = 'median_taxon_age'
-
-    # Comparison with TimeTree dates
-
-    phyltree = myPhylTree.PhylogeneticTree("/users/ldog/glouvel/ws2/DUPLI_data85/PhylTree.TimeTree2018.Ensembl-like.nwk")
-
-    timetree_ages = median_taxon_ages.index.to_series().apply(phyltree.ages.get)
-    timetree_ages.name = 'timetree_age'
-
-    # Confidence intervals from TimeTree.org
-    timetree_ages_CI = pd.DataFrame([[41,   46],
-                                     [27.6, 31.3],
-                                     [18.6, 21.8],
-                                     [14.7, 16.8],
-                                     [ 9.0, 14.9],
-                                     [ 8.4, 9.7],
-                                     [6.23, 7.07]],
-                                    columns=['timetree_CI_inf', 'timetree_CI_sup'],
-                                    index=['Simiiformes', 'Catarrhini',
-                                        'Hominoidea', 'Hominidae',
-                                        'Cercopithecinae', 'Homininae', 'HomoPan'])
-
-    control_ages = pd.concat((median_taxon_ages, timetree_ages, timetree_ages_CI), axis=1, sort=False)
-
-    print(control_ages.sort_values('timetree_age', ascending=False).head(10))
-
-    # Adding the median age into `ages_best`
-
-    #ages_median_taxon_ages =
-    ages_controled = pd.merge(ages_best, control_ages,
-                              left_on="taxon", right_index=True, validate="many_to_one")
-
-
-    # ### Merge control branch lengths
-
-    # Control branch length in million years.
-    ages_controled['median_brlen'] = \
-            ages_controled.taxon_parent.apply(control_ages.median_taxon_age.get) \
-            - ages_controled.median_taxon_age
-
-    # Resulting branch lengths
-
-    median_brlen = ages_controled[
-                        ~ages_controled.duplicated(["taxon_parent", "taxon"])
-                        ][
-                            ["taxon_parent", "taxon", "median_brlen",
-                             "median_taxon_age"]
-                        ].sort_values("taxon_parent", ascending=False)
-
-    branch_info = ["taxon_parent", "taxon"]
-    median_brlen.index = pd.MultiIndex.from_arrays(
-                                            median_brlen[branch_info].values.T,
-                                            names=branch_info)
-    median_brlen.drop(branch_info, axis=1, inplace=True)
-    median_brlen
-
-    control_treelen = median_brlen.median_brlen.sum()
-    print("Control tree length (robust) =", control_treelen, "My")
-
-    real_control_treelen = median_brlen.loc[[("Simiiformes", "Catarrhini"),
-                                         ("Simiiformes", "Callithrix jacchus"),
-                                         ("Catarrhini", "Cercopithecinae"),
-                                         ("Cercopithecinae", "Macaca mulatta"), 
-                                         ("Cercopithecinae", "Chlorocebus sabaeus"),
-                                         ("Cercopithecinae", "Papio anubis"),
-                                         ("Catarrhini", "Hominoidea"),
-                                         ("Hominoidea", "Nomascus leucogenys"),
-                                         ("Hominoidea", "Hominidae"),
-                                         ("Hominidae", "Pongo abelii"),
-                                         ("Hominidae", "Homininae"),
-                                         ("Homininae", "Gorilla gorilla gorilla"),
-                                         ("Homininae", "HomoPan"),
-                                         ("HomoPan", "Homo sapiens"),
-                                         ("HomoPan", "Pan troglodytes")]].median_brlen.sum()
-    real_control_treelen
-
-
-    # #### Checks
-    #check_control_dates_lengths(ages_controled, phyltree, root)
-
-    # Check out unexpected species branches for robust trees
-    ages_best[(ages_best.taxon_parent == "Hominoidea") & (ages_best.taxon == "Homininae")\
-        | (ages_best.taxon_parent == "Homininae") & (ages_best.taxon == "Homo sapiens")\
-        | (ages_best.taxon_parent == "Catarrhini") & (ages_best.taxon == "Macaca mulatta")\
-        | (ages_best.taxon_parent == "Catarrhini") & (ages_best.taxon == "HomoPan")]
-
-    ages_p.loc["HomininaeENSGT00390000008575.b"]
-    ages_p[ages_p.subgenetree == "SimiiformesENSGT00390000008575"]
-
-    # Ignoring the source of the problem for now, just dropping the erroneous genetree.
-    # 
-    # **`TODO:`** Fix the detection of duplication VS speciation node in `generate_dNdStable`
-
-    (ages_controled.subgenetree == "SimiiformesENSGT00390000008575").any()
-
-    erroneous_nodes = ages_controled[
-                        ages_controled.subgenetree=="SimiiformesENSGT00390000008575"].index
-    ages_controled.drop(erroneous_nodes, inplace=True)
-
-    ages_best.loc[erroneous_nodes]
-    ages_best.drop(erroneous_nodes, inplace=True)
-
-    ages_best.shape, ages_controled.shape
-
-
-    # ### Quality measures
-
-    #compute_dating_errors(ages_controled)
-
-    ages_controled["abs_age_error"] = \
-                    (ages_controled.age_dS - ages_controled.median_taxon_age).abs()
-    ages_controled["signed_age_error"] = \
-                    (ages_controled.age_dS - ages_controled.median_taxon_age)
-    ages_controled["abs_brlen_error"] = \
-                    (ages_controled.age_dS_parent - ages_controled.age_dS - \
-                     ages_controled.median_brlen).abs()
-    ages_controled["signed_brlen_error"] = \
-                    (ages_controled.age_dS_parent - ages_controled.age_dS - \
-                     ages_controled.median_brlen)
-
-    mean_errors = ages_controled[
-                     ['subgenetree', 'abs_age_error', 'signed_age_error',
-                      'abs_brlen_error', 'signed_brlen_error']
-                    ].groupby("subgenetree").mean()
-
-    # #### Display
-
-    print(ages_controled.subgenetree.unique().size, mean_errors.shape)
-    mean_errors.tail()
-
-    scatter_density("abs_age_error", "signed_age_error", mean_errors, alpha=0.3);
-
-    _, (ax0, ax1) = plt.subplots(2)
-    mean_errors.abs_age_error.hist(bins=50, ax=ax0)
-    np.log10(mean_errors.abs_age_error).hist(bins=50, ax=ax1);
-
-    scatter_density("abs_brlen_error", "signed_brlen_error", data=mean_errors, alpha=0.3);
-
-    _, (ax0, ax1) = plt.subplots(2)
-    mean_errors.abs_brlen_error.hist(bins=50, ax=ax0)
-    np.log10(mean_errors.abs_brlen_error).hist(bins=50, ax=ax1);
-
-    ax = mean_errors.plot.scatter("abs_age_error", "abs_brlen_error", alpha=0.3)
-    ax.set_yscale('log')
-    ax.set_xscale('log')
-
-
-    # ## Correct codeml summary stats with branch length information
-
-    # Aim: add mean tree rates, by taking theoretical branch length (My) into account.
-
-    print(cl_params)
-
-
-    dist_measures = ["branch_dist", "branch_t", "branch_dS", "branch_dN"]
-
-    cs_rates, cs_wstds = compute_branchrate_std(ages_controled, dist_measures)
-    # #### Checks
-
-    test_g = sgg.get_group('SimiiformesENSGT00390000000002.a.a.a').drop("subgenetree", axis=1)
-    #print(test_g.shape)
-    test_g.sort_values(branch_info)
-
-    print(test_g[dist_measures + ['median_brlen']].sum() / real_control_treelen)
-    cs.brlen_mean['SimiiformesENSGT00390000000002.a.a.a']
-
-    test_gm = pd.merge(test_g, median_brlen, how="outer", left_on=branch_info, right_index=True, indicator=True)
-    test_gm[["_merge", "taxon_parent", "taxon", "median_brlen_x", "median_brlen_y", "median_taxon_age_x", "median_taxon_age_y"]]
-
-    sgg.median_brlen.sum().describe()
-
-    # Still some errors remaining. **MUSTFIX**. [Edit: seems ok now] 
-
-    all_median_brlen = sgg.median_brlen.sum()
-    real_control_treelen, all_median_brlen[0]
-
-    epsilon = 1e-13
-    ((all_median_brlen - real_control_treelen).abs() < epsilon).all()
-    # OK!
-
-    cs_wstds.head()
-
-
-    # #### Checks
-
-    test_g.sort_values(branch_info)
-
-    test_rates = cs_rates.loc["SimiiformesENSGT00390000000002.a.a.a"]
-    test_rates
-
-    test_g.branch_t / test_g.median_brlen - test_rates.t_rate
-
-    (test_g.branch_t / test_g.median_brlen - test_rates.t_rate)**2 * test_g.median_brlen
-
-    ((test_g.branch_t / test_g.median_brlen - test_rates.t_rate)**2 * test_g.median_brlen).sum() / real_control_treelen
-
-    ((test_g.branch_dS / test_g.median_brlen - test_rates.dS_rate)**2 * test_g.median_brlen).sum() / real_control_treelen
-
-    # Ok.
-
-
-    # ## Merge all statistics by subgenetree
-
-    print("Shapes:", mean_errors.shape, s[al_params].shape, cs[cl_params].shape, cs_rates.shape, cs_wstds.shape, Ndup.shape, Nspe.shape)
-    print("\nParameters:")
-    print(" ".join(mean_errors.columns) + "\n")
-    print(" ".join(al_params) + "\n\n" + " ".join(cl_params) + "\n")
-    print(" ".join(cs_rates.columns.values) + "\n")
-    print(" ".join(cs_wstds.columns.values) + "\n")
-    print(Ndup.name, Nspe.name)
-
-    cs = pd.concat((cs[cl_params], cs_rates, cs_wstds), axis=1, sort=False)
-    cs.shape
-
-    params = ["ls", "ns", "Nbranches", "NnonsynSites", "NsynSites", "kappa",
-              "treelen", "dN_treelen", "dS_treelen", "brOmega_mean", "brOmega_std",
-              "brOmega_med", "brOmega_skew", "dist_rate", "t_rate",
-              "dS_rate", "dN_rate", "dist_rate_std", "t_rate_std", "dS_rate_std",
-              "dN_rate_std", "lnL", "Niter", "seconds"]
-
-    alls = pd.concat([mean_errors, Ndup, Nspe, s[al_params], cs[params]], axis=1, join='inner')
-
-
-    # ### Checks
-
-    print(alls.shape)
-    print(alls.columns)
-    alls.head()
-
-    # Check that we got only real robust trees
-
-    alls.ns.describe()  # Should always be 10 or 11 (9 ingroup, +1 or 2 outgroup)
-    alls[~alls.ns.isin((10, 11))]
-    alls[alls.ns == 11]
-    "SimiiformesENSGT00390000000097" in alls.index
-
-    ages_p[ages_p.subgenetree == "SimiiformesENSGT00390000000097"].sort_values("taxon_parent")
-
-    # Why isn't there the `Macaca.mulattaENSGT...` entry???
-    # 
-    # **OK**: it's because it was a identified as a split gene but those where greped out...
-
-
-    # # Overview of distributions
-
-    # ## Alignment stats
-
-    s_out_glob.hist(bins=20);
-
-    axes = s[['glob_len', 'ingroup_glob_len']].hist(bins=1500, layout=(2,1), sharex=True)
-    axes[0, 0].set_xlim(0, 10000)
-
-    s.ingroup_glob_len.quantile([0.25, 0.75])
-
-    s_in_mean.hist(bins=30);
-    s_in_std.hist(bins=30);
-    s_in_med.hist(bins=30);
-
-
-    # ## Codeml output stats
-
-    axes = cs[params].hist(bins=50)
-
-    print(cs.dS_treelen.max())
-    dS_treelen_heights, dS_treelen_bins, dS_treelen_patches = plt.hist(np.log10(cs.dS_treelen), bins=50)
-
-    plt.hist(np.log10(cs.NsynSites), bins=50);
-    plt.hist(np.log10(cs.brdS_mean), bins=50);
-
-
-    # ## New codeml rate stats
-
-    cs_rates.hist(bins=50)
-    np.log10(cs_rates).hist(bins=50)
-    cs_wstds.hist(bins=50)
-    np.log10(cs_wstds).hist(bins=50);
-
-
-    # # Subset data based on criterion
-
-    # ## step by step example (ignore)
-
-    # We can split the data based on a %GC threshold of 0.52
-
-    s.ingroup_mean_GC[s.ingroup_mean_GC >= 0.52].to_csv("Simiiformes_topGC.tsv", sep='\t', header=False)
-    s.ingroup_mean_GC[s.ingroup_mean_GC < 0.52].to_csv("Simiiformes_lowGC.tsv", sep='\t', header=False)
-
-    #get_ipython().magic('pinfo pd.merge')
-    s_in_glob.columns
-    s_in_glob.head()
-
-    # ## function definition
-
-
-    # ## GC content
-
-    #subset_on_criterion_tails(s.ingroup_glob_GC, ages, outbase=outbase, criterion_name="GC")
-
-
-    # ### Step by step setup (ignore)
-
-    ages_GC = merge_criterion_in_ages(s.ingroup_mean_GC, ages=ages, criterion_name="GC")
-    q = 0.25
-    low_lim, high_lim = s.ingroup_mean_GC.quantile([q, 1. - q])
-    print(low_lim, high_lim)
-
-    ages_lowGC = ages_GC[(ages_GC["GC"] <= low_lim) & (ages_GC.type == "spe")].copy()
-    ages_highGC = ages_GC[(ages_GC["GC"] >= high_lim) & (ages_GC.type == "spe")].copy()
-
-    groups_highGC = ages_highGC.groupby("taxon")
-    groups_lowGC = ages_lowGC.groupby("taxon")
-
-    groups_lowGC.age_dS.describe()
-    groups_highGC.age_dS.describe()
-    groups_lowGC.age_dS.median()
-    groups_highGC.age_dS.median()
-
-    ax = ages_lowGC.boxplot("age_dS", by="taxon", widths=0.4)
-    ages_highGC.boxplot("age_dS", by="taxon", ax=ax, widths=0.4, positions=np.arange(len(groups_highGC.groups))+0.4)
-
-    print(ages_lowGC.shape, ages_highGC.shape)
-
-    ages_lowGC["tail"] = "lowGC"
-    ages_highGC["tail"] = "highGC"
-    #pd.concat([ages_lowGC, ages_highGC])
-
-    ages_by_GC = pd.concat([ages_lowGC, ages_highGC])
-    ages_by_GC.shape
-    #ages_GC[ages_GC.t.group.median()
-
-    sb.violinplot(x="taxon", y="age_dS", hue="tail", data=ages_by_GC, split=True)
-
-
-    # ### Concise execution
-
-    ages_GC = annot_quantiles_on_criterion(ages, s.ingroup_glob_GC, "GC", nquantiles=10)
-    ages_GC.Q_GC.unique()
-    ages_GC[["GC", "Q_GC"]].head()
-    ax = _violin_spe_ages_vs_criterion_quantiles(ages_GC, "GC", split=True)
-
-    ages_nodup_GC = annot_quantiles_on_criterion(ages_nodup, s.ingroup_glob_GC,
-                                                 "GC", nquantiles=10)
-
-    ax = _violin_spe_ages_vs_criterion_quantiles(ages_nodup_GC, "GC", split=True)
-
-    ages_GC.plot.scatter("GC", "abs_error_mean");
-
-
-    # ## Aligned length
-
-    ages_len = annot_quantiles_on_criterion(ages, s.ingroup_glob_len, criterion_name="len")
-
-    subset_on_criterion_tails(s.ingroup_glob_len, ages, outbase=outbase, criterion_name="length", save=False)
 
     get_ipython().run_cell_magic('bash', '', '''dSvisualizor.py tree \
     --sharescale \
@@ -1436,27 +1069,6 @@ if __name__ == '__main__':
     Simiiformes_m1w04_ages.subtreesCleanO2-um2-ci-grepoutSG-lengthhighQ4.tsv \
     Simiiformes_m1w04_ages.subtreesCleanO2-um2-ci-grepoutSG-lengthhighQ4.svg''')
 
-    #_violin_spe_ages_vs_criterion_quantiles(ages_len, "len", split=False)
-    violin_spe_ages_vs_criterion(ages_best, alls.ingroup_glob_len, split=True)
-
-    ages_len.plot.scatter("len", "abs_error_mean", alpha=0.25, logy=True);
-
-
-    # ## N content
-
-    subset_on_criterion_tails(s.glob_N, ages, outbase=outbase, criterion_name="N")
-
-    ages_N = annot_quantiles_on_criterion(ages, s.ingroup_mean_N, criterion_name="N", nquantiles=50)
-
-    ages_N.Q_N.unique()
-
-    _violin_spe_ages_vs_criterion_quantiles(ages_N, "N")
-
-
-    # ## gap content
-
-    subset_on_criterion_tails(s.ingroup_glob_gaps, ages, outbase=outbase, criterion_name="gaps")
-
     get_ipython().run_cell_magic('bash', '', '''dSvisualizor.py tree \
     --sharescale \
     -t "%Gaps (without outgroup) <= 0.0029" \
@@ -1470,85 +1082,6 @@ if __name__ == '__main__':
     -p ~/ws2/DUPLI_data85/PhylTree.TimeTree2018.Ensembl-like.nwk \
     Simiiformes_m1w04_ages.subtreesCleanO2-um2-ci-grepoutSG-gapshighQ4.tsv \
     Simiiformes_m1w04_ages.subtreesCleanO2-um2-ci-grepoutSG-gapshighQ4.svg''')
-
-    ages_gaps = annot_quantiles_on_criterion(ages, s.ingroup_mean_gaps,
-                                             criterion_name="gaps", nquantiles=10)
-
-    _violin_spe_ages_vs_criterion_quantiles(ages_gaps, "gaps", split=False)
-
-
-    # ## GC heterogeneity
-    # 
-    # (Intra-alignment GC standard-deviation) 
-
-    ages_stdGC = annot_quantiles_on_criterion(ages, s.ingroup_std_GC,
-                                              criterion_name="stdGC", nquantiles=4)
-
-    _violin_spe_ages_vs_criterion_quantiles(ages_stdGC, "stdGC")
-
-
-    # ## Number of duplications in the subtree
-
-    sb.violinplot("taxon", "age_dS", data=ages[ages.type == "spe"], hue=(ages.Ndup > 0));
-
-
-    # ## tree length in dS
-
-    violin_spe_ages_vs_criterion(ages, cs.dS_treelen)
-
-
-    # ## mean branch length in dS
-
-    violin_spe_ages_vs_criterion(ages, cs.brdS_mean)
-    violin_spe_ages_vs_criterion(ages_nodup, cs.brdS_mean)
-
-
-    # ## mean branch length in dN
-
-    violin_spe_ages_vs_criterion(ages, cs.brdN_mean, split=False)
-
-
-    # ## branch length std
-
-    violin_spe_ages_vs_criterion(ages, cs.brlen_std / cs.brlen_mean, criterion_name="Rbrlen_std", split=False)
-
-    ages.subgenetree.unique().size
-    ages_robust.subgenetree.unique().size
-
-    violin_spe_ages_vs_criterion(ages_robust, cs.brdN_mean)
-
-
-    # ## Mean Omega
-
-    violin_spe_ages_vs_criterion(ages_robust, cs.brOmega_mean)
-    violin_spe_ages_vs_criterion(ages_robust, cs.brOmega_med)
-
-
-    # ## tree dS rate (ingroup)
-
-    set(ages_best.subgenetree.unique()) - set(cs_rates.index)
-    violin_spe_ages_vs_criterion(ages_best, cs_rates.dS_rate)
-
-    cs_wstds.dS_rate_std.sort_values(ascending=False).head(20)
-
-    violin_spe_ages_vs_criterion(ages_best, cs_wstds.dS_rate_std, split=True)
-
-
-    # Try to plot a scatter plot for each speciation
-
-    taxon_ages = merge_criterion_in_ages(cs.dS_rate_std, ages_best).groupby("taxon")
-    #ages_best.groupby('taxon')
-    #taxon_ages[["age_dS", ""]]
-
-    taxon_ages.plot("dS_rate_std", "age_dS", kind='scatter')
-
-
-    # ## Number of synonymous sites
-
-    ages_Nsynsites = annot_quantiles_on_criterion(ages, cs.NsynSites, criterion_name="Nsynsites", nquantiles=10)
-
-    ax = violin_spe_ages_vs_criterion(ages_Nsynsites[ages_Nsynsites.taxon != 'Simiiformes'], "Nsynsites", isin=list(range(10)), split=False)
-
 
 # # Multiple linear regression
 
