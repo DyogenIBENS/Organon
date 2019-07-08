@@ -3,8 +3,11 @@
 
 #%run -n ~/scripts/codeml/analyse/generate_dNdStable.py
 from codeml.analyse.generate_dNdStable import *
+import os.path as op
 import pandas as pd
 from types import GeneratorType
+import matplotlib.pyplot as plt
+
 
 logging.basicConfig(format=logging.BASIC_FORMAT)
 logger.setLevel(logging.DEBUG)
@@ -397,12 +400,14 @@ ages = agesdf(tree, calib,
 ### Simulations
 
 tree = ete3.Tree('(((A,B)y0,C)x,D)R;', format=1)
-def simulate_brlen(tree, ages=None, rates=None, mean=None, stddev=None):
+calib = {'R': 3, 'y': 2, 'y0': 1}
+
+def simulate_brlen(tree, ages=None, rates=None, mean=None, stddev=None, law='normal'):
     # Assuming normal law for branch lengths with sd=length*rate
     nbranches = sum(1 for n in tree.iter_descendants())
     
     expected_subst = None
-    if mean is None or stddev is None:
+    if mean is None or stddev is None or law != 'normal':
         if ages is None:
             ages = {n.name: (0 if n.is_leaf()
                              else 1+n.get_farthest_leaf(topology_only=True)[1])
@@ -415,19 +420,27 @@ def simulate_brlen(tree, ages=None, rates=None, mean=None, stddev=None):
         expected_subst = real_brlen * br_rates
 
     if mean is None:
-        mean = expected_subst
+        mean = expected_subst if law != 'poisson' else 1
     if stddev is None:
-        stddev = expected_subst
+        stddev = np.sqrt(expected_subst)
 
     size = nbranches if (np.isscalar(mean) and np.isscalar(stddev)) else None
 
-    sim_brlen = np.random.normal(mean, stddev, size=size)
-    sim_brlen[sim_brlen<0] = 0
+    if law == 'normal':
+        sim_brlen = np.random.normal(mean, stddev, size=size)
+        sim_brlen[sim_brlen<0] = 0
+    elif law == 'lognormal':
+        sim_brlen = np.random.lognormal(mean, stddev, size=size)
+    elif law == 'poisson':
+        sim_brlen = np.random.poisson(expected_subst * mean)
+    else:
+        raise ValueError('Invalid `law` parameter %r' % law)
 
     for n, brlen in zip(tree.iter_descendants(), sim_brlen):
         n.dist = brlen
 
     return tree
+
 
 def date_tree(tree, ages, age_col='age_dist'):
     for n in tree.iter_descendants():
@@ -480,12 +493,16 @@ for i in range(50):
         n.dist *= 3./maxlength
     plottree(simtree, get_items, get_label, style='V', ax=ax, alpha=0.05)
 
-niter = 500
+
+rates = {'A': 2, 'B': 2}
+
+niter = 2000
 alpha = 5./niter
-sim_ages_x = []
-fig, (ax1, ax2) = plt.subplots(1, 2)
+sim_ages_x = np.full(niter, np.NaN)  # np.empty(niter)
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14,10))
+ax2.plot([-2, -2], [-1, len(tree)], 'r--', label='Real age', alpha=0.6)
 for i in range(niter):
-    simtree = simulate_brlen(tree, stddev=0.5)
+    simtree = simulate_brlen(tree, rates=rates, mean=1, law='poisson')
     maxlength = simtree.get_farthest_leaf()[1]
     for n in simtree.iter_descendants():
         n.dist *= 3./maxlength
@@ -497,7 +514,24 @@ for i in range(niter):
                                   fix_conflict_ages=True,
                                   todate=todate, keeproot=True,
                                   calib_selecter='name')
-    sim_ages_x.append(-ages.age_dist['x'])
+    sim_ages_x[i] = -ages.age_dist['x']
     dated_tree = date_tree(simtree, ages)
     plottree(dated_tree, get_items, get_label, style='V', ax=ax2, alpha=alpha)
-ax2.hist(sim_ages_x, bins=50, bottom=-1, density=True, alpha=0.6)
+ax1.set_xlabel('Nucleotide substitutions (simul)')
+ax2.set_xlabel('Estimated age')
+ax3 = ax2.twinx()
+ax2.yaxis.set_label_position('right')
+ax2.yaxis.set_ticks_position('right')
+heights, _, _ = ax3.hist(sim_ages_x, bins=50, density=True, alpha=0.6)
+ax3.set_ylim(0, heights.max()*(1 + len(tree)))
+ax3.axis('off');
+
+#fig.savefig(op.expanduser('~/ws2/DUPLI_data93/alignments_analysis/fig/simul_date-um1-default_normsd05.svg'))
+fig.savefig(op.expanduser('~/ws2/DUPLI_data93/alignments_analysis/fig/simul_date-um1-default_lognorm.svg'))
+fig.savefig(op.expanduser('~/ws2/DUPLI_data93/alignments_analysis/fig/simul_date-um1-default_lognormsd05.svg'))
+fig.savefig(op.expanduser('~/ws2/DUPLI_data93/alignments_analysis/fig/simul_date-um1-default_poisson10.svg'))
+fig.savefig(op.expanduser('~/ws2/DUPLI_data93/alignments_analysis/fig/simul_date-um1-default_poisson1.svg'))
+
+fig.savefig(op.expanduser('~/ws2/DUPLI_data93/alignments_analysis/fig/simul_date-um1-default_rate2_normsd05.svg'))
+fig.savefig(op.expanduser('~/ws2/DUPLI_data93/alignments_analysis/fig/simul_date-um1-default_rate2_poisson10.svg'))
+fig.savefig(op.expanduser('~/ws2/DUPLI_data93/alignments_analysis/fig/simul_date-um1-default_rate2_poisson1.svg'))
