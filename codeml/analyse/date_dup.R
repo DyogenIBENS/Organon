@@ -7,6 +7,8 @@ date_forest.R <datasetname> <calibfile> <treefile> <ncores>
 
 library(ape)
 library(parallel)
+source('~/scripts/dendro/chronos-function.R')  # Own fixed version
+
 
 # Helper function for interactive investigation:
 display_edges <- function(tree) {
@@ -46,15 +48,16 @@ subset_calibration <- function(ages, tree, age_col="age_dist", leaf_age=0) {
   ntips = Ntip(tree)
   subcalib_names <- tree$node.label
   subcalib_nodes <- ntips + seq_along(subcalib_names)
-  subcalib_agemin <- ages[subcalib_names, age_col] - leaf_age
+  subcalib_agemin <- ages[match(subcalib_names, rownames(ages)), age_col] - leaf_age
   
-  calibrated <- ages[subcalib_names, "calibrated"] == 1
+  calibrated <- ages[match(subcalib_names, rownames(ages)), "calibrated"] == 1
   # handle NA type nodes (not found in ages: duplication as root)
   # Or it is the outgroup # Better to export the subtrees with generate_dNdStable.py
 
   #max_age <- max(subcalib_agemin, na.rm=TRUE)
   #subcalib_agemin[is.na(calibrated)] <- max_age
   #calibrated[is.na(calibrated)] <- TRUE  # Need those nodes before the first calibration for MPL stats.
+  calibrated[is.na(calibrated)] <- FALSE
 
   subcalib <- data.frame(node=subcalib_nodes,
                          age.min=subcalib_agemin,
@@ -379,7 +382,7 @@ extract_rate_edgeinfo <- function(dtree, input_tree) {
 extract_runinfo <- function(dtree) {
   # For outputs of the `chronos` function
   if( inherits(dtree, 'error') ) {
-    return(list(message=trimws(paste0(dtree, collapse=':'), 'right'),
+    return(list(message=trimws(paste0(gsub('\n', ' ', dtree, fixed=TRUE), collapse=':'), 'right'),
                 ploglik=NA, loglik=NA, PHIIC=NA))
   } else {
     dattr <- attributes(dtree)
@@ -407,11 +410,15 @@ make_error_catcher <- function(date_func) {
                                               sep='|'),
                                         e$message)) {
                                 #cat("known error", e$message, file=stderr())
-                                warning(paste0('Caught expected:', paste0(e, collapse=':')))
+                                warning(paste0('Caught expected:',
+                                               paste0(gsub('\n', ' ', e, fixed=TRUE),
+                                                      collapse=':')))
                                 return(e)
                               } else {
                                 #traceback()  # No traceback available
-                                e$message <- paste0(e$message, '. In function ',
+                                e$message <- paste0(gsub('\n', ' ', e$message,
+                                                         fixed=TRUE),
+                                                    '. In function ',
                                                     #substitute(date_func),
                                                     date_func_name,
                                                     ': ', tree$node.label[1])
@@ -616,7 +623,8 @@ date_all_trees_all_methods <- function(datasetname, agefile, treefile, ncores=6,
                rootname <- strcapture(rootname_pattern,
                                       newickline,
                                       proto=data.frame(root=character()))$root
-               e$message <- paste0(e$message, ': ', rootname)
+               e$message <- paste0(gsub('\n', ' ', e$message, fixed=TRUE),
+                                   ': ', rootname)
                #traceback()
                cat('Error in at least one dating method:', as.character(e),
                    file=stderr())
