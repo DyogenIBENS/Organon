@@ -1,3 +1,11 @@
+# FIX Guillaume LOUVEL 2019/07/09
+# Chronos was failing on some trees with very disequilibrated calibration points
+# ex: SimiiformesENSGT00760000118819.D.b.a.c.a.a.a.b.b with Catarrhini unknown
+
+## Setting initial dates...
+## Error in ape::chronos(tree2, lambda = 100, calibration = subcalib2) :
+##   cannot find reasonable starting dates after 1000 tries:
+## maybe you need to adjust the calibration dates
 
 .chronos.ctrl <-
     list(tol = 1e-8, iter.max = 1e4, eval.max = 1e4, nb.rate.cat = 10,
@@ -66,7 +74,8 @@ next.calib <- function(y, ini.time) {
   times <- ini.time[y]
   runs.na <- rle(is.na(times))
   next.calib.i <- cumsum(runs.na$lengths)[runs.na$values] + 1
-  return(ini.time[y[next.calib.i]])
+  ncal <- ini.time[y[next.calib.i]]
+  return(ncal)  #if(length(ncal)){ncal}else{-1})
 }
 
 
@@ -147,7 +156,12 @@ chronos <-
 
 
         # This recycles shorter elements, but doesn't matter with the order() function
-        calibs.df <- as.data.frame(do.call(rbind, calibs.after.NA))
+        L <- max(sapply(calibs.after.NA, length))
+        calibs.df <- as.data.frame(
+                            do.call(rbind,
+                                    lapply(calibs.after.NA,
+                                           function(r) c(r, rep(-1, L-length(r)))
+                                   )))
         o <- do.call(order, c(calibs.df, decreasing=TRUE))
 
         #ISnotNA.ALL <- unlist(lapply(seq.nod, function(x) sum(!is.na(ini.time[x]))))
