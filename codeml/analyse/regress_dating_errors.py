@@ -7,7 +7,6 @@
 
 import sys
 import os.path as op
-from collections import namedtuple
 
 import warnings
 from copy import copy, deepcopy
@@ -79,6 +78,27 @@ mpl.rcParams['figure.figsize'] = (14, 10) # width, height
 
 
 # Useful variables: the name of statistics of interest:
+## Piping of the metrics:
+## measures: '{m}'
+
+## chronos ages: 'age.{m}'     with m in ('PL1', 'PL100', 'R1', ..., 'MPL')
+
+## age_measures -> 'age_{m}    m in ('dS', 't', 'dN', 'dist') (represents substitutions/site)   
+
+## Original branch lengths in substitutions
+## dist_measures/branch_measures: 'branch_{m}'
+## same but with the parent branch: += '_parent'
+
+## rate_measures -> 'rate_{m}' computed by dividing the branch_m by the real length (My)
+## rate_std_measures -> 'rate_{m}_std' std dev of the rate in each tree.
+
+## consecutive_null_{m}
+## freq_null_{m}
+## null_{m}_after
+## null_{m}_before
+
+## median_measures
+
 measures = ['dist', 'dS', 'dN', 't']
 dist_measures = ['branch_%s' % m for m in measures]
 rate_measures = ['%s_rate' % m for m in measures]
@@ -120,10 +140,28 @@ def load_stats_codeml(codemlfile):
     cs['seconds'] = cs['time used'].apply(time2seconds)
     return cs
 
+
+def load_stats_chronosruns(runsfile):
+    rs = pd.read_csv(runsfile, sep='\t', index_col=0)
+    rs.set_axis([c.replace('.', '_') for c in rs.columns], axis=1, inplace=True)
+    for c in rs.columns:
+        if c.endswith('_message'):
+            rs[c] = rs[c].astype('category')
+    return rs
+
+def load_stats_chronoslogs(logsfile):
+    ls = pd.read_csv(logsfile, sep='\t', index_col=0,
+                     true_values='T', false_values='F',
+                     dtype={'action': 'category'})
+    return ls
+
+
 stat_loaders = {'al':     load_stats_al,
                 'tree':   load_stats_tree,
                 'codeml': load_stats_codeml,
-                'cleaning': load_any_stats}
+                'cleaning': load_any_stats,
+                'chronos-runs': load_stats_chronosruns,
+                'chronos-logs': load_stats_chronoslogs}
 
 stat_loaders['codemlI'] = stat_loaders['codeml']
 stat_loaders['treeI'] = stat_loaders['tree']
@@ -223,7 +261,9 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     """Load ages dataframe, join with parent information, and compute the
     'robust' info"""
     ages = pd.read_csv(ages_file, sep='\t', index_col=0)\
-            .rename(columns={n: n.replace('.', '_')})  # If coming from date_dup.R
+            .rename(columns=lambda n: n.replace('.', '_'))  # If coming from date_dup.R
+    if measures is None:
+        measures = [c[4:] for c in ages.columns if c.startswith('age_')] 
 
     logger.info("Shape ages: %s; has dup: %s" % (ages.shape, ages.index.has_duplicates))
     n_nodes = ages.shape[0]
@@ -304,7 +344,8 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
 
     ages_p = ages_p.loc[~to_remove].copy(deep=False)
     if ages_p.index.has_duplicates:
-        debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_age', 'branch_dS', 'age_dS']
+        debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent',
+                         'median_age_'+measures[0], 'branch_dS', 'age_dS']
         logger.error("Failed to remove index duplicates in 'ages_p':\n%s\n...",
                      ages_p.loc[ages_p.index.duplicated(), debug_columns].head(10))
 
@@ -419,15 +460,18 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
     ages_forcontrol = ages.query(control_condition)
     logger.info("%d nodes from robust trees", ages_forcontrol.shape[0])
 
+    age_measures = ['age_'+m for m in measures]
+    median_age_measures = ['median_age_'+m for m in measures]
     median_taxon_ages = ages_forcontrol[ages_forcontrol.type\
                                                        .isin(("spe", "leaf"))]\
-                                       .groupby("taxon").age_dS.median()\
-                                       .rename('median_age')
+                                   .groupby("taxon")[age_measures].median()\
+                                   .rename(columns=dict(zip(age_measures,
+                                                            median_age_measures)))
     #TODO: change for each measure as in `join_extra_ages`
 
     timetree_ages = median_taxon_ages.index.to_series()\
                                      .apply(phyltree.ages.get)\
-                                     .rename('timetree_age')
+                                     .rename('timetree_age')  # age_timetree
 
     control_ages = pd.concat((median_taxon_ages, timetree_ages,
                               timetree_ages_CI), axis=1, sort=False)
@@ -440,11 +484,13 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
 
     # Merge control branch lengths
     invalid_taxon_parent = ages_controled.taxon_parent.isna()
-    invalid_measures  = ages_controled[['age_%s' %m for m in measures]].isna().all(1)
+    invalid_measures  = ages_controled[age_measures].isna().all(1)
     invalid_nodes = invalid_taxon_parent & ~invalid_measures
     # calibrated | branch_dS.isna()
     # Should be nodes whose parent node is the root.
-    debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent', 'median_age', 'branch_dS', 'age_dS']
+    debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent'] \
+                    + median_age_measures \
+                    + ['branch_dS', 'age_dS']
     if invalid_nodes.any():
         #assert (ages_controled[invalid_taxon_parent].parent == \
         #        ages_controled[invalid_taxon_parent].root).all()
@@ -471,12 +517,18 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
         - ages_controled_spe2spe.timetree_age
 
     #TODO: NaN for data not in ages_forcontrol?
-    ages_controled['median_brlen'] = \
-        ages_controled_spe2spe.taxon_parent.apply(control_ages.median_age.get) \
-        - ages_controled_spe2spe.median_age
+    for m,am,mm in zip(measures, age_measures, median_age_measures):
+        ages_controled['median_brlen_'+m] = \
+            ages_controled_spe2spe.taxon_parent.apply(control_ages[mm].get) \
+            - ages_controled_spe2spe[mm]
     #control_ages.reindex(ages_controled.taxon_parent)\
     #        .set_axis(ages_controled.index, inplace=False)
     # would be more 'Pandas-like'.
+
+    # An approximation of the real branch length
+    for m,am in zip(measures, age_measures):
+        ages_controled['approx_%s' %m] = (ages_controled[am+'_parent']
+                                            - ages_controled[am])
 
     # Resulting branch lengths
     branch_info = ["taxon_parent", "taxon"]
@@ -484,8 +536,9 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
     #                    ~ages_controled.duplicated(branch_info),
     control_brlen = ages_controled.query('type != "dup" & type_parent != "dup"')\
                     .groupby(branch_info)\
-                    [["median_brlen", "median_age", "timetree_brlen",
-                      "timetree_age"]]\
+                    [['median_%s_%s' % (typ, m) for typ in ('age', 'brlen')
+                        for m in measures]
+                     + ["timetree_brlen", "timetree_age"]]\
                     .first()#agg(lambda s: s[0])
                 #.sort_values('timetree_age')
                     #].sort_values("taxon_parent", ascending=False)
@@ -501,7 +554,7 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
 
 
 def check_control_dates_lengths(control_brlen, phyltree, root,
-                                measures=dist_measures):
+                                measures=measures):
     """Check NA values and if the branches fit the phylogenetic tree.
     
     Return: (unexpected_branches, lost_branches)"""
@@ -553,8 +606,8 @@ def compute_dating_errors(ages_controled, control='median', measures=['dS']):
         age_vars = ['age']
         brlen_vars = ['brlen']
     else:
-        age_vars = ['age_%s' % m for m in measures]  # Control value
-        brlen_vars = ['brlen_%s' % m for m in measures]    # Control value
+        age_vars = ['age_'+m for m in measures]
+        brlen_vars = ['brlen_'+m for m in measures]
 
     control = control + '_'
 
@@ -725,7 +778,7 @@ def compute_branchrate_std(ages_controled, dist_measures,
     groupby_cols = ["subgenetree", "taxon_parent", "taxon",
                     branchtime] + dist_measures
     if taxon_age is not None:
-        groupby_cols.append(taxon_age)  ## "median_age"
+        groupby_cols.append(taxon_age)  ## "median_age"/"median_age_dS"
     #ages_controled["omega"] = ages_controled.branch_dN / ages_controled.branch_dS
 
     if mean_condition:
@@ -895,16 +948,30 @@ def violin_spe_ages_vs_criterion(ages, criterion_serie, criterion_name=None,
                                 annot_ages[annot_ages.taxon != 'Simiiformes'],
                                 criterion_name, isin, split, order, **kwargs)
 
-age_analysis_data = namedtuple('age_analysis_data', ['ages_controled',
-                               'ages_controled_withnonrobust', 'ns',
-                               'control_ages', 'control_brlen', 'mean_errors'])
 
-def analyse_age_errors(ages_file, anc, phyltree, timetree_ages_CI, ts): #, aS, cs, clS=None
-    ages, ns = load_prepare_ages(ages_file, ts)
+class age_analysis_data(object):
+    """Just a namespace to hold several objects of one analysis."""
+    def __init__(self,
+                 ages_controled,
+                 ages_controled_withnonrobust,
+                 ns,
+                 control_ages,
+                 control_brlen,
+                 mean_errors):
+        for k,v in locals().items():
+            if k != 'self':
+                setattr(self, k, v)
+
+
+def analyse_age_errors(ages_file, anc, phyltree, timetree_ages_CI, ts,
+                       measures=['dS', 'dist', 'dN', 't']): #, aS, cs, clS=None
+    ages, ns = load_prepare_ages(ages_file, ts, measures)
     ages_controled_withnonrobust, control_ages, control_brlen =\
-        add_control_dates_lengths(ages, phyltree, timetree_ages_CI)
+        add_control_dates_lengths(ages, phyltree, timetree_ages_CI, measures)
     ages_controled = ages_controled_withnonrobust.query('really_robust & aberrant_dists == 0').copy(deep=False)
-    unexpected_branches, lost_branches = check_control_dates_lengths(control_brlen, phyltree, anc)
+    unexpected_branches, lost_branches = check_control_dates_lengths(
+                                                control_brlen, phyltree, anc,
+                                                measures)
     control_brlen.drop(unexpected_branches, inplace=True)
     # Rates
     #cs_rates = compute_branchrate_std(ages_controled, dist_measures)
@@ -912,9 +979,334 @@ def analyse_age_errors(ages_file, anc, phyltree, timetree_ages_CI, ts): #, aS, c
     #cs_rates_onlyAnc
     #cs_rates_withoutAnc
 
-    mean_errors = compute_dating_errors(ages_controled)
+    mean_errors = compute_dating_errors(ages_controled, measures=[measures[0]])
     return age_analysis_data(ages_controled, ages_controled_withnonrobust, ns, control_ages, control_brlen, mean_errors)
     
+# anc = 'Catarrhini'
+# param = 'um1.new'
+# nsCata = age_analyses[anc][param].ns
+class full_dating_regression(object):
+    def __init__(self, data, same_alls, dataset_params, responses, features, rate_args=None,
+                           ref_suggested_transform=None,
+                           must_transform=None,
+                           must_drop_features=None):
+        for k,v in locals().items():
+            if k != 'self':
+                setattr(self, k, v)
+
+    def do(self):
+        data = self.data
+        same_alls = self.same_alls
+        dataset_params = self.dataset_params
+        responses = self.responses
+        features = self.features
+        rate_args = self.rate_args if self.rate_args else {}
+        ref_suggested_transform = self.ref_suggested_transform if self.ref_suggested_transform else {}
+        must_transform = must_transform if self.must_transform else {}
+        must_drop_features = must_drop_features if self.must_drop_features else {}
+
+        ages_controled = data.ages_controled
+        mean_errors = data.mean_errors
+
+        # Compute cs_rates
+        kwargs = dict(branchtime='median_brlen_dS', taxon_age='median_age_dS')
+        if rate_args:
+            kwargs.update(rate_args)
+            
+        print('# Compute rates', kwargs)
+        cs_rates = compute_branchrate_std(ages_controled, dist_measures, **kwargs)
+        print('# Merge features')
+        self.alls = alls = pd.concat((mean_errors,
+                                      data.ns[dataset_params],
+                                      cs_rates,
+                                      same_alls),
+                                     axis=1, join='inner', sort=False)
+
+        y = responses[0]
+        print('Variable Y :', y)
+        print('%d observation × %d features' % alls.shape)
+        print('Amount of NA:\n', alls.isna().sum(axis=0).sort_values(ascending=False).head(10))
+
+        suggested_transform = test_transforms(alls, responses+features) #ages_features + rate_features
+
+        suggested_transform.update(#must_transform
+                                   ingroup_nucl_entropy_median=binarize,
+                                   #ingroup_nucl_parsimony_median=binarize, #constant
+                                   ingroup_codon_entropy_median=binarize,
+                                   ingroup_codon_parsimony_median=binarize,
+                                   rebuilt_topo=binarize,
+                                   consecutive_zeros=binarize, # - triplet_zeros
+                                   sister_zeros=binarize,      # - triplet_zeros
+                                   triplet_zeros=binarize,
+                                   bootstrap_min=notransform,
+                                   prop_splitseq=binarize,
+                                   convergence_warning=binarize,  # notransform
+                                   consecutive_zeros_dS=binarize,
+                                   sister_zeros_dS=binarize,
+                                   triplet_zeros_dS=binarize,
+                                   consecutive_zeros_dN=binarize,
+                                   sister_zeros_dN=binarize,
+                                   triplet_zeros_dN=binarize,
+                                   r2t_dN_mean=make_best_logtransform(alls.r2t_dN_mean),
+                                   gb_Nblocks=notransform,
+                                   hmmc_propseqs=notransform,
+                                   freq_null_dS=binarize,
+                                   null_dist_before=binarize,
+                                   null_dS_before=binarize,
+                                   null_dN_before=binarize,
+                                   null_dist_after=binarize,
+                                   null_dS_after=binarize,
+                                   null_dN_after=binarize,
+                                   dN_rate=make_best_logtransform(alls.dN_rate)
+                                   #null_dN_before=sqrt
+                                   )
+
+        self.suggested_transform = suggested_transform
+
+        # All binary variables should **NOT** be z-scored!
+
+        # Remove constant features
+        features = [ft for ft in features if ft in suggested_transform]
+        bin_features = [ft for ft in features if suggested_transform[ft].__name__ == 'binarize']
+
+        if ref_suggested_transform:
+            onlyref = []
+            onlynew = []
+            diff_funcs = []
+            diff_args = []
+            for k in set(ref_suggested_transform).union(suggested_transform):
+                if k not in ref_suggested_transform:
+                    onlynew.append(k)
+                elif k not in suggested_transform:
+                    onlyref.append(k)
+                else:
+                    reffunc = ref_suggested_transform[k].__name__
+                    newfunc = suggested_transform[k].__name__
+                    if reffunc != newfunc:
+                        reffunc0, *refargs = reffunc.split('(')
+                        newfunc0, *newargs = newfunc.split('(')
+                        if reffunc0 == newfunc0:
+                            newargs = newargs[0] if newargs else ''
+                            refargs = refargs[0] if refargs else ''
+                            diff_args.append((k, '%s VS %s' % (newargs.rstrip(')'),
+                                refargs.rstrip(')'))))
+                        else:
+                            diff_funcs.append((k, '%s VS %s' % (reffunc, newfunc)))
+            if onlynew:
+                print('Transforms only in new:', ', '.join(onlynew))
+            if onlyref:
+                print('Transforms only in ref:', ', '.join(onlyref))
+            if diff_funcs:
+                print('Different transforms:\n', '\n'.join('%35s\t%s' % t for t in diff_funcs))
+            if diff_args:
+                print('Different transform args:\n', '\n'.join('%35s\t%s' % t for t in diff_args))
+
+        alls_transformed = alls.transform(suggested_transform)
+
+        print('transformed -> Any NA:', alls_transformed.isna().sum(axis=0).any())
+
+        print('transformed shape:', alls_transformed.shape)
+
+        self.a_t = a_t = alls_transformed
+        self.a_n = a_n = alls_transformed.transform({ft: zscore for ft in responses+features
+                                                  if ft not in bin_features})\
+                                      .join(alls_transformed[bin_features])
+
+        print(a_n.shape)
+        print('normed -> Any NA:', a_n.columns.values[a_n.isna().any(axis=0)])
+        display_html(a_n.head())
+        na_rows = a_n.isna().any(axis=1)
+        if na_rows.any():
+            print('Drop %s NA rows' % na_rows.sum())
+            a_n.dropna(inplace=True)
+
+        print('### Fit of all features')
+
+        ols = sm.OLS(a_n[y], sm.add_constant(a_n[features]))
+
+        fitlasso = ols.fit_regularized()
+
+        print(adj_r_squared(a_n[y], fitlasso.fittedvalues, len(fitlasso.params)))
+        display_html(sm_ols_summary(fitlasso))
+
+        #sb.violinplot('null_dS_before', 'abs_age_dev', data=a_n, cut=0);
+        #scatter_density('r2t_dS_mean', 'abs_brlen_dev', data=a_n, alpha=0.5)
+        #scatter_density('ingroup_glob_len', 'abs_age_dev', data=a_n, alpha=0.5)
+        #scatter_density('dS_rate_std', 'abs_age_dev', data=a_n, alpha=0.5)
+        #scatter_density(alls.null_dist_before, alls.null_dS_before)
+
+        print('### PCA of features')
+
+        self.ft_pca = ft_pca = detailed_pca(a_n, features)
+
+        heatmap_cov(np.abs(ft_pca.get_covariance()), features, cmap='seismic', make_corr=True, dendro_pad=0.2)
+        plt.show()
+
+        print('#### Factor analysis')
+
+        # To take into account continuous and categorical variables
+
+        self.FA = FA = FactorAnalysis(n_components=15)
+        fa_components = FA.fit_transform(a_n[features])
+
+        heatmap_cov(np.abs(FA.get_covariance()), features, make_corr=True)
+        plt.show()
+
+        print('### Feature decorrelation')
+        #must_drop_features
+        a_n_inde = a_n.drop(["ls", "seconds",  # ~ ingroup_glob_len
+                             "ingroup_std_gaps", # ~ ingroup_std_len
+                             "dS_treelen",       # ~dS_rate
+                             "dN_treelen",
+                             "treelen",
+                             "ingroup_codon_entropy_mean", # ~ ingroup_codon_parsimony_mean
+                             "ingroup_codon_entropy_std",  # 
+                             "ingroup_nucl_entropy_std",   # ~ ingroup_codon_parsimony_std
+                             "ingroup_nucl_entropy_mean",
+                             "ingroup_nucl_entropy_median",  # ~ ingroup_codon_entropy_median
+                             "ingroup_nucl_parsimony_mean",
+                             "ingroup_nucl_parsimony_std",
+                             "r2t_t_mean", "r2t_dS_mean", "r2t_dN_mean",
+                             "r2t_t_std",  "r2t_dS_std",  "r2t_dN_std",
+                             "bootstrap_mean",  # ~ bootstrap_min
+                             "brOmega_skew",
+                             # decorrelated:
+                             "ingroup_mean_CpG",
+                             "ingroup_std_N",
+                             "ingroup_std_CpG",  # ~ ingroup_std_GC
+                             "NnonsynSites"  # ~ ls/3 - NsynSites
+                             ],
+                             axis=1)
+        # decorrelated:
+        #                                                 "ingroup_codon_parsimony_std",
+        #                                                 "NnonsynSites", "Nsynsites", "brOmega_std",
+        #                                                 "ingroup_mean_CpG", "ingroup_std_N", "lnL",
+        #                                                 "dS_rate_std", "t_rate_std", "dN_rate_std", "dist_rate_std"
+        print('%d Independent features (%d rows)' % a_n_inde.shape[::-1])
+
+        a_n_inde = renorm_logdecorrelate(a_n_inde, a_t, 
+                               ('brOmega_std',   'brOmega_mean'),
+                               #('ingroup_std_N', 'ingroup_mean_N'),
+                               ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean'),
+                               ('dS_rate_std',    'dS_rate'),
+                               ('t_rate_std',      't_rate'),
+                               ('dN_rate_std',    'dN_rate'),
+                               ('dist_rate_std','dist_rate'),
+                               RsynSites=('NsynSites',     'ls'),
+                               sitelnL=('lnL', 'ingroup_glob_len'))
+
+        #a_n_inde = logdecorrelate(a_n_inde, a_t,
+        #                                  ('null_dist_before', 'freq_null_dist'),
+        #                                  ('null_dist_after',  'freq_null_dist'),
+        #                                  #('null_t_before',  'freq_null_t'),
+        #                                  #('null_t_after',   'freq_null_t'),
+        #                                  ('null_dS_before', 'freq_null_dS'),
+        #                                  ('null_dS_after',  'freq_null_dS'),
+        #                                  ('null_dN_before', 'freq_null_dN'),
+        #                                  ('null_dN_after',  'freq_null_dN'),
+        #                                  #('consecutive_zeros_t', 'triplet_zeros_t'),
+        #                                  #('sister_zeros_t', 'triplet_zeros_t'),
+        #                                  ('consecutive_zeros_dS', 'triplet_zeros_dS'),
+        #                                  ('consecutive_zeros_dN', 'triplet_zeros_dN'),
+        #                                  ('sister_zeros_dS', 'triplet_zeros_dS'),
+        #                                  ('sister_zeros_dN', 'triplet_zeros_dN'))
+
+        #a_n_inde[] = zscore(aC
+
+        a_n_inde['CpG_odds'] = zscore(log(alls.ingroup_mean_CpG / (alls.ingroup_mean_GC**2)))
+        print('%d independent features (%d rows)' % a_n_inde.shape[::-1])
+
+        inde_features = [ft for ft in features if ft in a_n_inde]
+        print('inde_features', len(inde_features))
+        inde_features += [colname for colname in a_n_inde.columns.difference(a_n.columns)]
+        print('inde_features', len(inde_features))
+
+        new_inde_features = set(inde_features) - set(features)
+
+        self.a_n_inde = a_n_inde
+        self.inde_features = inde_features
+
+        self.ft_pca_inde = ft_pca_inde = PCA(n_components=15)
+        ft_pca_inde.fit_transform(a_n_inde[inde_features]) # -> components
+
+        heatmap_cov(np.abs(ft_pca_inde.get_covariance()), inde_features, make_corr=True)
+        plt.show()
+
+        self.FA_inde = FA_inde = FactorAnalysis(n_components=15)
+        FA_inde.fit_transform(a_n_inde[inde_features]) # -> components
+
+        heatmap_cov(np.abs(FA_inde.get_covariance()), inde_features, make_corr=True)
+        plt.show()
+
+        print('### Fit of less colinear features')
+
+        ols = sm.OLS(a_n_inde[y], sm.add_constant(a_n_inde[inde_features]))
+        self.fitlasso = fitlasso = ols.fit_regularized()
+        display_html(sm_ols_summary(fitlasso)) #.params.sort_values()
+
+        print('R² =', r_squared(a_n_inde[y], fitlasso.fittedvalues))
+        print('adj. R² =', adj_r_squared(a_n_inde[y], fitlasso.fittedvalues,
+                                         len(fitlasso.params)))
+
+        #scatter_density('ingroup_glob_len', y, data=a_n_inde, alpha=0.5);
+        #sb.violinplot('triplet_zeros_dS', 'abs_age_dev', data=a_n_inde);
+
+        print('#### OLS fit')
+        fit = ols.fit()
+        fit.summary()
+        slopes = sm_ols_summary(fit)
+        display_html(slopes)
+        self.slopes = slopes.data
+
+        # Test of homoscedasticity
+        #sms.linear_harvey_collier(fit)
+
+        print('#### Dropping the most colinear features')
+        multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
+        print(loop_drop_eval(inde_features, lambda x: multicol_test(a_n_inde[x]), nloops=3))
+
+        print('#### Random Forest Regression')
+        randomforest_regression(a_n_inde[inde_features], a_n_inde[y])
+
+        # Refit without 'null_dS_before' data
+        print('#### Refit without most colinear features')
+
+        print(a_n_inde.null_dS_before.value_counts())
+        print(a_n_inde.prop_splitseq.value_counts())
+
+        a_n_inde2 = a_n_inde.query('null_dS_before==0 & prop_splitseq==0').drop(
+                ['null_dS_before', 'prop_splitseq'], axis=1) 
+        self.a_n_inde2 = a_n_inde2
+        print(a_n_inde2.shape)
+        inde_features2 = [ft for ft in inde_features if ft not in ('null_dS_before', 'prop_splitseq')]
+
+        ols2 = sm.OLS(a_n_inde2[y],
+                      sm.add_constant(a_n_inde2[inde_features2]))
+
+        self.fitlasso2 = fitlasso2 = ols2.fit_regularized()
+
+        self.rsquared2 = r_squared(a_n_inde2[y], fitlasso2.fittedvalues)
+        self.adj_rsquared2 = adj_r_squared(a_n_inde2[y], fitlasso2.fittedvalues,
+                                           len(fitlasso2.params))
+        print('R² =', self.rsquared2)
+        print('adj R² =', self.adj_rsquared2)
+        slopes2 = sm_ols_summary(fitlasso2)
+        display_html(slopes2)
+        self.slopes2 = slopes2.data
+
+        # Residual plot
+        scatter_density(fitlasso2.fittedvalues,
+                        a_n_inde2[y] - fitlasso2.fittedvalues,
+                        alpha=0.5)
+        ax = plt.gca()
+        ax.set_title('Residuals plot')
+        ax.set_ylabel('Residual error')
+        ax.set_xlabel('Predicted response')
+
+        print('### Investigate the worst trees')
+        display_html(alls.sort_values(y, ascending=False).head(50))
+
+        return self.slopes2
 
 
 from siphon import dependency_func, dependency, auto_internalmethod

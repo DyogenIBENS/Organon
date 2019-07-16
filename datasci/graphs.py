@@ -201,7 +201,7 @@ def plot_cov(ft_cov, features, cmap='seismic', figax=None, cax=None,
     return img
 
 
-def heatmap_cov(ft_cov, features=None, cmap='seismic',
+def heatmap_cov(ft_cov, features=None, cmap='seismic', make_corr=False,
                 dendro_ratio=0.20, dendro_pad=0.1, cb_ratio=0.05, cb_pad=0.025):
     """plot_cov, but with hierarchical clustering on the side"""
     # Tested with figsize=(20, 12)
@@ -243,6 +243,9 @@ def heatmap_cov(ft_cov, features=None, cmap='seismic',
                             ax=ax_ddg)
 
     clustered_ft_cov = ft_cov[ddg['leaves'],:][:,ddg['leaves']]
+    if make_corr:
+        clustered_ft_cov = cov2cor(clustered_ft_cov)
+
     #print(ddg['leaves'], ft_cov.shape)
     #print(clustered_ft_cov)
     logger.debug(np.array(features)[ddg['leaves']])
@@ -254,7 +257,7 @@ def heatmap_cov(ft_cov, features=None, cmap='seismic',
     #             cax=ax_cb, aspect=ft_cov.shape[0])
     logger.debug('%d artists: %s', len(ax_cb.get_children()), ax_cb.get_children())
     #ax_cb.xaxis.set_visible(True)
-    ax_cb.set_ylabel('Correlation coefficient')
+    ax_cb.set_ylabel('Correlation coefficient' if make_corr else 'Covariance')
     box_cb = ax_cb.get_position()
     w_cb, h_cb = box_cb.size
     ax_cb.set_position(box_cb.translated(w_cb/2., h_cb/4.).shrunk(0.5,0.5).shrunk_to_aspect(ft_cov.shape[0]))

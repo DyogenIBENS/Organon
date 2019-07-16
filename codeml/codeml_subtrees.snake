@@ -256,7 +256,7 @@ rule condor_descript_prepare:
 							# the .ctl if they don't exist yet.
 			#expand('{genetree}/%s/{{ancestor}}{genetree}*.nwk' % SUBTREEDIR,
 			#	  genetree=GENETREES)
-	input: get_ctl_ancestor_pre
+	input: get_ctl_ancestor_pre  # outputs of `make_ctl`
 	output: "{basename}_{ancestor}_{model}.{subtreedir}.condor.arguments.txt"
 	run:
 		with open(output[0], 'w') as OUT:

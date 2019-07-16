@@ -46,10 +46,34 @@ def make_logtransform_inc(inc=0):
     loginc.__name__ = "log10(%g+%%s)" % inc
     return loginc
 
+def make_lognegtransform_inc(inc=0):
+    logneginc = lambda x: np.log10(-x + inc)
+    logneginc.__name__ = "log10(%g-%%s)" % inc
+    return logneginc
+
 def make_logpostransform_inc(inc=0):
     loginc = lambda x: np.log10(x + x.min() + inc)
     loginc.__name__ = "log10(%g+min+%%s)" % (inc)
     return loginc
+
+
+def make_best_logtransform(var, quantile=0.05):
+    inc = 0
+    if (var < 0).any():
+        if (var > 0).any():
+            # Both negative and positive values
+            current_logtransform = make_logpostransform_inc
+        else:
+            current_logtransform = make_lognegtransform_inc
+            if (var==0).any():
+                inc = -var[var!=0].quantile(1-quantile)
+    else:
+        current_logtransform = make_logtransform_inc
+        if (var==0).any():
+            inc = var[var!=0].quantile(quantile)
+
+    return current_logtransform(inc)
+
 
 def discretizer(bins=[0]):
     """"""
@@ -396,4 +420,41 @@ def sm_ols_summary(olsfit, renames=None):
                         axis=0,
                         align="zero")
     return r_coefs_styled
+
+
+def drop_eval(features, func):
+    """Example: func=lambda x: multicol_test(df[x])"""
+    out = pd.Series(0, index=features, dtype=float)
+    for i, ft in enumerate(features):
+        out[features[i]] = func(features[:i] + features[(i+1):])
+
+    return out
+
+
+def display_drop_eval(features, func):
+    return drop_eval(features, func).to_frame.style.bar()
+
+
+def loop_drop_eval(features, func, criterion='min', nloops=None):
+    if nloops is None:
+        nloops = len(features)
+
+    dropped_features = []
+    next_features = [ft for ft in features]
+    for k in range(nloops):
+        dropped_k = drop_eval(next_features, func)
+        display_html(dropped_k.to_frame().style.bar())
+        
+        if criterion == 'min':
+            i = dropped_k.values.argmin()  # Numpy argmin -> get an integer index.
+        elif criterion == 'max':
+            i = dropped_k.values.argmax()  # Numpy argmin -> get an integer index.
+        else:
+            raise ValueError('Unknown criterion %r (min/max)' % criterion)
+        
+        print('%d. DROP %s' % (k, next_features[i]))
+        dropped_features.append(next_features[i])
+        next_features = next_features[:i] + next_features[(i+1):]
+
+    return dropped_features
 
