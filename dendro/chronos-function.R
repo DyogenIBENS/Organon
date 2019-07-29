@@ -9,7 +9,7 @@
 
 .chronos.ctrl <-
     list(tol = 1e-8, iter.max = 1e4, eval.max = 1e4, nb.rate.cat = 10,
-         dual.iter.max = 20)
+         dual.iter.max = 20, epsilon = 1e-6, ini.times=NULL)
 
 makeChronosCalib <-
     function(phy, node = "root", age.min = 1, age.max = age.min,
@@ -70,6 +70,7 @@ chronos.control <- function(...)
     x
 }
 
+# Guillaume Louvel
 next.calib <- function(y, ini.time) {
   times <- ini.time[y]
   runs.na <- rle(is.na(times))
@@ -101,6 +102,9 @@ chronos <-
     node <- calibration$node
     age.min <- calibration$age.min
     age.max <- calibration$age.max
+    age.start <- if(is.null(calibration$age.start)) {
+                      rep(NA, length(node))
+                      } else {calibration$age.start}
 
     if (model == "correlated") {
 ### `basal' contains the indices of the basal edges
@@ -134,9 +138,11 @@ chronos <-
         ini.time <- age
         ini.time[ROOT:(n + m)] <- NA
 
-        ini.time[node] <-
-            if (is.null(age.max)) age.min
-            else runif(length(node), age.min, age.max) # (age.min + age.max) / 2
+        ini.time[node] <- ifelse(
+                        is.na(age.start),
+                        if (is.null(age.max)) age.min
+                        else runif(length(node), age.min, age.max), # (age.min + age.max) / 2
+                        age.start)
 
         ## if no age given for the root, find one approximately:
         if (is.na(ini.time[ROOT]))
@@ -227,7 +233,7 @@ maybe you need to adjust the calibration dates")
     upper.age[node - n] <- age.max
 
     ## find nodes known within an interval:
-    ii <- which(age.min != age.max)
+    ii <- which(is.na(age.min) | (age.min != age.max))
     ## drop them from 'node' since they will be estimated:
     if (length(ii)) {
         node <- node[-ii]
@@ -428,6 +434,7 @@ maybe you need to adjust the calibration dates")
     if (model == "discrete" && Nb.rates > 1) current.freqs <- out$par[FREQ]
 
     dual.iter.max <- control$dual.iter.max
+    epsilon <- control$epsilon
     i <- 0L
 
     if (!quiet)
@@ -464,7 +471,7 @@ maybe you need to adjust the calibration dates")
 
         if (!quiet) cat("", current.ploglik, "\n")
 
-        if (new.ploglik - current.ploglik > 1e-6 && i <= dual.iter.max) {
+        if (new.ploglik - current.ploglik > epsilon && i <= dual.iter.max) {
             current.ploglik <- new.ploglik
             current.rates <- new.rates
             current.ages <- out.ages$par
@@ -500,6 +507,7 @@ maybe you need to adjust the calibration dates")
         attr(phy, "frequencies") <- current.freqs
     attr(phy, "message") <- out$message
     attr(phy, "PHIIC") <- PHIIC
+    attr(phy, "niter") <- i
     age[unknown.ages] <- current.ages #out$par[-EDGES]
     phy$edge.length <- age[e1] - age[e2]
     class(phy) <- c("chronos", class(phy))
