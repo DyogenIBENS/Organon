@@ -1,24 +1,65 @@
 
+import re
+from glob import iglob
+
+
+SUBTREEDIR = config.setdefault('subtreedir', 'subtreesGoodQualO2')
+ANCESTOR = config.setdefault('ancestor', 'Simiiformes')
+OUTPUTLIST = config.get('outputlist')
+
+LEADING_DOTDIR = re.compile(r'^\./')
+
+def generate_outputs(wildcards):
+    if OUTPUTLIST:
+        print('Reading output list from file...')
+        with open(OUTPUTLIST) as s:
+            outputs = [LEADING_DOTDIR.sub('', line.rstrip()) for line in s]
+    else:
+        print('Globbing subtree alignment files...')
+        outputs = [f[:-8] + '_fsa.fa' for f in iglob('ENSGT*/{subtreedir}/{ancestor}ENSGT*_genes.fa')]
+
+    print(('%d Outputs:\n' % len(outputs)) + '\n'.join(outputs[:5]) + '\n...')
+    return outputs
+
 # outdir would typically be "realigned"
 rule all:
-    input: "{outdir}/{subtree}_fsa.fa"
+    input: generate_outputs
 
 rule translate:
-    input: "{subtree}_genes.fa"
-    output: "{outdir}/{subtree}_prot.fa"
+    input: "{basedir}/{subtree}_genes.fa"
+    output: "{basedir}/realign/{subtree}_prot.fa"
     shell:
         "treebest trans {input} > {output}"
 
 rule realign:
-    input: "{outdir}/{subtree}_prot.fa"
-    output: "{outdir}/{subtree}_protfsa.fa"
+    input: "{basedir}/realign/{subtree}_prot.fa"
+    output: "{basedir}/realign/{subtree}_protfsa.fa"
     shell:
         "fsa {input} > {output}"
 
 rule backtrans:
     input:
-        al="{outdir}/{subtree}_protfsa.fa",
-        dna="{subtree}_genes.fa"
-    output: "{outdir}/{subtree}_fsa.fa"
+        al="{basedir}/realign/{subtree}_protfsa.fa",
+        dna="{basedir}/{subtree}_genes.fa"
+    output: "{basedir}/realign/{subtree}_fsa.fa"
     shell:
         "treebest backtrans {input.al} {input.dna} > {output}"
+
+## Alternative rule to generate the files in the ./ directory
+rule backtrans_samedir:
+    input:
+        al="{basedir}/realign/{subtree}_protfsa.fa",
+        dna="{basedir}/{subtree}_genes.fa"
+    output: "{basedir}/{subtree}_fsa.fa"
+    shell:
+        "treebest backtrans {input.al} {input.dna} > {output}"
+
+rule check_output_basedir:
+    # Check if all sequences were kept.
+    input:
+        orig='{basedir}/{subtree}_genes.fa',
+        new='{basedir}/{subtree}_fsa.fa'
+    output: touch('{basedir}/{subtree}_fsa.OK')
+    shell:
+        "diff -q <(grep '^>' {input.orig} | sort) <(grep '^>' {input.new} | sort)"
+
