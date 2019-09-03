@@ -1,4 +1,6 @@
 
+"""Also see in Biopython: Bio.Alphabet.IUPAC"""
+
 
 gaps = '-.'
 nucleotides = 'ACGT'

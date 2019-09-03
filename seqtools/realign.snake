@@ -6,8 +6,13 @@ from glob import iglob
 SUBTREEDIR = config.setdefault('subtreedir', 'subtreesGoodQualO2')
 ANCESTOR = config.setdefault('ancestor', 'Simiiformes')
 OUTPUTLIST = config.get('outputlist')
+GENETREE = config.get('genetree', 'ENSGT*')  # For use with `glob`
+
 
 LEADING_DOTDIR = re.compile(r'^\./')
+
+#wildcard_constraints:
+#    basedir='(\./|.+/)'
 
 def generate_outputs(wildcards):
     if OUTPUTLIST:
@@ -16,7 +21,7 @@ def generate_outputs(wildcards):
             outputs = [LEADING_DOTDIR.sub('', line.rstrip()) for line in s]
     else:
         print('Globbing subtree alignment files...')
-        outputs = [f[:-8] + '_fsa.fa' for f in iglob('ENSGT*/{subtreedir}/{ancestor}ENSGT*_genes.fa')]
+        outputs = [f[:-9] + '_fsa.OK' for f in iglob('{genetree}/{subtreedir}/{ancestor}{genetree}*_genes.fa'.format(**config))]
 
     print(('%d Outputs:\n' % len(outputs)) + '\n'.join(outputs[:5]) + '\n...')
     return outputs
@@ -25,15 +30,29 @@ def generate_outputs(wildcards):
 rule all:
     input: generate_outputs
 
+
 rule translate:
     input: "{basedir}/{subtree}_genes.fa"
     output: "{basedir}/realign/{subtree}_prot.fa"
-    shell:
-        "treebest trans {input} > {output}"
+    run:
+        from Bio import AlignIO
+        from Bio.Align import MultipleSeqAlignment
+        from Bio.Alphabet import IUPAC
+        al = AlignIO.read(input[0], 'fasta', alphabet=IUPAC.ambiguous_dna)
+        AlignIO.write(MultipleSeqAlignment([seq.translate(gap='-',
+                                                          id=True,
+                                                          name=True,
+                                                          description=True)
+                                            for seq in al]),
+                      output[0], 'fasta')
+    #shell:
+    #    "treebest trans {input} > {output}"
+
 
 rule realign:
     input: "{basedir}/realign/{subtree}_prot.fa"
     output: "{basedir}/realign/{subtree}_protfsa.fa"
+    benchmark: "{basedir}/realign/{subtree}_fsa-benchmark.tsv"
     shell:
         "fsa {input} > {output}"
 
@@ -43,7 +62,7 @@ rule backtrans:
         dna="{basedir}/{subtree}_genes.fa"
     output: "{basedir}/realign/{subtree}_fsa.fa"
     shell:
-        "treebest backtrans {input.al} {input.dna} > {output}"
+        "~glouvel/scripts/seqtools/backtransX.py {input.al} {input.dna} {output}"
 
 ## Alternative rule to generate the files in the ./ directory
 rule backtrans_samedir:
@@ -52,7 +71,24 @@ rule backtrans_samedir:
         dna="{basedir}/{subtree}_genes.fa"
     output: "{basedir}/{subtree}_fsa.fa"
     shell:
-        "treebest backtrans {input.al} {input.dna} > {output}"
+        "~glouvel/scripts/seqtools/backtransX.py {input.al} {input.dna} {output}"
+        #"treebest backtrans {input.al} {input.dna} > {output}"
+
+#rule backtrans_treebest:
+#    input:
+#        al="{basedir}/realign/{subtree}_protfsa.fa",
+#        dna="{basedir}/{subtree}_genes.fa"
+#    output: "{basedir}/realign/{subtree}_fsa.fa"
+#    shell:
+#        "treebest backtrans {input.al} {input.dna} > {output}"
+
+#rule backtrans_emboss:
+#    input:
+#        al="{basedir}/realign/{subtree}_protfsa.fa",
+#        dna="{basedir}/{subtree}_genes.fa"
+#    output: "{basedir}/realign/{subtree}_fsa.fa"
+#    shell:
+#        "backtranseq"
 
 rule check_output_basedir:
     # Check if all sequences were kept.
