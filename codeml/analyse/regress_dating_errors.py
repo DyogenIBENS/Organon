@@ -735,35 +735,98 @@ def join_extra_ages(new_ages_file, ages_data,
                              mean_errors)
 
 
-def display_evolutionary_rates():
-    Glires_ts = load_stats_tree('subtreesGoodQualO2_treestats-Glires.tsv')
+def lineage_evolutionary_rates(anc, ages_file,
+                               phyltree,
+                               timetree_ages_CI,
+                               stats_tmpl='subtreesGoodQualO2_%sstats-%s.tsv',
+                               control_condition='really_robust & aberrant_dists == 0',
+                               measures=['dist', 'dS', 'dN', 't'],
+                               saveas=None):
+    # Also see `analyse_age_errors`
+    ts = load_stats_tree(stats_tmpl % ('tree', anc))
+    aS = load_stats_al(stats_tmpl % ('al', anc))
 
-    measures = ['dist', 'dS', 'dN', 't']
+    dist_measures = ['branch_%s' % m for m in measures]
+
+    ages, ns = load_prepare_ages(ages_file, ts, measures)
+    ages_controled_withnonrobust, control_ages, control_brlen =\
+        add_control_dates_lengths(ages, phyltree, timetree_ages_CI, measures)
+
+    ages_controled = pd.merge(ages_controled_withnonrobust,
+                              aS.join(ns, how='outer'),
+                              left_on='subgenetree', right_index=True,
+                              sort=False)\
+                     .query(control_condition).copy(deep=False)
+    unexpected_branches, lost_branches = check_control_dates_lengths(
+                                                control_brlen, phyltree, anc,
+                                                measures)
+    control_brlen.drop(unexpected_branches, inplace=True)
+
+    def wmean(g, wkey='ingroup_glob_len'):
+        gdata = g.drop(columns=wkey)
+        return pd.Series(np.average(gdata, axis=0, weights=g[wkey]),
+                         index=gdata.columns)
+
+    lineage_groups = ages_controled.groupby(['taxon_parent', 'taxon'])
+    lineage_brlen = lineage_groups[dist_measures]\
+            .agg(['median', 'mean', 'std'])\
+            .join(lineage_groups[dist_measures + ['ingroup_glob_len']]\
+                  .apply(wmean),
+                  rsuffix='_wmean', sort=False)
+    lineage_rates = lineage_brlen.div(control_brlen.timetree_brlen, axis='index')
+
+    na_rates = lineage_rates.isna()
+    if na_rates.any(axis=1):
+        logger.info('DROP NA rates rows:\n%s', lineage_rates.index[na_rates])
+        lineage_rates.dropna(inplace=True)
+
+    return age_analysis_data(ages_controled, ages_controled_withnonrobust, ns, control_ages, control_brlen, mean_errors=None), lineage_rates
+
+
+def display_lineage_evolutionary_rates(anc, lineage_rates, ages_controled,
+                                       control_brlen, phyltree, measures=measures):
+
     dist_measures = ['branch_%s' % m for m in measures]
     rate_measures = ['%s_rate' % m for m in measures]
 
-    agesGlires_treestats = load_prepare_ages('../ages/Glires_m1w04_ages.subtreesGoodQualO2-um2-ci.tsv', Glires_ts)
+    ordered_branches = ['%s--%s' % br for br in dfw_pairs(phyltree, queue=[(None, anc)], closest_first=True)]
 
-    agesGlires_controled, control_agesGlires, control_brlenGlires =\
-        add_control_dates_lengths(agesGlires_treestats, phyltree)
-    agesGlires_controled_robust = agesGlires_controled.query('really_robust & aberrant_dists == 0') 
+    ordered_branches_bylen = ['%s--%s' % v for v in control_brlen.sort_values('timetree_brlen').index.values]
 
-    agesGlires_controled_robust['branchtaxa'] = agesGlires_controled_robust.taxon_parent + '--' + agesGlires_controled_robust.taxon
+    # Table of summary values
+    styled_rates = lineage_rates\
+            .style.background_gradient(cmap='PRGn',
+                                       subset=[(d, stat)
+                                           for d in dist_measures
+                                           for stat in ('median', 'mean', 'std')])
+    if saveas is None:
+        display_html(styled_rates)
+    elif saveas.endswith('.tsv'):
+        styled_rates.data.to_csv(saveas, sep='\t')
+    elif saveas.endswith('.xls') or saveas.endswith('.xlsx'):
+        styled_rates.to_excel(saveas)
+    else:
+        raise ValueError('Unrecognized output format in "%s" [.tsv/.xlsx]' % saveas)
+    
+    # Violin plot of rates
+    ages_controled['branchtaxa'] = ages_controled.taxon_parent + '--' + ages_controled.taxon
 
-    agesGlires_controled_robust[rate_measures] = agesGlires_controled_robust[dist_measures]\
-                                          .div(agesGlires_controled_robust.timetree_brlen, axis=0)
+    ages_controled[rate_measures] = ages_controled[dist_measures]\
+                                          .div(ages_controled.timetree_brlen, axis=0)
 
-    agesGlires_controled_robust.groupby(['taxon_parent', 'taxon'])[rate_measures].agg(['median', 'mean', 'std'])\
-        .style.background_gradient(cmap='PRGn', subset=[(r, stat) for r in rate_measures for stat in ('median', 'mean')])
-
-    ordered_Glires_branches = ['%s--%s' % br for br in dfw_pairs(phyltree, queue=[(None, 'Glires')], closest_first=True)]
-
-    ordered_Glires_branches_bylen = ['%s--%s' % v for v in control_brlenGlires.sort_values('timetree_brlen').index.values]
-
-    sb.violinplot('branchtaxa', 'dS_rate', data=agesGlires_controled_robust, width=1, order=ordered_Glires_branches_bylen)
+    sb.violinplot('branchtaxa', 'dS_rate', data=ages_controled, width=1,
+                  order=ordered_branches_bylen)
     ax = plt.gca()
     ax.set_ylim(-0.005, 0.03);
-    ax.set_xticklabels([xt.get_text() for xt in ax.get_xticklabels()], rotation=45, va='top', ha='right');
+    ax.set_xticklabels([xt.get_text() for xt in ax.get_xticklabels()], rotation=45, va='top', ha='right')
+    ax.set_title('Variation of synonymous substitutions/site/My')
+
+    # Tree with colored branches
+    plottree(phyltree, phyltree_methods.get_items,
+             phyltree_methods.get_label,
+             root=anc,
+             edge_colors=styled_rates.data[('branch_dS', 'median')],
+             edge_cmap='afmhot', add_edge_axes=None, style='squared', **kwargs)
 
 
 def compute_branchrate_std(ages_controled, dist_measures,
@@ -823,7 +886,16 @@ def compute_branchrate_std(ages_controled, dist_measures,
 
     cs_wstds.columns = [(r + '_std') for r in cs_rates.columns]  # Or multiindex
 
-    return pd.concat((cs_rates, cs_wstds), axis=1)
+    cs_rates = pd.concat((cs_rates, cs_wstds), axis=1)
+    # Checks
+    inf_cols = np.isinf(cs_rates).any(axis=0)
+    inf_rows = np.isinf(cs_rates).any(axis=1)
+    if inf_rows.any():
+        logger.warning('%d Inf values in columns %s. DROPPING rows!',
+                       inf_rows.sum(),
+                       cs_rates.columns[inf_cols].tolist())
+        cs_rates = cs_rates[~inf_rows].copy(deep=False)
+    return cs_rates
 
 
 def subset_on_criterion_tails(criterion_serie, ages=None, ages_file=None,
@@ -986,10 +1058,9 @@ def analyse_age_errors(ages_file, anc, phyltree, timetree_ages_CI, ts,
 # param = 'um1.new'
 # nsCata = age_analyses[anc][param].ns
 class full_dating_regression(object):
-    def __init__(self, data, same_alls, dataset_params, responses, features, rate_args=None,
-                           ref_suggested_transform=None,
-                           must_transform=None,
-                           must_drop_features=None):
+    def __init__(self, data, same_alls, dataset_params, responses, features,
+                 rate_args=None, ref_suggested_transform=None,
+                 must_transform=None, must_drop_features=None):
         for k,v in locals().items():
             if k != 'self':
                 setattr(self, k, v)
@@ -1026,6 +1097,7 @@ class full_dating_regression(object):
         print('Variable Y :', y)
         print('%d observation × %d features' % alls.shape)
         print('Amount of NA:\n', alls.isna().sum(axis=0).sort_values(ascending=False).head(10))
+        print('Amount of Inf:\n', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10))
 
         suggested_transform = test_transforms(alls, responses+features) #ages_features + rate_features
 
@@ -1108,7 +1180,7 @@ class full_dating_regression(object):
         print('transformed shape:', alls_transformed.shape)
 
         self.a_t = a_t = alls_transformed
-        self.a_n = a_n = alls_transformed.transform({ft: zscore for ft in responses+features
+        a_n = alls_transformed.transform({ft: zscore for ft in responses+features
                                                   if ft not in bin_features})\
                                       .join(alls_transformed[bin_features])
 
@@ -1119,6 +1191,17 @@ class full_dating_regression(object):
         if na_rows.any():
             print('Drop %s NA rows' % na_rows.sum())
             a_n.dropna(inplace=True)
+
+        a_nn = a_n.select_dtypes(np.number)  # Numeric columns only.
+        inf_rows = np.isinf(a_nn).any(axis=1)
+        if inf_rows.any():
+            print('Drop %s Inf rows' % inf_rows.sum())
+            print('Data with Inf: column %s:\n%s' % (
+                        a_nn.columns[np.isinf(a_nn).any()],
+                        alls[~na_rows][inf_rows].head(10)))
+            a_n = a_n[~inf_rows].copy(deep=False)
+        
+        self.a_n = a_n
 
         print('### Fit of all features')
 
@@ -1140,6 +1223,7 @@ class full_dating_regression(object):
         self.ft_pca = ft_pca = detailed_pca(a_n, features)
 
         heatmap_cov(np.abs(ft_pca.get_covariance()), features, cmap='seismic', make_corr=True, dendro_pad=0.2)
+        plt.gcf().suptitle('Feature covariance (PCA)')
         plt.show()
 
         print('#### Factor analysis')
@@ -1150,6 +1234,7 @@ class full_dating_regression(object):
         fa_components = FA.fit_transform(a_n[features])
 
         heatmap_cov(np.abs(FA.get_covariance()), features, make_corr=True)
+        plt.gcf().suptitle('Feature covariance (Factor Analysis)')
         plt.show()
 
         print('### Feature decorrelation')
@@ -1230,12 +1315,14 @@ class full_dating_regression(object):
         ft_pca_inde.fit_transform(a_n_inde[inde_features]) # -> components
 
         heatmap_cov(np.abs(ft_pca_inde.get_covariance()), inde_features, make_corr=True)
+        plt.gcf().suptitle('Inde features covariance (PCA)')
         plt.show()
 
         self.FA_inde = FA_inde = FactorAnalysis(n_components=15)
         FA_inde.fit_transform(a_n_inde[inde_features]) # -> components
 
         heatmap_cov(np.abs(FA_inde.get_covariance()), inde_features, make_corr=True)
+        plt.gcf().suptitle('Inde features covariance (PCA)')
         plt.show()
 
         print('### Fit of less colinear features')

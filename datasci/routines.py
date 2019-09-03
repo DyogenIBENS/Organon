@@ -131,6 +131,11 @@ def test_transforms(alls, variables, figsize=(14, 5)):
             # Why does it appear in `suggested_transform`?
             continue
         
+        infinite_vals = np.isinf(var)  # Ignore NAs
+        if infinite_vals.any():
+            print("%d infinite values in %r (Dropping)." % (infinite_vals.sum(), ft))
+            var = var[~infinite_vals]
+
         fig, axes = plt.subplots(1, 3, figsize=figsize)
         #axes[i, 0].set_ylabel(ft)
         axes[0].set_ylabel(ft, fontsize='large')
@@ -169,6 +174,7 @@ def test_transforms(alls, variables, figsize=(14, 5)):
                 zero_vals = True
                 n_zero_vals = (var == 0).sum()
 
+        # Not defined for log.
         n_infinite_vals = (~np.isfinite(logtransformed_var)).sum()
         logtransformed_var = logtransformed_var[np.isfinite(logtransformed_var)]
         

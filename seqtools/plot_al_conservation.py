@@ -376,7 +376,8 @@ def get_position_stats(align, nucl=False, allow_N=False):
 def get_items_biophylo(tree, nodedist):
     return [(child, child.branch_length) for child in nodedist[0].clades]
 
-def get_label_biophylo(node):
+#from dendro.any import biophylo
+def get_label_biophylo(tree, node):
     return node.name
 
 

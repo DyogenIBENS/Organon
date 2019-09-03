@@ -21,7 +21,7 @@ class default(object):
         return tree.root  # Not ete3 but more often implemented like this.
     
     @staticmethod
-    def get_label(node):
+    def get_label(tree, node):
         return node
 
     @staticmethod
@@ -36,7 +36,7 @@ class default(object):
 
 class nodebased(default):
     @staticmethod
-    def get_label(node):
+    def get_label(tree, node):
         return node.name
 
 
@@ -83,6 +83,10 @@ class BioPhylo(nodebased):
     def get_children(tree, node):
         return node.clades
 
+    @staticmethod
+    def set_children(tree, node, children):
+        node.clades = children
+
 
 class myProteinTree(itembased):
     
@@ -97,6 +101,10 @@ class myProteinTree(itembased):
     @staticmethod
     def get_items(tree, nodedist):
         return tree.data.get(nodedist[0], [])
+
+    @staticmethod
+    def get_label(tree, node):
+        return tree.info[node].get('family_name')
 
 
 class myPhylTree(itembased):

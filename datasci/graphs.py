@@ -435,7 +435,7 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
         if not items:
             # Is a leaf.
             child_coords[node] = coord(leafdists[node], leafloc)
-            ticklabels.append(get_label(node))
+            ticklabels.append(get_label(tree, node))
             if child_coords[node].x < depth+root_age:
                 extended_x.extend((depth+root_age, child_coords[node].x, None))
                 extended_y.extend((leafloc, leafloc, None))
@@ -686,3 +686,25 @@ def kde_ridgeplot(x, by, data=None):
     g.set_titles("")
     g.set(yticks=[])
     g.despine(bottom=True, left=True)
+
+
+def extract_dfstyle(styled_df):
+    cellcols = np.empty(styled_df.data.shape, dtype=tuple)
+    celltxts = styled_df.data.applymap(lambda x: '%.3f' % x).values
+
+    for pos, attributes in styled_df.ctx.items():
+        dict_attr = dict(tuple(x.strip() for x in attr.split(':')) for attr in attributes)
+        cellcols[pos] = mpl.colors.to_rgba(dict_attr.get('background-color'))  # and 'color'
+    return cellcols, celltxts
+
+
+def dfstyle2mpltable(styled_df, **kwargs):
+    cellcols, celltxts = extract_dfstyle(styled_df)
+    return plt.table(cellText=celltxts, cellColours=cellcols, rowLabels=styled_df.index,
+                     colLabels=styled_df.columns, **kwargs)
+    
+def dfstyle2heatmap(styled_df):
+    #cellcols, celltxts = extract_dfstyle(styled_df)
+    cmap = plt.get_cmap()
+    #norm = mpl.Nor
+    #plt.pcolormesh(edge
