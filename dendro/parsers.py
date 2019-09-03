@@ -8,6 +8,7 @@ import os.path as op
 
 
 def read_multinewick(lines, stripchars='\r\n'):
+    """lines must be a file type or an iterable of lines"""
     newick = ''
     for line in lines:
         parts = line.strip(stripchars).split(';')

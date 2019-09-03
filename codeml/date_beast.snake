@@ -1,0 +1,105 @@
+
+from glob import glob
+
+
+#rule link_template:
+#    input: "../../ctl/mybeast.template"
+#    output: temp("mybeast.template")
+#    run: "ln {input}"
+
+
+# RUN FROM: ~glouvel/ws2/DUPLI_data93/alignments/
+#
+
+#subworkflow align_fsa:
+#   snakefile: '../seqtools/realign.snake' 
+#include: '../seqtools/realign.snake' 
+
+config.setdefault('genetree', 'ENSGT*')
+config.setdefault('subtreedir', 'subtreesGoodQualO2')
+config.setdefault('ancestor', 'Simiiformes')
+config.setdefault('chainlength', 50000000)
+
+
+def generate_targets(wildcards):
+    return [f.replace('_genes.fa', '_beast-dated.OK')
+            for f in iglob('{genetree}/{subtreedir}/{ancestor}{genetree}*_genes.fa'.format(**config))]
+
+
+rule all:
+    input: generate_targets
+
+
+wildcard_constraints:
+    beastparam='beast[A-Za-z0-9_-]*'
+
+
+rule species_branch_lengths:
+    input: 
+        speciestree=lambda wildcards: glob('../PhylTree.TimeTree*.Ensembl*.goodQual.nwk')[0],
+        tree='{subgenetree}.nwk'
+    output: temp('{subgenetree}_specieslengths.nwk')
+    shell:
+        '/users/ldog/glouvel/scripts/dendro/time_fromspeciestree.py {input.speciestree} {input.tree} {output}'
+
+
+rule beastgen:
+    # Create the template file for BEAST from a fasta alignment
+    input:
+        template='ctl/{beastparam}.template',
+        tree=rules.species_branch_lengths.output[0],
+        al='{subgenetree}_fsa.fa'  # align_fsa()
+    output:
+        '{subgenetree}_{beastparam}.xml'
+    params:
+        chainlength=config['chainlength']
+    shell:
+        'beastgen -tree {input.tree} -D "chainlength={params.chainlength}" {input.template} {input.al} {output}'
+
+
+rule beast:
+    input: '{subgenetree}_{beastparam}.xml'
+        #al='{subgenetree}_fsa.fa'
+    output:
+        trees='{subgenetree}_{beastparam}.trees'
+    log:
+        log='{subgenetree}_{beastparam}.log',
+        stdout='{subgenetree}_{beastparam}.stdout'
+    benchmark: '{subgenetree}_{beastparam}.benchmark.tsv'
+    shell:
+        'beast -working -overwrite -beagle -seed 1 {input} >{log.stdout}'
+
+rule loganalyser:
+    input: rules.beast.log.log
+    output: '{subgenetree}_{beastparam}-summary.txt'
+    shell:
+        'loganalyser {input} > {output}'
+
+rule tree_annotate_times:
+    input:
+        trees='{subgenetree}_{beastparam}.trees',
+        ref='{subgenetree}_codeml.nwk'
+    output: '{subgenetree}_{beastparam}-dated.tree'
+    shell:
+        'treeannotator -burnin 5 -heights mean -target {input.ref} {input.trees} {output}'
+
+
+# NOTE: this outputs a nexus tree, without internal node labelling.
+rule nexus2nhx:
+    input: '{subgenetree}_{beastparam}-dated.tree'
+    output: '{subgenetree}_{beastparam}-dated.nwk'
+    run:
+        from dendro.formats import nexus2nhx
+        nexus2nhx(input[0], output[0])
+
+
+rule final_check:
+    input:
+        log_summary=rules.loganalyser.output[0],
+        tree_summary=rules.nexus2nhx.output[0]
+    output:
+        touch('{subgenetree}_{beastparam}-dated.OK')
+    shell:
+        # The ESS column is the 9th. Values expected to be >= 150
+        "tail -n +2 {input.log_summary} | awk '{{if($9 < 150){{exit 1}}}}'"
+

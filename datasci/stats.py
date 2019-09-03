@@ -4,8 +4,11 @@
 
 """Statistics utilities."""
 #  Should be called `basics`. `stats` for more complex operations.
+
+from functools import partial
 import numpy as np
 import scipy.stats as stats
+import matplotlib.pyplot as plt
 
 
 def normal_fit(var):
@@ -109,3 +112,92 @@ def multicol_test(X):
     eigs = np.linalg.eigvals(norm_xtx)
     #condition_number
     return np.sqrt(eigs.max() / eigs.min())
+
+
+# Gamma distribution utilities
+def expectation_gamma(shape, scale, loc=0):
+    return loc + shape*scale
+
+
+def conf_int_gamma(shape, scale, loc=0, conf=0.95):
+    out = (1. - conf)/2
+    return (stats.gamma.cdf(out, shape, loc, scale=scale),
+            stats.gamma.sf(out, shape, loc, scale=scale))
+
+def inv_conf_int_gamma(shape, scale, loc=0, conf=0.95):
+    #out = (1. - conf)/2
+    #return stats.gamma.ppf([out, conf+out], shape, loc, scale=scale)
+    return stats.gamma.interval(conf, shape, loc, scale=scale)
+
+
+def dist_from_conf_int_gamma(ci, shape, scale, loc, conf=0.95):
+    """With loc and/or scale being an array"""
+    inf, sup = stats.gamma.interval(conf, shape, loc, scale)
+    return ((ci - np.stack((inf, sup)).T)**2).sum(axis=1)
+
+
+def gamma_params_from_mean_and_ci(mean, ci, conf=0.95, shape_bounds=None,
+                                  loc_bounds=None, nshapes=200, nlocs=None):
+    # function to minimize: sum of squared differences from the requested interval boundaries
+    ci = np.array(ci)
+    func = partial(dist_from_conf_int_gamma, ci, conf=conf)
+
+    if shape_bounds is None:
+        shape_bounds = [0.025, 5.] #(ci[1] - ci[0])]
+    shape_values = np.linspace(*shape_bounds, nshapes)
+
+    if loc_bounds is None:
+        loc_bounds = [ci[0]-(ci[1] - ci[0]), ci[0]]
+
+    print('Loc is in %s' % loc_bounds)
+    nlocs = nshapes if nlocs is None else nlocs
+    loc_values = np.linspace(*loc_bounds, nlocs, endpoint=False)
+
+    epsilon = 0.005
+    objective = np.zeros((nshapes, nlocs))
+    for i,x in enumerate(shape_values):
+        scale_values = (mean-loc_values)/x
+        assert np.allclose(stats.gamma.mean(x, loc_values, scale_values), mean), stats.gamma.mean(x, loc_values, scale_values)
+        print('Shape = %s' % (x,))
+        objective[i,:] = func(x, scale_values, loc_values)
+
+    return objective, shape_values, loc_values
+
+
+def show_obj(objective, shape_values, loc_values):
+    #corners = (shape_values.min(), shape_values.max(),
+    #           loc_values.min(), loc_values.max())
+    im = plt.pcolormesh(loc_values, shape_values, objective,
+                        cmap='viridis_r')
+    ax = plt.gca()
+    ax.set_xlabel('Loc')
+    ax.set_ylabel('shape')
+    #print(ax.get_xticks())
+    #ax.set_xticklabels(loc_values[ax.get_xticks().astype(int)[:-1]])
+    #ax.set_yticklabels(shape_values[ax.get_yticks().astype(int)[:-1]])
+    ax.tick_params('x', labelrotation=45)
+    plt.colorbar(im)
+    return ax
+
+
+def superimpose_gamma_params(mean, ci, shape, loc, conf=0.95, scale=None):
+    if scale is None:
+        scale = (mean-loc)/shape
+    w = ci[1] - ci[0]
+    x = np.linspace(ci[0] - w/10, ci[1] + w/10, 200)
+    y = stats.gamma.pdf(x, shape, loc, scale)
+
+    if shape < 1:
+        x = np.concatenate(([x[0]], x))
+        y = np.concatenate(([0], y))
+    
+    print('scale = %s' % scale,
+          stats.gamma.mean(shape, loc, scale),
+          stats.gamma.cdf(ci, shape, loc, scale),
+          stats.gamma.interval(conf, shape, loc, scale))
+    y2 = [y.min(), y.max()]
+    plt.plot(x, y, '-',
+             [ci[0]]*2, y2, '-',
+             [mean]*2, y2, '-',
+             [ci[1]]*2, y2, '-')
+

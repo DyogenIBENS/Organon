@@ -13,6 +13,7 @@ from genomicustools.identify import ultimate_seq2sp
 ENSEMBL_VERSION = 87
 
 
+# ~~> genomicustools.identify
 def iter_specify(inputfile, labelfmt='{gene}_{sp}', format="fasta",
                  dots=True, ensembl_version=ENSEMBL_VERSION):
 #def iter_specify(iterator, name_attr='.id', **)
@@ -36,24 +37,34 @@ def iter_specify(inputfile, labelfmt='{gene}_{sp}', format="fasta",
         yield record
 
 
+def tree_specify(tree, labelfmt='{gene}_{sp}', dots=True,
+                 ensembl_version=ENSEMBL_VERSION, inplace=True):
+    if not inplace:
+        tree = tree.copy()
+    seen_labels = {}
+    for leaf in tree.iter_leaves():
+        sp = ultimate_seq2sp(leaf.name, ensembl_version)
+        if dots:
+            sp = sp.replace(' ', '.')
+        leaf.name = labelfmt.format(gene=leaf.name, sp=sp)
+        leaf.add_feature('S', sp)
+
+        if leaf.name in seen_labels:
+            leaf.name += '.%d' % seen_labels[leaf.name]
+            seen_labels[leaf.name] += 1
+        else:
+            seen_labels[leaf.name] = 1
+    if not inplace:
+        return tree
+
+
 def specify(inputfile, outfile, labelfmt='{gene}_{sp}', format="fasta", dots=True,
             ensembl_version=ENSEMBL_VERSION):
 
     if format == 'nwk':
         import ete3
         tree = ete3.Tree(inputfile, format=1)
-        seen_labels = {}
-        for leaf in tree.iter_leaves():
-            sp = ultimate_seq2sp(leaf.name, ensembl_version)
-            if dots:
-                sp = sp.replace(' ', '.')
-            leaf.name = labelfmt.format(gene=leaf.name, sp=sp)
-
-            if leaf.name in seen_labels:
-                leaf.name += '.%d' % seen_labels[leaf.name]
-                seen_labels[leaf.name] += 1
-            else:
-                seen_labels[leaf.name] = 1
+        tree_specify(tree, labelfmt, dots, ensembl_version)
         tree.write(outfile=outfile, format=1)
     else:
         SeqIO.write(iter_specify(inputfile, labelfmt, format, dots, ensembl_version),
