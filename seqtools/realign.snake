@@ -2,6 +2,7 @@
 import re
 from glob import iglob
 
+import os; print("'realign' working dir:'", os.getcwd()) 
 
 SUBTREEDIR = config.setdefault('subtreedir', 'subtreesGoodQualO2')
 ANCESTOR = config.setdefault('ancestor', 'Simiiformes')
