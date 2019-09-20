@@ -11,6 +11,7 @@
 import sys
 import argparse
 #from dendro.bates import dfw_descendants_generalized
+from collections import Counter
 from itertools import zip_longest, product
 import logging
 logger = logging.getLogger(__name__)
@@ -222,6 +223,19 @@ def match_clades(tree1, tree2, exact=False):
 
             matching_clades.append((clade1, matching_cl_str))
     return matching_clades
+
+
+def ensure_uniq_names(tree, inplace=True):
+    if not inplace:
+        tree = tree.copy()
+    c = Counter()
+    for node in tree.traverse('levelorder'):
+        name_c = c[node.name]
+        c[node.name] += 1
+        if name_c:
+            node.name = ('%s.%d' %(node.name, name_c)) if node.name else str(name_c)
+    if not inplace:
+        return tree
 
 
 def main(treefile1, treefile2, exact=False, sort=False, parser='PhylTree',

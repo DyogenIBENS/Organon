@@ -8,6 +8,7 @@ from __future__ import print_function
 import sys
 import os.path
 import re
+from collections import OrderedDict, defaultdict
 from queue import deque
 import numpy as np
 #from numpy import array as a, concatenate as c
@@ -32,6 +33,11 @@ ENSEMBL_VERSION = 85
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0:d}/PhylTree.Ensembl.{0:d}.conf"
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9_.-]+)ENS')
 # ~~> genomicus.my_identify?
+
+BEAST_MEASURES = set('%s%s' % (v,s) for v in ('height', 'length', 'rate')
+                     for s in ('', '_median', '_95%_HPD', '_range')).union(('posterior',))
+CODEML_MEASURES = set(('dN', 'dS', 't', 'N*dN', 'S*dS'))
+
 
 def ls(array):
     return str(array).replace('\n', '')
@@ -122,13 +128,13 @@ def def_showtree(measures, show=None):  # ~~> genomicus.reconciled
     return showtree
 
 
-def load_fulltree(mlcfile, replace_nwk='.mlc', replace_by='.nwk'):
+def load_fulltree(resultfile, replace_nwk='.mlc', replace_by='.nwk'):
     """Return the ete3.Tree object corresponding to a given .mlc file.
 
     It simply finds the newick file by replacing the extension of the mlc file.
     Catch errors (file does not exist / wrong format)"""
-    #nwkfile = mlcfile.replace(replace_nwk, '.nwk')
-    rootname = re.sub(re.escape(replace_nwk) + '$', '', mlcfile)
+    #nwkfile = resultfile.replace(replace_nwk, '.nwk')
+    rootname = re.sub(re.escape(replace_nwk) + '$', '', resultfile)
     nwkfile = rootname + replace_by
     try:
         fulltree = ete3.Tree(nwkfile, format=1)
@@ -170,6 +176,70 @@ def yield_lines_whilematch(file_obj, regex, line=None, jump=0):
 
         line = file_obj.readline()
         match = regex.match(line.rstrip())
+
+
+def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name']):
+    """Appropriate for matching nodes only when the differences are polytomies
+    or extra single-child nodes."""
+    srcleaf_sets = OrderedDict()  # Conserve the tree post-ordering
+    #clade2node = OrderedDict()
+
+    for srcnode in srctree.traverse('postorder'):
+        if srcnode.is_leaf():
+            srcleaf_sets[srcnode] = set((srcnode.name,))
+            #clade2node[(node.name,)] = node
+        else:
+            clade = set.union(*(srcleaf_sets[ch] for ch in srcnode.children))
+            #cladekey = tuple(sorted(clade))
+            #if cladekey not in clade2node:
+            #    # Because in post-order traversal, overwrite can happen with 
+            #    # single-child nodes, and we only want the MRCA.
+            #    clade2node[cladekey] = node
+            srcleaf_sets[srcnode] = clade
+
+    leaf_sets = {}
+    src_match = defaultdict(set)
+
+    for node in targettree.traverse('postorder'):
+        if node.is_leaf():
+            clade = leaf_sets[node] = set((node.name,))
+        else:
+            clade = leaf_sets[node] = set.union(*(leaf_sets[ch]
+                                                    for ch in node.children))
+        
+        # Iterate from the smallest clades to the largest. Do a `searchsorted`
+        # Find a corresponding source node.
+        for srcnode, srcclade in srcleaf_sets.items():
+            # Find the first source clade containing or equal to the target clade.
+            if srcclade >= clade:
+                newfeatures = dict((ft[0], getattr(srcnode, ft[1], None))
+                                     if isinstance(ft, tuple)
+                                     else (ft, getattr(srcnode, ft, None))
+                                     for ft in update_features)
+                logger.debug('Adding features %r -> %r', srcnode.name, node.name)
+                node.add_features(**newfeatures)
+                if srcclade > clade:
+                    logger.warning('Non exact clade match: %r != %r',
+                                   srcnode.name, node.name)
+                if srcnode in src_match:
+                    logger.warning('Source %r already used for: %s (polytomy?)',
+                                   srcnode.name, [n.name for n in src_match[srcnode]])
+                src_match[srcnode].add(node)
+                break
+        else:
+            # there is no match.
+            logger.warning('Unmatched target node: %r', node.name)
+
+    unmatched_leaves = leaf_sets[targettree] ^ srcleaf_sets[srctree]
+    if unmatched_leaves:
+        logger.warning('Unmatched leaves: %s', '; '.join(unmatched_leaves))
+
+    unmatched_srcnodes = set(srcleaf_sets).difference(src_match)
+    if unmatched_srcnodes:
+        logger.warning('%d unmatched source nodes: %s', len(unmatched_srcnodes),
+                        '; '.join('%r(%s)' % (n.name, id(n)) for n in unmatched_srcnodes))
+                        #'; '.join(n.name for n in unmatched_srcnodes))
+
 
 
 def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
@@ -394,7 +464,9 @@ def dNdS_precise(dNdS, br_tw, dSnwk, dNnwk, id2nb, tree_nbs):  # ~~> codeml_pars
     return dNdS
 
 
-#def set_dS_fulltree(fulltree, id2nb, dNdS):
+#def set_data_fulltree(fulltree, datatable, raise_at_intermediates=True,
+#                      proportional_var=('t', 'dS', 'dN', 'dist', 'N*dN', 'S*dS',
+#                                        'length', 'length_median'):
 def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
     """Add codeml dS on each branch of the complete tree (with missing species
     nodes).
@@ -435,6 +507,7 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
                 try:
                     br = id2nb[parent.name] + '..' + id2nb[node.name]
                     totals = {valname: dNdS[br][i] for valname, i in colindex.items()}
+                    #totals = {valname: datatable[node.name] for valname, i in colindex.items()}
 
                 except KeyError as err:
                     raise
@@ -508,6 +581,12 @@ def rm_erroneous_ancestors(fulltree, phyltree):  # ~~> genomicustools
 
 # Functions used to determine whether a node should be calibrated in `bound_average`
 #@memoize
+def true(node, subtree=None):
+    return True
+
+def false(node, subtree=None):
+    return False
+
 def isdup(node, subtree):
     """Checks whether node is a duplication.
 
@@ -523,6 +602,7 @@ def isdup(node, subtree):
 def isdup_cache(node, subtree):
     r = isdup(node, subtree)
     subtree[node.name]['isdup'] = r
+    #logger.debug("Cached 'isdup': %s at %r", r, node.name)
     return r
 
 def retrieve_isdup(node, subtree):
@@ -559,7 +639,7 @@ def def_is_any_taxon(*target_taxa):
 def negate(testfunc):
     def negated(*args,**kwargs):
         return not testfunc(*args, **kwargs)
-    negated.__name__ = '!' + negated.__name__
+    negated.__name__ = '!' + testfunc.__name__
     return negated
 
 def all_of(tests):
@@ -968,13 +1048,15 @@ def bound_average(fulltree, calibration, todate=isdup,
     Arguments:
     ----------
       - calibration: dictionary of `calib_selecter` -> age
-      - todate: function returning True when the node should be calibrated.
+      - todate: function returning True when the node should be dated.
                 Takes 2 params: (node, subtree).
                 By default: check whether node is a duplication.
       - calib_selecter: the entries of `calibration`. Typically `taxon`.
                    This is a field in node to search, or the attr from `node_attr_getter`.
       - node_info: paired list of functions retrieving additional info
                     (ex: ("taxon", get_taxon). Tuple of length 1 will just use `getattr`)
+      - node_feature_setter: can be used to set new features, possibly based on other parts
+                 of the tree (arguments: node, subtree)
     """
     # BEFORE 12/06/19
     #rec_rootward = rec_average
@@ -1251,6 +1333,50 @@ def bound_average(fulltree, calibration, todate=isdup,
     return ages, subtrees
 
 
+def tabulate_ages_from_tree(fulltree, todate=true,
+                            measures=['height'],
+                            keeproot=True,
+                            node_info=None,
+                            node_feature_setter=None):
+    node_info = [] if node_info is None \
+                else [(getinfo[0], lambda node: getattr(node, attr, None))
+                      if len(getinfo)==1 else getinfo
+                      for getinfo in node_info]
+    if node_feature_setter is None:
+        node_feature_setter = []
+
+    # Future outputs
+    ages = []
+    
+    # Some cached info
+    subtree = {}
+
+    for node in fulltree.traverse('postorder'):
+        if node.is_root() and not keeproot:
+            logger.debug(debug_msg + "Root (discard)")
+            continue
+
+        subtree[node.name] = {attr: getinfo(node) for attr,getinfo in node_info}
+
+        new_node_features = {ft: setft(node, subtree) for ft,setft in node_feature_setter}
+        subtree[node.name].update(new_node_features)
+        node.add_features(**new_node_features)
+        branch_measures = [getattr(node, m, np.NaN) for m in measures]
+
+        logger.debug('subtree[%r] = %s', node.name, subtree[node.name])
+        cal = 0 if todate(node, subtree) else 1
+
+        node.add_feature('cal', cal)
+
+        ages.append([node.name] + branch_measures +
+                    [cal,
+                     getattr(node.up, 'name', None)] +
+                    [subtree[node.name][attr] for attr,_ in node_info] +
+                    [getattr(node, ft) for ft,_ in node_feature_setter] +
+                    [fulltree.name, getattr(fulltree, 'treename', '')])
+    return ages
+
+
 def save_ages(ages, opened_outfile):
     for row in ages:
         opened_outfile.write("\t".join(str(elem) for elem in row)
@@ -1302,17 +1428,38 @@ savefunctions = {'ages': save_ages,
                  'subtrees': save_subtrees} #save_subtrees}
 
 
-def setup_fulltree(mlcfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
+def setup_fulltree(resultfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
                    measures=['dS']):
-    fulltree = load_fulltree(mlcfile, replace_nwk, replace_by)
+    """Put result values on the corresponding nodes of the target tree.
+
+    Example measures at nodes made by Beast2+TreeAnnotator from the tree log:
+        - posterior
+        - height height_95%_HPD height_median height_range
+        - length length_95%_HPD length_median length_range
+        - rate rate_95%_HPD rate_median rate_range
+    """
+    fulltree = load_fulltree(resultfile, replace_nwk, replace_by)
     rm_erroneous_ancestors(fulltree, phyltree)
-    if set(('dN', 'dS', 't', 'N*dN', 'S*dS')) & set(measures):
-        with open(mlcfile) as mlc:
+    if CODEML_MEASURES.intersection(measures):
+        with open(resultfile) as mlc:
             id2nb, nb2id, tree_nbs, br_tw = branch2nb(mlc, fulltree)
             dNdS, dStreeline, dNtreeline = get_dNdS(mlc)
 
         dNdS = dNdS_precise(dNdS, br_tw, dStreeline, dNtreeline, id2nb, tree_nbs)
-        set_dNdS_fulltree(fulltree, id2nb, dNdS)
+        set_dNdS_fulltree(fulltree, id2nb, dNdS)  #set_data_fulltree()
+    elif BEAST_MEASURES.union(('beast:dist',)).intersection(measures):
+        try:
+            tree = ete3.Tree(resultfile)  # consensus tree from Beast + TreeAnnotator.
+        except ete3.parser.newick.NewickError as e:
+            if os.path.exists(resultfile):
+                e.args = ("Malformed newick tree structure in %r" % resultfile,)
+            else:
+                e.args = ("Unexisting tree file %r" % resultfile,)
+            raise
+
+        update_tree_nodes(fulltree, tree,
+                          update_features=['dist' if m=='beast:dist' else m
+                                           for m in measures])
     return fulltree
 
 
@@ -1346,17 +1493,19 @@ def set_subtrees_distances(subtrees, measure):
                 node.dist = 0 if np.isnan(newvalue) else newvalue
 
 
-#def process_toages(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'],
-def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='.nwk',
+#def process_toages(resultfile, phyltree, replace_nwk='.mlc', measures=['dS'],
+def process(resultfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='.nwk',
             measures=['dS'], todate="isdup", unweighted=False,
             original_leading_paths=False, correct_unequal_calibs='default',
             fix_conflict_ages=True, keeproot=False):
-    fulltree = setup_fulltree(mlcfile, phyltree, replace_nwk, replace_by, measures)
+
+    fulltree = setup_fulltree(resultfile, phyltree, replace_nwk, replace_by, measures)
 
     # Convert argument to function
     todate_funcs = {'isdup': retrieve_isdup, 'd': retrieve_isdup,
             'isinternal': isinternal, 'isint': isinternal, 'i': isinternal,
-            'taxon': def_is_any_taxon, 't': def_is_any_taxon}
+            'taxon': def_is_any_taxon, 't': def_is_any_taxon,
+            'true': true, 'false': false}
 
     todate = combine_boolean_funcs(todate, todate_funcs)
     logger.debug('todate function: %s', todate.__name__)
@@ -1366,6 +1515,7 @@ def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='
     
     def get_eventtype(node, subtree):
         if node.is_leaf():
+            subtree[node.name]['isdup'] = False
             return 'leaf'
         #return 'dup' if isdup(node, subtree) else 'spe'
         # Uses the side effect of `isdup_cache`
@@ -1377,7 +1527,16 @@ def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='
     #def get_event_type(node, subtree):
     #    return 'leaf' if node.is_leaf() else 'dup' if isdup(node, subtree) else 'spe'
 
-    ages, subtrees = bound_average(fulltree, phyltree.ages, todate,
+    if BEAST_MEASURES.union(('beast:dist',)).intersection(measures):
+        ages = tabulate_ages_from_tree(fulltree, todate,
+                                       ['dist' if m=='beast:dist' else m for m in measures],
+                                       keeproot=keeproot,
+                                       node_info=[('taxon', this_get_taxon),
+                                                  ('is_outgroup', is_outgroup)],
+                               node_feature_setter=[('type', get_eventtype)])
+        subtrees = None
+    else: #if CODEML_MEASURES.intersection(measures):
+        ages, subtrees = bound_average(fulltree, phyltree.ages, todate,
                                    measures,
                                    unweighted,
                                    original_leading_paths,
@@ -1388,6 +1547,7 @@ def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='
                                    node_info=[('taxon', this_get_taxon),
                                               ('is_outgroup', is_outgroup)],
                                    node_feature_setter=[('type', get_eventtype)])
+
     showtree(fulltree)
     if not keeproot:
         ingroup_nodes = [n for n in fulltree.children
@@ -1404,19 +1564,19 @@ def process(mlcfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='
     return ages, fulltree, subtrees
 
 
-def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
+def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
          phyltreefile=PHYLTREEFILE, measures=['t', 'dN', 'dS', 'dist'],
          unweighted=False, original_leading_paths=False,
          correct_unequal_calibs='default', fix_conflict_ages=True, verbose=False,
          show=None, replace_nwk='.mlc', replace_by='.nwk', ignore_errors=False,
          saveas='ages', todate='isdup', keeproot=False):
-    nb_mlc = len(mlcfiles)
+    nb_results = len(resultfiles)
     
     loglevel = logging.DEBUG if verbose else logging.WARNING
     logger.setLevel(loglevel)
 
-    logging.debug("outfile  %s\n"
-                  "     mlcfiles      %s %s\n"
+    logger.debug("outfile  %s\n"
+                  "     resultfiles      %s %s\n"
                   "     ensembl       v.%d\n"
                   "     measures      %s\n"
                   "     verbose       %s\n"
@@ -1430,7 +1590,7 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                   "     ignore_errors %s\n"
                   "     keeproot      %s\n",
                   outfile,
-                  (mlcfiles[:5], '...' * (nb_mlc>5)),
+                  resultfiles[:5], '...' * (nb_results>5),
                   ensembl_version,
                   measures,
                   verbose,
@@ -1444,8 +1604,6 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                   ignore_errors,
                   keeproot)
 
-    
-
     saveas_indices = {'ages': 0, 'fulltree': 1, 'subtrees': 2}
     saveas_i = saveas_indices[saveas]
     save_result = savefunctions[saveas]
@@ -1455,21 +1613,48 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
 
     phyltree = PhylTree.PhylogeneticTree(phyltreefile.format(ensembl_version))
     
+    if 'codeml' in measures:
+        measures.remove('codeml')
+        measures.extend(sorted(CODEML_MEASURES))
+    elif 'beast' in measures:
+        measures.remove('beast')
+        measures.extend(sorted(BEAST_MEASURES))
+
+    ## Globbing suggestion
+    #for m in measures:
+    #    if '*' in m and m not in (CODEML_MEASURES | BEAST_MEASURES):
+    #        expanded_m = [em for em in (BEAST_MEASURES | CODEML_MEASURES)
+    #                           if re.search(m.replace('*', '.*'), em)]
+    #       if not expanded_m:
+    #           raise NotFoundError()
+    #   else:
+    #       .append(m)
+    #measures = expanded_measures
+
     with Stream(outfile, 'w') as out:
         if saveas == 'ages':
-            header = ['name'] + \
-                     ['%s_%s' % (s,m) for s in ('branch', 'age', 'p_clock')
-                                      for m in measures] + \
+            # There's a pb if 'dist' is in measures -> specify 'beast:dist' or codeml is implied
+            logger.debug('measures: %s', measures)
+            logger.debug('CODEML_MEASURES: %s', CODEML_MEASURES)
+            logger.debug('BEAST_MEASURES: %s', BEAST_MEASURES)
+            if set(measures) & CODEML_MEASURES:
+                measure_outputs = ['%s_%s' % (s,m)
+                                    for s in ('branch', 'age', 'p_clock')
+                                      for m in measures]
+            elif set(measures) & BEAST_MEASURES.union(('beast:dist',)):
+                measure_outputs = measures
+
+            header = ['name'] + measure_outputs + \
                      ['calibrated', 'parent', 'taxon', 'is_outgroup', 'type',
                       'root', 'subgenetree']
             out.write('\t'.join(header) + '\n')
 
-        for i, mlcfile in enumerate(mlcfiles, start=1):
-            percentage = float(i) / nb_mlc * 100
-            print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_mlc, percentage, mlcfile),
+        for i, resultfile in enumerate(resultfiles, start=1):
+            percentage = float(i) / nb_results * 100
+            print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_results, percentage, resultfile),
                   end=' ')
             try:
-                result = process(mlcfile, ensembl_version, phyltree,
+                result = process(resultfile, ensembl_version, phyltree,
                                  replace_nwk, replace_by, measures, todate,
                                  unweighted, original_leading_paths,
                                  correct_unequal_calibs, fix_conflict_ages,
@@ -1482,8 +1667,8 @@ def main(outfile, mlcfiles, ensembl_version=ENSEMBL_VERSION,
                 save_result(result[saveas_i], out)
             except BaseException as err:
                 print()
-                if ignore_errors:
-                    logger.error("Skip %r: %r", mlcfile, err)
+                if not isinstance(err, KeyboardInterrupt) and ignore_errors:
+                    logger.error("Skip %r: %r", resultfile, err)
                 else:
                     raise
     print()
@@ -1498,6 +1683,7 @@ def readfromfiles(filenames):  # ~~> CLItools
 
 
 if __name__=='__main__':
+    logging.basicConfig(format=logging.BASIC_FORMAT)
     parser = argparse.ArgumentParser(description=__doc__, 
                                 formatter_class=argparse.RawTextHelpFormatter)
     
@@ -1505,9 +1691,9 @@ if __name__=='__main__':
     gi = parser.add_argument_group('INPUT PARAMETERS')
 
     gi.add_argument('outfile')
-    gi.add_argument('mlcfiles', nargs='+')
+    gi.add_argument('resultfiles', nargs='+', help='.mlc file from codeml/annotated consensus tree from beast')
     gi.add_argument('--fromfile', action='store_true',
-                    help='Take mlcfiles from a file (commented lines omitted).')
+                    help='Take result files from a file (commented lines omitted).')
     gi.add_argument('-e', '--ensembl-version', type=int,
                     default=ENSEMBL_VERSION,
                     help='[%(default)s]')
@@ -1560,9 +1746,11 @@ Example to date all internal nodes except a calibrated speciation:
     
     go.add_argument('-m', '--measures', nargs='*',
                     default=['t', 'dN', 'dS', 'dist'],
-                    choices=['t', 'dN', 'dS', 'dist', 'N*dN', 'S*dS'],
+                    choices=(['codeml', 'beast', 'dist', 'beast:dist'] +
+                             list(CODEML_MEASURES) + list(BEAST_MEASURES)),
                     help='Which distance measure: dist (from the newick ' \
-                         'tree) or dS,dN,t,S*dS,N*dN (from codeml)')
+                         'tree) or dS,dN,t,S*dS,N*dN (from codeml), or ' \
+                         'length,length_median (from beast)')
     go.add_argument('-t', '--tofulltree', dest='saveas', action='store_const',
                     const='fulltree', default='ages',
                     help='Do not compute the table, but save trees in one'\
@@ -1587,6 +1775,6 @@ Example to date all internal nodes except a calibrated speciation:
     args = parser.parse_args()
     dictargs = vars(args)
     if dictargs.pop('fromfile'):
-        dictargs['mlcfiles'] = readfromfiles(dictargs['mlcfiles'])
+        dictargs['resultfiles'] = readfromfiles(dictargs['resultfiles'])
 
     main(**dictargs)
