@@ -7,6 +7,12 @@
 ##   cannot find reasonable starting dates after 1000 tries:
 ## maybe you need to adjust the calibration dates
 
+# Other changes:
+# 1. Attach the number of iterations to the output object
+# 2. Control the stopping threshold for the likelihood difference: `epsilon`
+# 3. Control the initial date: extra column `age.start` in `calibration`
+
+
 .chronos.ctrl <-
     list(tol = 1e-8, iter.max = 1e4, eval.max = 1e4, nb.rate.cat = 10,
          dual.iter.max = 20, epsilon = 1e-6, ini.times=NULL)
@@ -102,6 +108,7 @@ chronos <-
     node <- calibration$node
     age.min <- calibration$age.min
     age.max <- calibration$age.max
+    # Starting points of node ages to *estimate*. Calibrated nodes can be NA.
     age.start <- if(is.null(calibration$age.start)) {
                       rep(NA, length(node))
                       } else {calibration$age.start}

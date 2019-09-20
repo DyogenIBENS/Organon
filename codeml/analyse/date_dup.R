@@ -153,7 +153,7 @@ restore_multi <- function(dicho_tree, orig_pattern='\\.orig$') {
 #  - chronosMPL: Mean Path Length, Britton et al
 
 ## First, the arguments controling the optimisation
-mychronos_control <- chronos.control()#tol=1e8, iter.max=1e5, eval.max=1e5, dual.iter.max=40)
+mychronos_control <- chronos.control(epsilon=1e-15)#tol=1e8, iter.max=1e5, eval.max=1e5, dual.iter.max=40)
 mychronos_control_C <- mychronos_control
 mychronos_control_C[['nb.rate.cat']] <- 1
 
@@ -195,8 +195,8 @@ date_PL1 <- function(subtree, subcalib) {
   return(chronos(subtree, lambda=1, calibration=subcalib, quiet=TRUE,
                  control=mychronos_control))
 }
-date_PL100 <- function(subtree, subcalib) {
-  return(chronos(subtree, lambda=100, calibration=subcalib, quiet=TRUE,
+date_PL100 <- function(subtree, subcalib, quiet=TRUE) {
+  return(chronos(subtree, lambda=100, calibration=subcalib, quiet=quiet,
                  control=mychronos_control))
 }
 date_PL10000 <- function(subtree, subcalib) {
@@ -247,7 +247,59 @@ date_MPL <- function(subtree, subcalib) {
 }
 
 
+KL.div <- function(freqs1, freqs2) {
+  # Kullback-Leibler divergence of freqs1 compared to freqs2
+  return(sum(freqs1 * log(freqs1/freqs2), na.rm=TRUE))  # 0 * 1/0 returns NaN
+}
 
+
+# Measure the divergence from the initiation point.
+date_PL100_stability <- function(subtree, subcalib, amin, amax) {
+  #age.start.bounds) {
+  # age.start.bounds: data.frame(amin=, amax=) with rownames in subtree$node.label
+  
+#add_starting_age <- function(subtree, subcalib, a) {
+  ntips <- Ntip(subtree)
+  unknown <- which( !(subtree$node.label %in% rownames(subcalib)) )
+  if( length(unknown)>1 ) {
+    stop("More than 1 unknown nodes. You have to skip this stability test")
+    #unknown <- unknown[-1] ## Assuming this is because the root is a dup (in robusts only)
+  }
+
+  newsubcalib <- merge(subcalib,
+                       data.frame(node=(ntips+unknown),
+                                  age.min=amin,  # Because nlminb fails on NA in LOWER/UPPER
+                                  age.max=amax,
+                                  soft.bounds=FALSE,
+                                  age.start=amin),
+                       all=TRUE)  # This resets row.names.
+  unknown_row <- which( newsubcalib$node == (ntips+unknown) )  # Optional...
+  cat("Unknown row: nb", unknown_row, "\n")
+
+  starting <- seq(amin, amax, length.out=100)
+  dates <- numeric(100)
+  i <- 1
+  for(a in starting) {
+    cat(a, "")
+  
+    newsubcalib[unknown_row, "age.start"] <- a
+    dated <- date_PL100(subtree, newsubcalib, quiet=F)
+    dates[i] <- branching.times(dated)[unknown]
+    i = i+1
+  }
+  cat('\n')
+  #chronograms <- lapply(seq(amin, amax, length.out=100), function(a) {
+  #                        date_PL100()
+  #                      })
+  return(dates)
+}
+
+date_PL100_stability_summary <- function(subtree, subcalib, amin, amax) {
+  dates <- date_PL100_stability(subtree, subcalib, amin, amax)
+  bins <- seq(amin, amax, length.out=11)
+  return(KL.div(hist(dates, bins, plot=FALSE)$density,  # density
+                0.1))
+}
 ### NOTE: the best lambda value (penalty roughness) must be chosen by
 ###       cross-validation. Testing multiple subtrees to check the prediction on
 ###       the removed nodes
@@ -383,17 +435,19 @@ extract_runinfo <- function(dtree) {
   # For outputs of the `chronos` function
   if( inherits(dtree, 'error') ) {
     return(list(message=trimws(paste0(gsub('\n', ' ', dtree, fixed=TRUE), collapse=':'), 'right'),
-                ploglik=NA, loglik=NA, PHIIC=NA))
+                ploglik=NA, loglik=NA, PHIIC=NA, niter=NA))
   } else {
     dattr <- attributes(dtree)
     return(list(message=dattr$message,
                 ploglik=dattr$ploglik,
                 loglik=dattr$PHIIC$logLik,
-                PHIIC=dattr$PHIIC$PHIIC))
+                PHIIC=dattr$PHIIC$PHIIC,
+                niter=dattr$niter))
   }
 }
 
-date_methods <- list(PL1=date_PL1, PL100=date_PL100, PL10000=date_PL10000, NPRS=date_NPRS, C=date_C, R1=date_R1, R100=date_R100, R10000=date_R10000, MPL=date_MPL)
+date_methods <- list(PL1=date_PL1, PL100=date_PL100, PL10000=date_PL10000, #NPRS=date_NPRS,
+                     C=date_C, R1=date_R1, R100=date_R100, R10000=date_R10000, MPL=date_MPL)
 
 make_error_catcher <- function(date_func) {
   #date_func_name <- paste0(substitute(date_func), collapse='')
@@ -449,7 +503,7 @@ date_all_methods <- function(line, calibration,
                                            PL1=date_PL1,
                                            PL100=date_PL100,
                                            PL10000=date_PL10000,
-                                           NPRS=date_NPRS,
+                                           #NPRS=date_NPRS,
                                            C=date_C,
                                            R1=date_R1,
                                            R100=date_R100,
@@ -496,8 +550,8 @@ date_all_methods <- function(line, calibration,
     rownames(dated)[(Nnode(tree)+1):(Ntip(tree)+Nnode(tree))] <- tree$tip.label
     
     # Molecular rates
-    dating_edgeinfo <- sapply(dtrees[c("PL1", "PL100", "PL10000", "NPRS", "R1",
-                                       "R100", "R10000")],
+    dating_edgeinfo <- sapply(dtrees[c("PL1", "PL100", "PL10000", #"NPRS",
+                                       "R1", "R100", "R10000")],
                               extract_rate_edgeinfo, tree)
     rateC <- attr(dtrees[["C"]], "rates", exact=TRUE)
     if ( is.null(rateC) ) rateC <- NA
@@ -522,8 +576,8 @@ date_all_methods <- function(line, calibration,
 
     dated_info <- data.frame(age=dated, age.MPL=dating_nodeinfo, rate=dating_edgeinfo, info)
 
-    runinfo <- unlist(lapply(dtrees[c("PL1", "PL100", "PL10000", "R1", "R100",
-                                      "R10000", "C")],
+    runinfo <- unlist(lapply(dtrees[c("PL1", "PL100", "PL10000",
+                                      "R1", "R100", "R10000", "C")],
                              extract_runinfo),
                       recursive=FALSE)#, use.names=FALSE)
 
@@ -559,6 +613,8 @@ date_all_trees <- function(allnewicks, calib, outfilename, date_func=date_PL,
 run <- function(datasetname, agefile, treefile) {
                 #outdir="/users/ldog/glouvel/ws2/DUPLI_data85/alignments_analysis/ages",
                 #subtrees_src=".dSsubtrees.nwk") {
+  ### DEPRECATED
+
   ## Penalized likelihood
   #agefile <- "ages/Rodentia_M1_agesdNdSdist.subtreesNoEdit-um2.tsv"
   #treefile <- "trees/Rodentia_M1_dist.subtreesNoEdit.fulltree.nwk"
@@ -610,7 +666,7 @@ date_all_trees_all_methods <- function(datasetname, agefile, treefile, ncores=6,
   date_methods <- list(PL1=date_PL1,
                        PL100=date_PL100,
                        PL10000=date_PL10000,
-                       NPRS=date_NPRS,
+                       #NPRS=date_NPRS,
                        C=date_C,
                        R1=date_R1,
                        R100=date_R100,
