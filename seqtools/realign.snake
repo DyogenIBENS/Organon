@@ -2,7 +2,7 @@
 import re
 from glob import iglob
 
-import os; print("'realign' working dir:'", os.getcwd()) 
+import os; print("'realign' working dir: %s; snakefile dir: %s" % (os.getcwd(), workflow.basedir)) 
 
 SUBTREEDIR = config.setdefault('subtreedir', 'subtreesGoodQualO2')
 ANCESTOR = config.setdefault('ancestor', 'Simiiformes')
@@ -72,7 +72,7 @@ rule backtrans_samedir:
         dna="{basedir}/{subtree}_genes.fa"
     output: "{basedir}/{subtree}_fsa.fa"
     shell:
-        "~glouvel/scripts/seqtools/backtransX.py {input.al} {input.dna} {output}"
+        "{workflow.basedir}/backtransX.py {input.al} {input.dna} {output}"
         #"treebest backtrans {input.al} {input.dna} > {output}"
 
 #rule backtrans_treebest:

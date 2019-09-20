@@ -142,7 +142,7 @@ def get_ctl_ancestor(wildcards):
 rule all:
 	input: get_ctl_ancestor_pre  # outputs of `make_ctl`
 	wildcard_constraints: id='\d+'
-	output: temp("{basename}_{ancestor}_{model}-{alignment}.{subtreedir}.condor.READY-{id}")
+	output: touch(temp("{basename}_{ancestor}_{model}-{alignment}.{subtreedir}.condor.READY-{id}"))
 
 # prepare multiple alignment. Once for each gene tree.
 rule prot2gene_in_align:

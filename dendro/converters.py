@@ -4,7 +4,7 @@
 (ete3, LibsDyogen, scipy.hclust.linkage...)"""
 
 import numpy as np
-from climber import rev_dfw_descendants, dfw_descendants_generalized
+from .bates import rev_dfw_descendants, dfw_descendants_generalized
 import logging
 logger = logging.getLogger(__name__)
 
