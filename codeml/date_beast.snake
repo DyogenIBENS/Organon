@@ -69,6 +69,18 @@ rule beast:
     shell:
         'beast -working -overwrite -beagle -seed 1 {input} >{log.stdout}'
 
+
+# Remove the null characters if present
+rule trees_health_check:
+    input: rules.beast.output.trees
+    output:
+        index='{subgenetree}_{beastparam}.trees-nullchars.txt',
+        trees='{subgenetree}_{beastparam}.trees-cleaned'
+    shell:
+        "sed -n '/\\x0/=' {input} >{output.index};\n"
+        "[ -s {output.index} ] && sed '/\\x0/d' {input} >{output.trees} || ln -srf -T {input} {output.trees}"
+
+
 rule loganalyser:
     input: rules.beast.log.log
     output: '{subgenetree}_{beastparam}-summary.txt'
@@ -77,7 +89,7 @@ rule loganalyser:
 
 rule tree_annotate_times:
     input:
-        trees='{subgenetree}_{beastparam}.trees',
+        trees='{subgenetree}_{beastparam}.trees-cleaned',
         ref='{subgenetree}_codeml.nwk'
     output: '{subgenetree}_{beastparam}-dated.tree'
     shell:
