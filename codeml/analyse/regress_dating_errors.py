@@ -13,7 +13,7 @@ from copy import copy, deepcopy
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
-mpl.use('TkAgg', warn=False)
+#mpl.use('TkAgg', warn=False)
 get_ipython().magic('matplotlib inline')
 import matplotlib.pyplot as plt
 import seaborn as sb
@@ -389,6 +389,7 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
     def freq_of_null(v):
         return (v==0).mean()
 
+    logger.info('Aggregating `ns` ("new stats" specific to this dataset)...')
     # Already computed by codeml.subtrees_stats.get_codeml_stats
     agg_funcs = {'consecutive_null_%s' %m: 'mean' for m in measures}
 
@@ -452,9 +453,11 @@ def tree_dist_2_rate(g, dist_var, norm_var="median_brlen"):
     return g[dist_var].sum() / g[norm_var].sum()
 
 
-def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
+def add_control_dates_lengths(ages, phyltree, control_ages_CI=None,
                               measures=['dist', 'dS', 'dN', 't'],
-                              control_condition='really_robust & aberrant_dists == 0'):
+                              control_condition='really_robust & aberrant_dists == 0',
+                              control_names=['timetree']  # 'dosreis'
+                              ):
     # 'consecutive_zeros_dS==0'
     # Merge control dates
     ages_forcontrol = ages.query(control_condition)
@@ -462,19 +465,27 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
 
     age_measures = ['age_'+m for m in measures]
     median_age_measures = ['median_age_'+m for m in measures]
-    median_taxon_ages = ages_forcontrol[ages_forcontrol.type\
+    control_ages = ages_forcontrol[ages_forcontrol.type\
                                                        .isin(("spe", "leaf"))]\
                                    .groupby("taxon")[age_measures].median()\
                                    .rename(columns=dict(zip(age_measures,
                                                             median_age_measures)))
+    logger.debug('median_taxon_ages.columns = [%s]',
+                 ' '.join(control_ages.columns))
+    # FIXME: WHY does `median_taxon_ages` only have the 1st age_measure?
     #TODO: change for each measure as in `join_extra_ages`
+    
+    if control_ages_CI is not None:
+        toconcat = (control_ages,)
+        if 'timetree_age' not in control_ages_CI.columns:
+            timetree_age = control_ages.index.to_series()\
+                                             .apply(phyltree.ages.get)\
+                                             .rename('timetree_age')  # age_timetree
+            toconcat += (timetree_age,)
 
-    timetree_ages = median_taxon_ages.index.to_series()\
-                                     .apply(phyltree.ages.get)\
-                                     .rename('timetree_age')  # age_timetree
-
-    control_ages = pd.concat((median_taxon_ages, timetree_ages,
-                              timetree_ages_CI), axis=1, sort=False)
+        toconcat += (control_ages_CI,)
+        control_ages = pd.concat(toconcat, axis=1, sort=False)
+    logger.debug('Control ages (columns): ' + ' '.join(control_ages.columns))
 
     #print(control_ages.sort_values('timetree_age', ascending=False))
 
@@ -512,9 +523,11 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
         logger.error("Failed to filter out duplications:\n%s",
                      ages_controled_spe2spe[same_sp].head(15))
 
-    ages_controled['timetree_brlen'] = \
-        ages_controled_spe2spe.taxon_parent.apply(control_ages.timetree_age.get) \
-        - ages_controled_spe2spe.timetree_age
+    for ctl in control_names:
+        ages_controled[ctl+'_brlen'] = \
+            ages_controled_spe2spe.taxon_parent\
+                                  .apply(control_ages[ctl+'_age'].get) \
+            - ages_controled_spe2spe[ctl+'_age']
 
     #TODO: NaN for data not in ages_forcontrol?
     for m,am,mm in zip(measures, age_measures, median_age_measures):
@@ -538,7 +551,8 @@ def add_control_dates_lengths(ages, phyltree, timetree_ages_CI=None,
                     .groupby(branch_info)\
                     [['median_%s_%s' % (typ, m) for typ in ('age', 'brlen')
                         for m in measures]
-                     + ["timetree_brlen", "timetree_age"]]\
+                     + ["%s_%s" %(ctl, typ) for typ in ('age', 'brlen')
+                         for ctl in control_names]]\
                     .first()#agg(lambda s: s[0])
                 #.sort_values('timetree_age')
                     #].sort_values("taxon_parent", ascending=False)
@@ -602,27 +616,35 @@ def check_control_dates_lengths(control_brlen, phyltree, root,
 def compute_dating_errors(ages_controled, control='median', measures=['dS']):
     """:param: `control` in median/timetree"""
     if measures is None:
-        # For example when `control == "timetree"`
         age_vars = ['age']
         brlen_vars = ['brlen']
     else:
         age_vars = ['age_'+m for m in measures]
         brlen_vars = ['brlen_'+m for m in measures]
 
-    control = control + '_'
+    control += '_'
+    prefix = '' if control=='median_' else control
 
     ### Inplace
     for age_var, brlen_var in zip(age_vars, brlen_vars):
         #ages_controled = ages_controled.assign(**{
         
+        if control == 'median_':
+            ctl_age, ctl_brlen = control+age_var, control+brlen_var
+        else:
+            # control in ('timetree_', 'dosreis_')
+            ctl_age, ctl_brlen = control+'age', control+'brlen'
+
+        logger.debug('Control=%r age_var=%r => subtract %r', control, age_var, ctl_age)
+
         # 1. Symetrical method
-        ages_controled["signed_dev_" + age_var] = (ages_controled[age_var]
-                                                   - ages_controled[control+age_var])
-        ages_controled["abs_dev_" + age_var] = ages_controled["signed_dev_" + age_var].abs()
-        ages_controled["signed_dev_" + brlen_var] = (ages_controled[age_var+'_parent']
+        ages_controled[prefix+"signed_dev_"+age_var] = (ages_controled[age_var]
+                                                   - ages_controled[ctl_age])
+        ages_controled[prefix+"abs_dev_"+age_var] = ages_controled[prefix+"signed_dev_"+age_var].abs()
+        ages_controled[prefix+"signed_dev_"+brlen_var] = (ages_controled[age_var+'_parent']
                                                      - ages_controled[age_var]
-                                                     - ages_controled[control+brlen_var])
-        ages_controled["abs_dev_" + brlen_var] = ages_controled["signed_dev_" + brlen_var].abs()
+                                                     - ages_controled[ctl_brlen])
+        ages_controled[prefix+"abs_dev_"+brlen_var] = ages_controled[prefix+"signed_dev_"+brlen_var].abs()
         # 2. Asymetrical method. Let c be the real age, c0 and c1 the calibrations before and after, and x the estimation:
         # if x - c > 0 (the estimation is older) => normalize by c0 - c
         # if x - c < 0 (the estimation is younger) => normalize by c1 - c
@@ -633,10 +655,10 @@ def compute_dating_errors(ages_controled, control='median', measures=['dS']):
     sgg = ages_controled.groupby("subgenetree")
     #dev_measures = ['abs_age_dev', 'signed_age_dev', 'abs_brlen_dev', 'signed_brlen_dev']
     mean_errors = pd.concat((
-                    sgg[[dev+age_var for age_var in age_vars
+                    sgg[[prefix+dev+age_var for age_var in age_vars
                             for dev in ('abs_dev_', 'signed_dev_')]].sum().div(
                         sgg['calibrated'].agg(lambda v: (1-v).sum()), axis=0),
-                    sgg[[dev+brlen_var for brlen_var in brlen_vars
+                    sgg[[prefix+dev+brlen_var for brlen_var in brlen_vars
                             for dev in ('abs_dev_', 'signed_dev_')]].sum().div(
                         sgg[['calibrated', 'calibrated_parent']]\
                            .apply(lambda df: ((1-df.calibrated) | (1-df.calibrated_parent)).sum()), axis=0)
@@ -647,7 +669,8 @@ def compute_dating_errors(ages_controled, control='median', measures=['dS']):
 
 
 def join_extra_ages(new_ages_file, ages_data,
-                    control_condition='really_robust & aberrant_dists == 0'):
+                    control_condition='really_robust & aberrant_dists == 0',
+                    suffixes=('_extra', '')):
     # Re-use output of `analyse_age_errors`/`load_prepare_ages`/`add_control_dates_lengths`
     extra_ages = pd.read_csv(new_ages_file, sep='\t', index_col=0)\
                    .rename(columns=lambda n: n.replace('.', '_'))\
@@ -656,6 +679,9 @@ def join_extra_ages(new_ages_file, ages_data,
                    .assign(subgenetree=lambda df: df.subgenetree.fillna(method='ffill'))
     age_measures = [colname for colname in extra_ages.columns
                         if colname.startswith('age_')]
+
+    logger.info('Joining new age measures: ' + ' '.join(age_measures))
+    #
     # Needs to concat the parent data!! (for compute_mean_errors of 'brlen')
     extra_ages = pd.merge(extra_ages,
                           extra_ages.loc[extra_ages.type!='leaf',
@@ -665,8 +691,7 @@ def join_extra_ages(new_ages_file, ages_data,
                       right_on=["name", "subgenetree"],
                       suffixes=('', '_parent'),
                       indicator=True, validate='many_to_one')
-    if set(ages_data.ages_controled.columns).intersection(age_measures):
-        logger.warning('New ages already in the data: %s', age_measures)
+
 
     # Join to the previous data.
     ages = pd.merge(
@@ -674,15 +699,31 @@ def join_extra_ages(new_ages_file, ages_data,
                ages_data.ages_controled_withnonrobust.reset_index(),
                'inner',  # to remove what has been removed (outgroups)
                on=['name', 'subgenetree'],
-               suffixes=('_extra', ''),
+               suffixes=suffixes,
                sort=False)\
            .set_index('name')
     logger.debug('New ages shape: %s', ages.shape)
+    logger.debug('ages.columns = %s', ' '.join(ages.columns))
+
+    if set(ages_data.ages_controled.columns).intersection(age_measures):
+        logger.warning('New ages already in the data: %s (joined with suffix %r)',
+                       age_measures, suffixes[0])
+        ages.rename(columns={am+'_parent'+suffixes[0]: am+suffixes[0]+'_parent'
+                             for am in age_measures
+                             if am in ages_data.ages_controled.columns},
+                    inplace=True)
+        #logger.debug('extra_ages.columns = %s', ' '.join(extra_ages.columns))
+        age_measures = [am + suffixes[0]
+                        if am in ages_data.ages_controled.columns 
+                        else am
+                        for am in age_measures]
+
 
     # Rerun a small part of `add_control_dates_lengths`
     ages_forcontrol = ages.query(control_condition)
     logger.info("%d nodes from robust trees", ages_forcontrol.shape[0])
 
+    # Recompute the median ages.
     median_taxon_ages = ages_forcontrol[ages_forcontrol.type\
                                                        .isin(("spe", "leaf"))]\
                                    .groupby("taxon")[age_measures].median()\
@@ -698,6 +739,7 @@ def join_extra_ages(new_ages_file, ages_data,
                               left_on="taxon", right_index=True,
                               validate="many_to_one")
 
+    # Check duplication nodes (optional?)
     ages_controled_spe2spe = ages_controled.dropna(subset=['taxon_parent']).query('type != "dup" & type_parent != "dup"')
     same_sp = ages_controled_spe2spe.taxon == ages_controled_spe2spe.taxon_parent
     if same_sp.any():
@@ -729,7 +771,7 @@ def join_extra_ages(new_ages_file, ages_data,
 
     return age_analysis_data(ages_controled_cond,
                              ages_controled,
-                             None,  # ns
+                             None,  # ns  #TODO: add a dict of functions to aggregate columns.
                              control_ages,
                              control_brlen,
                              mean_errors)
@@ -737,10 +779,11 @@ def join_extra_ages(new_ages_file, ages_data,
 
 def lineage_evolutionary_rates(anc, ages_file,
                                phyltree,
-                               timetree_ages_CI,
+                               control_ages_CI,
                                stats_tmpl='subtreesGoodQualO2_%sstats-%s.tsv',
                                control_condition='really_robust & aberrant_dists == 0',
                                measures=['dist', 'dS', 'dN', 't'],
+                               control_names=['timetree'],  # 'dosreis'
                                saveas=None):
     # Also see `analyse_age_errors`
     ts = load_stats_tree(stats_tmpl % ('tree', anc))
@@ -750,7 +793,8 @@ def lineage_evolutionary_rates(anc, ages_file,
 
     ages, ns = load_prepare_ages(ages_file, ts, measures)
     ages_controled_withnonrobust, control_ages, control_brlen =\
-        add_control_dates_lengths(ages, phyltree, timetree_ages_CI, measures)
+        add_control_dates_lengths(ages, phyltree, control_ages_CI, measures,
+                                  control_condition, control_names)
 
     ages_controled = pd.merge(ages_controled_withnonrobust,
                               aS.join(ns, how='outer'),
@@ -773,7 +817,8 @@ def lineage_evolutionary_rates(anc, ages_file,
             .join(lineage_groups[dist_measures + ['ingroup_glob_len']]\
                   .apply(wmean),
                   rsuffix='_wmean', sort=False)
-    lineage_rates = lineage_brlen.div(control_brlen.timetree_brlen, axis='index')
+    ctl = control_names[0]
+    lineage_rates = lineage_brlen.div(control_brlen[ctl+'_brlen'], axis='index')
 
     na_rates = lineage_rates.isna()
     if na_rates.any(axis=1):
@@ -1035,14 +1080,17 @@ class age_analysis_data(object):
                 setattr(self, k, v)
 
 
-def analyse_age_errors(ages_file, anc, phyltree, timetree_ages_CI, ts,
-                       measures=['dS', 'dist', 'dN', 't']): #, aS, cs, clS=None
+def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts,
+                       measures=['dS', 'dist', 'dN', 't'],
+                       control_names=['timetree']):  # 'dosreis'
+    #, aS, cs, clS=None
     ages, ns = load_prepare_ages(ages_file, ts, measures)
     ages_controled_withnonrobust, control_ages, control_brlen =\
-        add_control_dates_lengths(ages, phyltree, timetree_ages_CI, measures)
+        add_control_dates_lengths(ages, phyltree, control_ages_CI, measures,
+                                  control_names=control_names)
     ages_controled = ages_controled_withnonrobust.query('really_robust & aberrant_dists == 0').copy(deep=False)
     unexpected_branches, lost_branches = check_control_dates_lengths(
-                                                control_brlen, phyltree, anc,
+                                                control_brlen, phyltree, root,
                                                 measures)
     control_brlen.drop(unexpected_branches, inplace=True)
     # Rates
@@ -1051,9 +1099,15 @@ def analyse_age_errors(ages_file, anc, phyltree, timetree_ages_CI, ts,
     #cs_rates_onlyAnc
     #cs_rates_withoutAnc
 
-    mean_errors = compute_dating_errors(ages_controled, measures=[measures[0]])
-    return age_analysis_data(ages_controled, ages_controled_withnonrobust, ns, control_ages, control_brlen, mean_errors)
+    mean_errors = pd.concat(
+                [compute_dating_errors(ages_controled, ctl, measures)
+                 for ctl in ['median']+control_names],
+                axis=1, sort=False, copy=False)
     
+    return age_analysis_data(ages_controled, ages_controled_withnonrobust, ns,
+                             control_ages, control_brlen, mean_errors)
+
+
 # anc = 'Catarrhini'
 # param = 'um1.new'
 # nsCata = age_analyses[anc][param].ns
@@ -1432,7 +1486,7 @@ class analysis(object):
                  measures = ['dist', 'dS', 'dN', 't'],
                  control_condition='really_robust && aberrant_dists == 0',
                  phyltreefile=None,
-                 timetree_ages_CI=None,
+                 control_ages_CI=None,
                  common_info=None,
                  al_params=None,
                  tree_params=None,
