@@ -69,7 +69,10 @@ def softstyle():
 ### Helping functions ###
 
 def plotby(df, by, kind='line', ncols=3, sharex=True, sharey=True, **kwds):
-    """Groupby and plot."""
+    """Groupby and plot each group on a separate subplot.
+    
+    See seaborn.catplot.
+    """
     df_grouped = df.groupby(by)
     ngroups = len(df_grouped)
     nrows = ngroups // ncols + 1*(ngroups % ncols > 0)
@@ -91,6 +94,81 @@ def plotby(df, by, kind='line', ncols=3, sharex=True, sharey=True, **kwds):
         ax.axis('off')
 
     return axes
+
+
+def dodger(datasets=None, kind='violinplot', ax=None, **kwargs):
+    """Use pyplot interface to plot several datasets at dodged positions.
+    
+    y: *list* of columns used as `y`.
+
+    First, try to convert the dataframe to long form using `.dataframe_recipees.tolong()`
+    """
+    plot = getattr((plt if ax is None else ax), kind)
+    if data is None:
+        raise NotImplementedError('Expects a DataFrame')
+
+    ###TODO
+    X = np.arange(df.shape[0]) if x is None else data[x]
+    ncat = len(data[hue].unique())  # len(datasets)
+    w = 1./(ncat+1)
+    offsets = np.linspace(-0.5 + w, 0.5 - w, ncat)
+    
+    #for Y, offs in zip(,offsets):
+    #    plot(x+offs, Y, label=y, **kwargs)
+
+
+def dodged_violin(x, data, hues=None, positions=None, ax=None, order=None,
+                  split=False, dropna=True, **kwargs):
+    """
+    hues: *list* of columns used as `y`.
+
+    Instead of using this function, first try to convert the dataframe to
+    long form using `.dataframe_recipees.tolong()`, then plot with Seaborn.
+    """
+    violinplot = plt.violinplot if ax is None else ax.violinplot
+    if split is True:
+        raise NotImplementedError('split=True')
+
+    plot_kwargs = {'showmedians': True}
+    plot_kwargs.update(kwargs)
+
+    datagroups = data.groupby(x)
+    
+    if hues is None:
+        hues = data.columns.difference((x,)).values
+
+    ncat = len(hues)  # len(datasets)
+    w = 1./(ncat+1)
+    offsets = np.linspace(-0.5 + w, 0.5 - w, ncat)
+    
+    if ax is None:
+        _, ax = plt.subplots()
+
+    if order is None:
+        order = [name for name,_ in datagroups]
+
+    if positions is None:
+        positions = np.arange(len(order))
+    else:
+        positions = np.array(positions)
+
+    if dropna:
+        get_group = lambda name: datagroups.get_group(name)[y].dropna().values
+    else:
+        get_group = lambda name: datagroups.get_group(name)[y].values
+
+    legend_data = []
+    for y,offs in zip(hues, offsets):
+        #print('Plot', y, [v.values for name,v in datagroups[y]])
+        out = violinplot([get_group(name) for name in order],
+                         widths=w,
+                         positions=positions+offs, **plot_kwargs)
+        legend_data.append(out['bodies'][0])
+
+    ax.legend(legend_data, hues)
+    ax.set_xticks(positions)
+    ax.set_xticklabels(order, rotation=45, va='top', ha='right')
+    return offsets
 
 
 # TODO:
@@ -576,6 +654,7 @@ def splitviolin(x, y, hue, data=None, order=None, hue_order=None, cut=0):
     sb.pointplot(x, y, hue=hue, data=data, order=order, dodge=0.5,
                  palette=['#dddddd'], join=False, estimator=np.nanmedian,
                  si='sd', ax=ax)
+
 
 def toothpaste(x, y, hue, data=None, order=None, hue_order=None,
                cmap='viridis', **kwargs):

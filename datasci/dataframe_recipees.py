@@ -33,3 +33,30 @@ def magnify():
                         ('font-size', '12pt')])
             ]
 
+
+def tolong(df, x=None, subset=None, varname=None, idname=None):
+    """Stack operation while keeping one column as "x".
+    
+    `x`:      original column(s) to keep in the long dataframe.
+    `subset`: columns to be stacked.
+    `varname`: name of the new stacked column.
+    `idname`:  name of the new column identifying the original column name.
+
+    NOTE: to keep a variable telling the row of origin of the observation, 
+    do a `df.reset_index()` first (and add its name to `x`).
+    """
+    Nx = 1
+    if x is not None:
+        df = df.set_index(x)
+        Nx = 1 if isinstance(x, str) else len(x)
+        #else: the original index will become the "level_0" column.
+    if subset is not None:
+        df = df[subset]
+    
+    renames = {}
+    if varname is not None:
+        renames[0] = varname
+    if idname is not None:
+        renames['level_%d' % Nx] = idname
+
+    return df.stack().reset_index().rename(columns=renames)

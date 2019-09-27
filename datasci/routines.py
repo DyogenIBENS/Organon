@@ -4,6 +4,8 @@
 
 """Various statistical and graph routines.
 
+For DataFrame operations, see `.dataframe_recipees`.
+
 Warning: some of them can only be run in a notebook (because using display_html
 or Pandas dataframe styling.)"""
 
