@@ -26,7 +26,8 @@ from datasci.graphs import scatter_density, \
                            plot_loadings, \
                            plot_features_radar, \
                            plottree, \
-                           stackedbar
+                           stackedbar, \
+                           dodged_violin
 from datasci.compare import pairwise_intersections, align_sorted
 from datasci.stats import r_squared, adj_r_squared, multicol_test
 from datasci.routines import *
@@ -261,7 +262,8 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     """Load ages dataframe, join with parent information, and compute the
     'robust' info"""
     ages = pd.read_csv(ages_file, sep='\t', index_col=0)\
-            .rename(columns=lambda n: n.replace('.', '_'))  # If coming from date_dup.R
+            .rename(columns=lambda n: n.replace('.', '_'))\
+            .rename_axis('name')  # If coming from date_dup.R
     if measures is None:
         measures = [c[4:] for c in ages.columns if c.startswith('age_')] 
 
@@ -273,7 +275,7 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
                 ages_int.index.has_duplicates)
     n_nodes_int = (ages.type != 'leaf').sum()
 
-    # Fetch parent node info
+    # Fetch parent node info  ## FIXME: handle missing column 'is_outgroup'
     ages_p = pd.merge(ages.reset_index(),
                       ages.loc[ages.type != 'leaf',
                             ['taxon', 'type', 'calibrated', 'is_outgroup',
@@ -670,8 +672,12 @@ def compute_dating_errors(ages_controled, control='median', measures=['dS']):
 
 def join_extra_ages(new_ages_file, ages_data,
                     control_condition='really_robust & aberrant_dists == 0',
-                    suffixes=('_extra', '')):
-    # Re-use output of `analyse_age_errors`/`load_prepare_ages`/`add_control_dates_lengths`
+                    suffixes=('_extra', ''),
+                    control_names=['timetree']):
+                    #subset=None):
+    """Re-use outputs of `analyse_age_errors`/`load_prepare_ages`/
+    `add_control_dates_lengths`
+    """
     extra_ages = pd.read_csv(new_ages_file, sep='\t', index_col=0)\
                    .rename(columns=lambda n: n.replace('.', '_'))\
                    .rename_axis(index='name')\
@@ -681,8 +687,8 @@ def join_extra_ages(new_ages_file, ages_data,
                         if colname.startswith('age_')]
 
     logger.info('Joining new age measures: ' + ' '.join(age_measures))
-    #
-    # Needs to concat the parent data!! (for compute_mean_errors of 'brlen')
+
+    # 1. Needs to concat the parent data!! (for compute_mean_errors of 'brlen')
     extra_ages = pd.merge(extra_ages,
                           extra_ages.loc[extra_ages.type!='leaf',
                                          ['name', 'subgenetree'] + age_measures],
@@ -693,7 +699,7 @@ def join_extra_ages(new_ages_file, ages_data,
                       indicator=True, validate='many_to_one')
 
 
-    # Join to the previous data.
+    # 2. Join to the previous data.
     ages = pd.merge(
                extra_ages.drop(columns=['calibrated', 'type', 'parent', 'taxon']),
                ages_data.ages_controled_withnonrobust.reset_index(),
@@ -717,13 +723,13 @@ def join_extra_ages(new_ages_file, ages_data,
                         if am in ages_data.ages_controled.columns 
                         else am
                         for am in age_measures]
+    measures=[am[4:] for am in age_measures]
 
-
-    # Rerun a small part of `add_control_dates_lengths`
+    # 3. Rerun a small part of `add_control_dates_lengths`
     ages_forcontrol = ages.query(control_condition)
     logger.info("%d nodes from robust trees", ages_forcontrol.shape[0])
 
-    # Recompute the median ages.
+    # 3.1. Recompute the median ages.
     median_taxon_ages = ages_forcontrol[ages_forcontrol.type\
                                                        .isin(("spe", "leaf"))]\
                                    .groupby("taxon")[age_measures].median()\
@@ -739,20 +745,20 @@ def join_extra_ages(new_ages_file, ages_data,
                               left_on="taxon", right_index=True,
                               validate="many_to_one")
 
-    # Check duplication nodes (optional?)
+    # 3.2. Check duplication nodes (optional?)
     ages_controled_spe2spe = ages_controled.dropna(subset=['taxon_parent']).query('type != "dup" & type_parent != "dup"')
     same_sp = ages_controled_spe2spe.taxon == ages_controled_spe2spe.taxon_parent
     if same_sp.any():
         logger.error("Failed to filter out duplications:\n%s",
                      ages_controled_spe2spe[same_sp].head(15))
 
-    # Median branch lengths from the given measures.
+    # 3.3. Median branch lengths from the given measures.
     ages_controled = ages_controled.assign(**{
-        ('median_brlen_%s' % am[4:]):
+        ('median_brlen_%s' % m):
             (ages_controled_spe2spe.taxon_parent\
                         .apply(control_ages['median_%s' % am].get)
              - ages_controled_spe2spe['median_%s' % am])
-        for am in age_measures})
+        for m,am in zip(measures, age_measures)})
 
     branch_info = ["taxon_parent", "taxon"]
     #control_brlen = ages_controled.loc[
@@ -766,8 +772,10 @@ def join_extra_ages(new_ages_file, ages_data,
 
     ages_controled_cond = ages_controled.query(control_condition).copy(deep=False)
     # copy to silence the `SettingWithCopyWarning`. Alternatively, set `_is_copy=None`
-    mean_errors = compute_dating_errors(ages_controled_cond,
-                                    measures=[am[4:] for am in age_measures])
+    mean_errors = pd.concat(
+                    [compute_dating_errors(ages_controled_cond, ctl, measures)
+                     for ctl in ['median']+control_names],
+                    axis=1, sort=False, copy=False)
 
     return age_analysis_data(ages_controled_cond,
                              ages_controled,
