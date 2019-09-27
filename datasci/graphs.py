@@ -568,6 +568,15 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
     return lines, child_coords, subaxes
 
 
+### Derivates of the violin plot
+def splitviolin(x, y, hue, data=None, order=None, hue_order=None, cut=0):
+    """Splitted violin with **each** median and quartiles."""
+    sb.violinplot(x, y, hue=hue, data=data, split=True, width=1,
+                  order=order, cut=cut)
+    sb.pointplot(x, y, hue=hue, data=data, order=order, dodge=0.5,
+                 palette=['#dddddd'], join=False, estimator=np.nanmedian,
+                 si='sd', ax=ax)
+
 def toothpaste(x, y, hue, data=None, order=None, hue_order=None,
                cmap='viridis', **kwargs):
     # Suggested colormaps: 'viridis', 'gist_rainbow', 'rainbow'
@@ -637,7 +646,6 @@ def toothpaste(x, y, hue, data=None, order=None, hue_order=None,
 
         #ax.plot(left_coords[:,0], violin_y, color=edgecolor)
         #ax.plot(hue_left_x, violin_y, color=edgecolor)
-
 
     return violins
 

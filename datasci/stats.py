@@ -54,34 +54,49 @@ def f_test(x, y, data=None):
     return p_further
 
 
-def rescale_groups(y, hue, by, data=None):
-    ### Works on `long` format (same as seaborn.violinplot).
+def rescale_groups(y, hue, by, data=None, ref_hue=None):
+    """
+    Rescale groups of measures Y to a comparable size:
+    
+    Data is split into groups (`by`), with each group subdivided by `hue`:
+    the mean and stddev of `y` in each group (in `by`) is rescaled so that it
+    is equal for the first hue value.
+
+    The idea is to detect `hue` effects on `y` accross multiple groups (`by`).
+
+    Works on `long` format (same as seaborn.violinplot)."""
     hue_levels = data[hue].unique()
     #assert hue_levels.size <= 2, "Not implemented for more than 2 hue values."
-    print(hue_levels)
+    #print(hue_levels)
     
-    hue0 = hue_levels[0]
-    #grouped_y0 = data.loc[data[hue] == hue_levels[0], y].groupby(by)
-    #Y_means = grouped_y0.agg('mean')
-    #Y_stds  = grouped_y0.agg('std')
-    
-    #transformed_Y = [(data.loc[data[hue] == hue_level, y].groupby(by) - Y_means) / Y_stds
-    #                 for hue_level in hue_levels]
-    
+    hue0 = hue_levels[0] if ref_hue is None else ref_hue
+
+    # for each group (`by`), subtract the mean and divide by the SD of the subgroup 0.
     return data.groupby(by)\
                     .apply(
                         lambda v: v.assign(**{y: (v[y] - v.loc[v[hue] == hue0, y].mean())\
                                                 / v.loc[v[hue] == hue0, y].std()})
-                    )
+                    ).reset_index('taxon', drop=True)
+
+    #grouped_y0 = data.loc[data[hue] == hue_levels[0]].groupby(by)#[y]
+    #Y0_means = grouped_y0.agg('mean')
+    #Y0_stds  = grouped_y0.agg('std')
+    #
+    ##transformed_Y = [(data.loc[data[hue] == hue_level, y].groupby(by) - Y_means) / Y_stds
+    ##                 for hue_level in hue_levels]
+    
+    #return data.groupby(by).transform(lambda v: (v - Y0_means[v.name])\
+    #                                            / Y0_stds[v.name])
 
 # Must do a test of variance between 2 groups (blue/green):
 # -> group all blue groups into one single one, normalizing each, and normalizing the
 # corresponding green group by the same factor.
-def multi_vartest(y, hue, by, data=None):
+def multi_vartest(y, hue, by, data=None, ref_hue=None):
     # There must be only 2 `hue` values.
     # `by` is the "x" of the violinplot.
                     
-    transformed_Y = rescale_groups(y, hue, by, data)
+    transformed_Y = rescale_groups(y, hue, by, data, ref_hue).dropna(subset=[y])
+    print(transformed_Y.groupby(hue)[y].agg('std').sort_values().rename('SD(%s)' % y))
     return stats.levene(*(Y_group for _, Y_group in transformed_Y.groupby(hue)[y]))
     
 
