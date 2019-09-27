@@ -34,7 +34,10 @@ load_calibration <- function(agefile) {
     cat('WARNING: drop', sum(dup_rownames), 'duplicate row.names from ages:\n',
         paste(head(ages[dup_rownames,'name'], 20), collapse='\n '), '...\n', file=stderr())
     #TODO: remove, based on the 'is_outgroup' flag.
-    ages <- ages[!dup_rownames,]
+    #if('is_outgroup' %in% colnames(ages)) {
+    #  ages <- ages[(!dup_rownames & !ages$is_outgroup),]
+    #} else {
+      ages <- ages[!dup_rownames,]
   }
   rownames(ages) <- ages[,'name']
   ages <- ages[,-1]  # Assuming 'name' is the first column
@@ -563,7 +566,8 @@ date_all_methods <- function(line, calibration,
     dating_edgeinfo <- dating_edgeinfo[c(tree$node.label, tree$tip.label), ]
 
     info <- calibration[c(tree$node.label, tree$tip.label),
-                        c("calibrated", "type", "parent", "taxon", "subgenetree")]
+                        c("calibrated", "type", "parent", "taxon", "subgenetree",
+                          "is_outgroup")]
     rownames(info) <- c(tree$node.label, tree$tip.label)
     info[tree$tip.label,"subgenetree"] <- info[tree$node.label[1],"subgenetree"]
     #print(info[tree$node.label[1],"subgenetree"])
