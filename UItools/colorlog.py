@@ -10,24 +10,11 @@ Taken from: https://stackoverflow.com/a/384125
 
 import sys
 import string
-from collections import namedtuple
 import logging
 from copy import copy
+from UItools.shellchrome import RESET_SEQ, COLOR_SEQ, BOLD_SEQ, COLOR, \
+                                BG_COLOR, COLORS_I
 
-colortuple = namedtuple('colorcode',
-                        'BLACK RED GREEN YELLOW BLUE MAGENTA CYAN WHITE')
-
-
-#The background is set with 40 plus the number of the color, and the foreground with 30
-
-#These are the sequences needed to get colored ouput
-RESET_SEQ = "\033[0m"
-COLOR_SEQ = "\033[0;%dm"
-BRIGHT_SEQ = "\033[1;%dm"  # Or is bold?
-BOLD_SEQ = "\033[1m"
-
-
-COLORS_I = colortuple(*range(8))
 
 LVL_I = {
     'WARNING':  COLORS_I.YELLOW,
@@ -37,14 +24,6 @@ LVL_I = {
     'ERROR':    COLORS_I.RED}
 
 
-BG_COLOR = {'bg'+colname.lower(): COLOR_SEQ % (40+i)
-            for colname,i in COLORS_I._asdict().items()}
-BG_COLOR.update({'bg'+colname: BRIGHT_SEQ % (30+i)
-            for colname,i in COLORS_I._asdict().items()})
-COLOR =    {colname.lower(): COLOR_SEQ % (30+i)
-            for colname,i in COLORS_I._asdict().items()}
-COLOR.update({colname: BRIGHT_SEQ % (30+i)
-            for colname,i in COLORS_I._asdict().items()})
 BG_LVLCOLOR = {lvl: COLOR_SEQ % (40+i) for lvl,i in LVL_I.items()}
 LVLCOLOR    = {lvl: COLOR_SEQ % (30+i) for lvl,i in LVL_I.items()}
 
