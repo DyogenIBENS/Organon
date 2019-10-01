@@ -440,6 +440,7 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
              topology_only=False,
              label_params=None, edge_colors=None,
              edge_cmap='afmhot', add_edge_axes=None, style='squared', **kwargs):
+             #edge_norm=None
     """Plot an ete3 tree, from left to right.
     
     param: edge_colors dict-like object with keys being the nodes, and values ~~a color string~~

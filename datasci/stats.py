@@ -54,6 +54,10 @@ def f_test(x, y, data=None):
     return p_further
 
 
+def partial_zscore(v, condition):
+    return (v - v[condition].mean()) / v[condition].std()
+
+
 def rescale_groups(y, hue, by, data=None, ref_hue=None):
     """
     Rescale groups of measures Y to a comparable size:
@@ -72,11 +76,10 @@ def rescale_groups(y, hue, by, data=None, ref_hue=None):
     hue0 = hue_levels[0] if ref_hue is None else ref_hue
 
     # for each group (`by`), subtract the mean and divide by the SD of the subgroup 0.
-    return data.groupby(by)\
+    return data.groupby(by, group_keys=False)\
                     .apply(
-                        lambda v: v.assign(**{y: (v[y] - v.loc[v[hue] == hue0, y].mean())\
-                                                / v.loc[v[hue] == hue0, y].std()})
-                    ).reset_index('taxon', drop=True)
+                        lambda v: v.assign(**{y: partial_zscore(v[y], v[hue] == hue0)})
+                    )
 
     #grouped_y0 = data.loc[data[hue] == hue_levels[0]].groupby(by)#[y]
     #Y0_means = grouped_y0.agg('mean')

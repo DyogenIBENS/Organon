@@ -60,13 +60,14 @@ except ImportError:
     colorlogf = logf
 
 # Notebook setup
-sh = logging.StreamHandler(sys.stdout)
-sh.setFormatter(colorlogf)
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-logger.handlers = []
-logger.addHandler(sh)
-#logging.basicConfig(handlers=[sh])
+if not logger.hasHandlers():
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setFormatter(colorlogf)
+    logger.setLevel(logging.INFO)
+    logger.handlers = []
+    logger.addHandler(sh)
+    #logging.basicConfig(handlers=[sh])
 
 mpl.style.use("softer")
 pd.set_option("display.max_columns", 50)
@@ -100,7 +101,7 @@ mpl.rcParams['figure.figsize'] = (14, 10) # width, height
 
 ## median_measures
 
-measures = ['dist', 'dS', 'dN', 't']
+measures = ['dS', 'dN', 't', 'dist']
 dist_measures = ['branch_%s' % m for m in measures]
 rate_measures = ['%s_rate' % m for m in measures]
 rate_std_measures = [r + '_std' for r in rate_measures]
@@ -380,18 +381,20 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
 
     sgg = subgenetree_groups = ages_p.groupby('subgenetree')
 
+    logger.info('Aggregating `ns` ("new stats" specific to this dataset)...')
+    # This is a slow operation. Needs optimization.
+    
     # tree statistics making use of each node.
     ns = pd.concat((sgg.type.agg(lambda v: sum(v == "dup")),
                     sgg.type.agg(lambda v: sum(v == "spe"))),
                    axis=1, keys=['Ndup', 'Nspe'])
 
-    print(ns.Ndup.describe())
-    print(ns.Nspe.describe())
+    #print(ns.Ndup.describe())
+    #print(ns.Nspe.describe())
 
     def freq_of_null(v):
         return (v==0).mean()
 
-    logger.info('Aggregating `ns` ("new stats" specific to this dataset)...')
     # Already computed by codeml.subtrees_stats.get_codeml_stats
     agg_funcs = {'consecutive_null_%s' %m: 'mean' for m in measures}
 
@@ -488,6 +491,15 @@ def add_control_dates_lengths(ages, phyltree, control_ages_CI=None,
         toconcat += (control_ages_CI,)
         control_ages = pd.concat(toconcat, axis=1, sort=False)
     logger.debug('Control ages (columns): ' + ' '.join(control_ages.columns))
+
+    # Add potentially missing ages (0 for extant species).
+    for ctl in control_names:
+        na_ages = control_ages['%s_age' % ctl].isna()
+        if na_ages.any():
+            for taxon in control_ages.index.values[na_ages]:
+                # PhylTree ages are those from TimeTree
+                if taxon in phyltree.listSpecies or ctl=='timetree':
+                    control_ages.loc[taxon, '%s_age' % ctl] = phyltree.ages.get(taxon, np.NaN)
 
     #print(control_ages.sort_values('timetree_age', ascending=False))
 
@@ -608,8 +620,8 @@ def check_control_dates_lengths(control_brlen, phyltree, root,
 
     median_treelen_phyltree = control_brlen.reindex(list(expected_branches))[median_measures].sum()
     timetree_treelen_phyltree = control_brlen.reindex(list(expected_branches)).timetree_brlen.sum()
-    print("Sum of median branch lengths for branches found in phyltree =",
-          median_treelen_phyltree)
+    print("Sum of median branch lengths for branches found in phyltree =\n",
+          str(median_treelen_phyltree).replace('\n', '\t\n'))
     print("Sum of timetree branch lengths for branches found in phyltree =",
           timetree_treelen_phyltree)
     return unexpected_branches, lost_branches
@@ -790,7 +802,7 @@ def lineage_evolutionary_rates(anc, ages_file,
                                control_ages_CI,
                                stats_tmpl='subtreesGoodQualO2_%sstats-%s.tsv',
                                control_condition='really_robust & aberrant_dists == 0',
-                               measures=['dist', 'dS', 'dN', 't'],
+                               measures=measures,
                                control_names=['timetree'],  # 'dosreis'
                                saveas=None):
     # Also see `analyse_age_errors`
@@ -800,86 +812,165 @@ def lineage_evolutionary_rates(anc, ages_file,
     dist_measures = ['branch_%s' % m for m in measures]
 
     ages, ns = load_prepare_ages(ages_file, ts, measures)
+    ages = pd.merge(ages, aS.join(ns, how='outer'),
+                    left_on='subgenetree', right_index=True, sort=False,
+                    validate='many_to_one')
+                     
     ages_controled_withnonrobust, control_ages, control_brlen =\
         add_control_dates_lengths(ages, phyltree, control_ages_CI, measures,
                                   control_condition, control_names)
 
-    ages_controled = pd.merge(ages_controled_withnonrobust,
-                              aS.join(ns, how='outer'),
-                              left_on='subgenetree', right_index=True,
-                              sort=False)\
-                     .query(control_condition).copy(deep=False)
+    ages_controled = ages_controled_withnonrobust.query(control_condition).copy(deep=False)
     unexpected_branches, lost_branches = check_control_dates_lengths(
                                                 control_brlen, phyltree, anc,
                                                 measures)
     control_brlen.drop(unexpected_branches, inplace=True)
+    age_analysis = age_analysis_data(ages_controled,
+                            ages_controled_withnonrobust,
+                            ns, control_ages, control_brlen, mean_errors=None)
+    return (age_analysis,) + lineage_evolutionary_rates_fromdata(age_analysis, dist_measures, control_names)
 
+
+def lineage_evolutionary_rates_fromdata(age_analysis, dist_measures,
+                                        control_names=['timetree']):
     def wmean(g, wkey='ingroup_glob_len'):
         gdata = g.drop(columns=wkey)
-        return pd.Series(np.average(gdata, axis=0, weights=g[wkey]),
-                         index=gdata.columns)
+        return pd.Series(np.average(gdata, axis=0, weights=g[wkey]), index=gdata.columns)
+        #return np.average(gdata, axis=0, weights=g[wkey])
 
-    lineage_groups = ages_controled.groupby(['taxon_parent', 'taxon'])
+    #def func(g, wkey='ingroup_glob_len'):
+    #    gdata = g.drop(columns=wkey)
+    #    return pd.DataFrame(
+    #                np.average(gdata, axis=0, weights=g[wkey]),
+    #                     index=gdata.columns)
+
+    lineage_groups = age_analysis.ages_controled.groupby(['taxon_parent', 'taxon'])
     lineage_brlen = lineage_groups[dist_measures]\
             .agg(['median', 'mean', 'std'])\
             .join(lineage_groups[dist_measures + ['ingroup_glob_len']]\
-                  .apply(wmean),
-                  rsuffix='_wmean', sort=False)
+                        .apply(wmean)\
+                        .set_axis(pd.MultiIndex.from_product([dist_measures, ['wmean']]),
+                            axis=1, inplace=False),
+                  sort=False)\
+            .sort_index(1)
     ctl = control_names[0]
-    lineage_rates = lineage_brlen.div(control_brlen[ctl+'_brlen'], axis='index')
 
-    na_rates = lineage_rates.isna()
-    if na_rates.any(axis=1):
-        logger.info('DROP NA rates rows:\n%s', lineage_rates.index[na_rates])
+    print('lineage_brlen =\n', lineage_brlen.head().iloc[:,:4])
+    print('control_brlen =\n', age_analysis.control_brlen.head().iloc[:,:4])
+    lineage_rates = lineage_brlen.div(age_analysis.control_brlen[ctl+'_brlen'],
+                                      axis='index')
+
+    branch_na_rates = lineage_rates.isna().any(axis=1)
+    if branch_na_rates.any():
+        logger.info('DROP NA rates rows:\n%s', lineage_rates.index[branch_na_rates].values)
         lineage_rates.dropna(inplace=True)
 
-    return age_analysis_data(ages_controled, ages_controled_withnonrobust, ns, control_ages, control_brlen, mean_errors=None), lineage_rates
+    return lineage_rates, lineage_brlen
 
 
-def display_lineage_evolutionary_rates(anc, lineage_rates, ages_controled,
-                                       control_brlen, phyltree, measures=measures):
+def display_lineage_evolutionary_rates(lineage_rates, lineage_brlen,
+                                       age_analysis, phyltree, anc,
+                                       measures=measures,
+                                       control='timetree',
+                                       figsize=None,
+                                       extra_text='',
+                                       cmap_minmax=None):
 
+    ages_controled = age_analysis.ages_controled
+    control_brlen = age_analysis.control_brlen
     dist_measures = ['branch_%s' % m for m in measures]
     rate_measures = ['%s_rate' % m for m in measures]
 
     ordered_branches = ['%s--%s' % br for br in dfw_pairs(phyltree, queue=[(None, anc)], closest_first=True)]
 
-    ordered_branches_bylen = ['%s--%s' % v for v in control_brlen.sort_values('timetree_brlen').index.values]
+    ordered_branches_bylen = ['%s--%s' % v
+                              for v in control_brlen.sort_values(control+'_brlen').index]
 
     # Table of summary values
     styled_rates = lineage_rates\
-            .style.background_gradient(cmap='PRGn',
-                                       subset=[(d, stat)
-                                           for d in dist_measures
-                                           for stat in ('median', 'mean', 'std')])
-    if saveas is None:
-        display_html(styled_rates)
-    elif saveas.endswith('.tsv'):
-        styled_rates.data.to_csv(saveas, sep='\t')
-    elif saveas.endswith('.xls') or saveas.endswith('.xlsx'):
-        styled_rates.to_excel(saveas)
-    else:
-        raise ValueError('Unrecognized output format in "%s" [.tsv/.xlsx]' % saveas)
+            .style.background_gradient(cmap='PRGn')#,
+                                       #subset=[(d, stat)
+                                       #    for d in dist_measures
+                                       #    for stat in ('median', 'mean', 'std')])
+    display_html(styled_rates)
+    outputs = [styled_rates]
+
+    m = measures[0]
+    br_m = 'branch_'+m
+    rates = lineage_rates[(br_m, 'median')]
+    print('Min of median %s rate: %s (%s)' %(m, rates.min(), rates.idxmin()))
+    print('Max of median %s rate: %s (%s)'%(m, rates.max(), rates.idxmax()))
     
     # Violin plot of rates
-    ages_controled['branchtaxa'] = ages_controled.taxon_parent + '--' + ages_controled.taxon
+    ages_data = ages_controled\
+                    .assign(
+                        branchtaxa=(ages_controled.taxon_parent + '--' + ages_controled.taxon)
+                    )\
+                    .join(ages_controled[dist_measures].div(
+                                ages_controled.timetree_brlen, axis=0),
+                          how='outer', rsuffix='_rate')
 
-    ages_controled[rate_measures] = ages_controled[dist_measures]\
-                                          .div(ages_controled.timetree_brlen, axis=0)
+    ax = sb.violinplot('branchtaxa', br_m+'_rate',
+                       data=ages_data,
+                       width=1, order=ordered_branches_bylen)
+    
+    values = ages_data.groupby('branchtaxa')[br_m+'_rate']
+    #rate_q = values.quantile([0.01, 0.99]).values
+    #rate_range = rate_q[1] - rate_q[0]
+    #ylim = (rate_q[0] - 0.01*rate_range, rate_q[0] + 0.01*rate_range)
+    ndev = 2
+    get_ylow = lambda v: max(v.min(), v.mean() - ndev*v.std())
+    get_yup = lambda v: min(v.max(), v.mean() + ndev*v.std())
 
-    sb.violinplot('branchtaxa', 'dS_rate', data=ages_controled, width=1,
-                  order=ordered_branches_bylen)
-    ax = plt.gca()
-    ax.set_ylim(-0.005, 0.03);
-    ax.set_xticklabels([xt.get_text() for xt in ax.get_xticklabels()], rotation=45, va='top', ha='right')
-    ax.set_title('Variation of synonymous substitutions/site/My')
+    ylim = (values.apply(get_ylow).min(),
+            values.apply(get_yup).max())
+
+    logger.debug('Setting new ylim: %s', ylim)
+    ax.set_ylim(ylim)
+    ax.set_ylabel(m+' rate')
+    plt.setp(ax.get_xticklabels(), rotation=45, va='top', ha='right')
+    ax.set_title('Variation of synonymous substitutions/site/My' +
+                 (('. '+extra_text) if extra_text else ''))
+    outputs.append(ax.figure)
+
+    # Tree with branch length in median number of substitutions
+    fig, ax = plt.subplots(figsize=figsize)
+    plottree(phyltree,
+             get_items=(lambda t,nd: [(ch,
+                                       lineage_brlen.loc[(nd[0], ch),
+                                                         (br_m, 'median')])
+                                     for ch,d in t.items.get(nd[0], [])]),
+             get_label=(lambda t,n: n),
+             root=anc, ax=ax)
+    ax.set_xlabel('Median %s branch length' % m)
+    ax.set_title(extra_text)
+    outputs.append(fig)
 
     # Tree with colored branches
-    plottree(phyltree, phyltree_methods.get_items,
-             phyltree_methods.get_label,
-             root=anc,
-             edge_colors=styled_rates.data[('branch_dS', 'median')],
-             edge_cmap='afmhot', add_edge_axes=None, style='squared', **kwargs)
+    fig, (cax,ax) = plt.subplots(1, 2, figsize=figsize,
+                                 gridspec_kw={'width_ratios': [1,20]})
+    cax.set_position(cax.get_position().anchored('SE').shrunk(1, 0.5).shrunk_to_aspect(20))
+    
+    lines, coords, subaxes = plottree(phyltree,
+                 lambda t,nd: [(ch, control_brlen.loc[(nd[0], ch), control+'_brlen'])
+                                 for ch,d in t.items.get(nd[0], [])],
+                 phyltree_methods.get_label,
+                 root=anc,
+                 edge_colors=lineage_rates.reset_index('taxon_parent', drop=True)[
+                             (br_m, 'median')],
+                 edge_cmap='afmhot', add_edge_axes=None, style='squared',
+                 ax=ax)
+    #cax = ax.inset_axes((0, 0.5, 0.05, 0.5))
+    cbar = fig.colorbar(lines, cax=cax)
+    cbar.set_label('Median '+br_m)
+    cax.yaxis.set_ticks_position('left')
+    cax.yaxis.set_label_position('left')
+    ax.set_title('Median evolutionary %s rate across %s descendants' % (measures[0], anc)
+                 + (('. '+extra_text) if extra_text else ''))
+    ax.set_xlabel('Age (My)') #+ control
+    outputs.append(fig)
+    #fig.tight_layout()
+    return outputs
 
 
 def compute_branchrate_std(ages_controled, dist_measures,
