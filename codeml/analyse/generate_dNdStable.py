@@ -280,30 +280,76 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
     
     # Get the line listing all branches
     while not regex_lnL.match(line):
-        line = mlc.readline().rstrip()
+        line = mlc.readline()
+        assert line, "regex_lnL not matched before EOF"
+        line = line.rstrip()
     branches_line = mlc.readline().rstrip()
     branches = branches_line.split()
     # get translation by looking at the newick tree lines.
+    # Line containing the lengths *and* the additional parameter values.
     lengths_line = mlc.readline().rstrip()
     lengths = [float(l) for l in lengths_line.split()]
 
     # Get the tree labelled with numbers
     line = mlc.readline().rstrip()
     while not regex_tree.match(line):
-        line = mlc.readline().rstrip()
+        line = mlc.readline()
+        assert line, "regex_tree (numbered) not matched before EOF"
+        line = line.rstrip()
+
     tree_nbs = ete3.Tree(line)
 
     # Get the tree with original labels
     line = mlc.readline().rstrip()
     while not regex_tree.match(line):
-        line = mlc.readline().rstrip()
+        line = mlc.readline()
+        assert line, "regex_tree (labeled) not matched before EOF"
+        line = line.rstrip()
     tree_ids = ete3.Tree(line)
 
     # Get the omega (dN/dS) values
+    checkpoint = mlc.tell()
+    model = 1  # Indicator variable: are we parsing the `model = 1` output ?
+    
     line = mlc.readline().rstrip()
     while not regex_w.match(line):
-        line = mlc.readline().rstrip()
-    omegas = [float(w) for w in regex_w.sub('', line).split()]
+        line = mlc.readline()
+        if not line:
+            if model == 1:
+                model = 5
+                #"regex_w not matched before EOF"
+                regex_w = re.compile(r'^Parameters in M5 \(gamma\):$')
+                mlc.seek(checkpoint)
+                continue
+            else:
+                raise ValueError('regex_w (model 5) not matched before EOF')
+        line = line.rstrip()
+
+    if model == 1:
+        omegas = [float(w) for w in regex_w.sub('', line).split()]
+    elif model == 5:
+        line = mlc.readline()
+        try:
+            gamma_params = re.match(r'^ +a= +([0-9.-]+) +b= +([0-9.-]+)$', line).groups()
+        except AttributeError as err:
+            err.args += ('line = %r' % line,)
+            raise
+        regex_MLEw = re.compile(r'^MLEs of dN/dS \(w\) for site classes \(K=(\d+)\)')
+        line = mlc.readline()
+        while not regex_MLEw.match(line.rstrip()):
+            line = mlc.readline()
+            assert line, "regex_MLEw not matched before EOF"
+
+        mlc.readline()  # known blank line
+        # Parse Omegas for each site fraction
+        sitefrac = [float(x) for x in
+                 re.match('p:( +0\.[0-9]+)+$', mlc.readline()).group(1).split()]
+        ws = [float(x) for x in
+            re.match('w:( +[0-9]+\.[0-9]+)+$', mlc.readline()).group(1).split()]
+        omegas = [np.average(ws, weights=sitefrac)] * len(branches)
+        
+    assert len(branches) == len(omegas) and len(branches) <= len(lengths), \
+            (len(branches), len(omegas), len(lengths))
     branch_tw = list(zip(branches, lengths, omegas))
 
     id2nb = dict(zip(tree_ids.get_leaf_names(), tree_nbs.get_leaf_names()))
@@ -373,11 +419,11 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
     #logger.debug(fulltree.get_ascii())
     #printtree(fulltree, features=['nb'])
     #showtree(fulltree)
-    return id2nb, nb2id, tree_nbs, branch_tw
+    return id2nb, nb2id, tree_nbs, branch_tw, model
 
 # Needs a unit test for the above (are the missing nodes properly re-inserted?)
 
-def get_dNdS(mlc):  # ~~> codeml.codeml_parser?
+def get_dNdS(mlc, skiptrees=False):  # ~~> codeml.codeml_parser?
     """Parse table of dN/dS from codeml output file.
     
     mlc: filehandle
@@ -392,7 +438,10 @@ def get_dNdS(mlc):  # ~~> codeml.codeml_parser?
     
     line = mlc.readline().rstrip()
     while not reg_dNdS.match(line):
-        line = mlc.readline().rstrip()
+        line = mlc.readline()
+        assert line, "reg_dNdS not matched before EOF"
+        line = line.rstrip()
+
     assert mlc.readline().rstrip() == ''  # skip blank line
     dNdS = {}  # OrderedDict
     dNdS['colnames'] = line.split()[1:]
@@ -403,14 +452,21 @@ def get_dNdS(mlc):  # ~~> codeml.codeml_parser?
         dNdS[fields[0]] = [float(x) for x in fields[1:]]
         line = mlc.readline().rstrip()
 
+    if skiptrees:
+        return dNdS, None, None
+
     line = mlc.readline().rstrip()
     while not reg_dStree.match(line):
-        line = mlc.readline().rstrip()
+        line = mlc.readline()
+        assert line, "reg_dStree not matched before EOF"
+        line = line.rstrip()
     dStreeline = mlc.readline().rstrip()
     
     line = mlc.readline().rstrip()
     while not reg_dNtree.match(line):
-        line = mlc.readline().rstrip()
+        line = mlc.readline()
+        assert line, "reg_dNtree not matched before EOF"
+        line = line.rstrip()
     dNtreeline = mlc.readline().rstrip()
     
     #TODO: np.array(dNdS)
@@ -429,7 +485,7 @@ def tree_nb_annotate(tree, id2nb, tree_nbs):  # ~~> codeml.codeml_parser?
                     parent_nbs[tuple(sorted(ch.nb for ch in node.children))])
 
 
-def dNdS_precise(dNdS, br_tw, dSnwk, dNnwk, id2nb, tree_nbs):  # ~~> codeml_parser?
+def dNdS_precise(dNdS, br_tw, id2nb, tree_nbs, dSnwk=None, dNnwk=None):  # ~~> codeml_parser?
     """Make the dNdS table from the codeml output file more precise:
     dS and dN values have more decimal in the tree string than in the table."""
     # First, update the dNdS table with the more accurate values br_lengths
@@ -440,14 +496,20 @@ def dNdS_precise(dNdS, br_tw, dSnwk, dNnwk, id2nb, tree_nbs):  # ~~> codeml_pars
         dNdS[br][colindex['dN/dS']] = br_w   # 'dN/dS'
 
     # Then update the dNdS table with the more accurate values in dStree dNtree
-    dStr = ete3.Tree(dSnwk)
-    dNtr = ete3.Tree(dNnwk)
-    tree_nb_annotate(dStr, id2nb, tree_nbs)
-    tree_nb_annotate(dNtr, id2nb, tree_nbs)
     col_dS, col_dN = colindex['dS'], colindex['dN']
     #col_S, col_N = colindex['S'], colindex['N']
 
-    for col, tr in ((col_dS, dStr), (col_dN, dNtr)):
+    colname_and_tree = []
+    if dSnwk is not None:
+        dStr = ete3.Tree(dSnwk)
+        tree_nb_annotate(dStr, id2nb, tree_nbs)
+        colname_and_tree.append((col_dS, dStr))
+    if dNnwk is not None:
+        dNtr = ete3.Tree(dNnwk)
+        tree_nb_annotate(dNtr, id2nb, tree_nbs)
+        colname_and_tree.append((col_dN, dNtr))
+
+    for col, tr in colname_and_tree:
         for node in tr.traverse():
             if not node.is_leaf():
                 for child in node.children:
@@ -456,11 +518,12 @@ def dNdS_precise(dNdS, br_tw, dSnwk, dNnwk, id2nb, tree_nbs):  # ~~> codeml_pars
     # N*dN and S*dS could also be more precise by calculating the product, 
     # but this amount of precision might not be relevant.
 
-    for branch, row in dNdS.items():  # Isn't it time for vectorized operations?
-        if branch != 'colnames':
-            #print(row, file=sys.stderr)
-            row[colindex['S*dS']] = row[colindex['S']] * row[col_dS]
-            row[colindex['N*dN']] = row[colindex['N']] * row[col_dN]
+    if dSnwk is not None or dNnwk is not None:
+        for branch, row in dNdS.items():  # Isn't it time for vectorized operations?
+            if branch != 'colnames':
+                #print(row, file=sys.stderr)
+                row[colindex['S*dS']] = row[colindex['S']] * row[col_dS]
+                row[colindex['N*dN']] = row[colindex['N']] * row[col_dN]
     return dNdS
 
 
@@ -1442,10 +1505,10 @@ def setup_fulltree(resultfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
     rm_erroneous_ancestors(fulltree, phyltree)
     if CODEML_MEASURES.intersection(measures):
         with open(resultfile) as mlc:
-            id2nb, nb2id, tree_nbs, br_tw = branch2nb(mlc, fulltree)
-            dNdS, dStreeline, dNtreeline = get_dNdS(mlc)
+            id2nb, nb2id, tree_nbs, br_tw, model = branch2nb(mlc, fulltree)
+            dNdS, dStreeline, dNtreeline = get_dNdS(mlc, skiptrees=(model!=1))
 
-        dNdS = dNdS_precise(dNdS, br_tw, dStreeline, dNtreeline, id2nb, tree_nbs)
+        dNdS = dNdS_precise(dNdS, br_tw, id2nb, tree_nbs, dStreeline, dNtreeline)
         set_dNdS_fulltree(fulltree, id2nb, dNdS)  #set_data_fulltree()
     elif BEAST_MEASURES.union(('beast:dist',)).intersection(measures):
         try:
