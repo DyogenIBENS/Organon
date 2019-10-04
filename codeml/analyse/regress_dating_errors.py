@@ -1211,6 +1211,17 @@ def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts,
 # param = 'um1.new'
 # nsCata = age_analyses[anc][param].ns
 class full_dating_regression(object):
+
+    init_vars = ['data',
+                 'same_alls',
+                 'dataset_params',
+                 'responses',
+                 'features',
+                 'rate_args',
+                 'ref_suggested_transform',
+                 'must_transform',
+                 'must_drop_features']
+
     def __init__(self, data, same_alls, dataset_params, responses, features,
                  rate_args=None, ref_suggested_transform=None,
                  must_transform=None, must_drop_features=None):
@@ -1218,6 +1229,16 @@ class full_dating_regression(object):
             if k != 'self':
                 setattr(self, k, v)
 
+    @classmethod
+    def from_other(cls, other_regression):
+        """Instantiate by copying all attributes from another instance."""
+        self = cls(**{ivar: getattr(other_regression, ivar)
+                               for ivar in cls.init_vars})
+        for k,v in vars(other_regression).items():
+            if k not in cls.init_vars:
+                setattr(self, k, v)
+        return self
+    
     def do(self):
         data = self.data
         same_alls = self.same_alls
@@ -1232,19 +1253,23 @@ class full_dating_regression(object):
         ages_controled = data.ages_controled
         mean_errors = data.mean_errors
 
+    #def do_rates(self)
         # Compute cs_rates
         kwargs = dict(branchtime='median_brlen_dS', taxon_age='median_age_dS')
         if rate_args:
             kwargs.update(rate_args)
             
-        print('# Compute rates', kwargs)
+        print('\n# Compute rates', kwargs)
+        #display_html('<h3>Compute rates</h3>', raw=True)
+
         cs_rates = compute_branchrate_std(ages_controled, dist_measures, **kwargs)
-        print('# Merge features')
+        print('\n# Merge features')
         self.alls = alls = pd.concat((mean_errors,
                                       data.ns[dataset_params],
                                       cs_rates,
                                       same_alls),
-                                     axis=1, join='inner', sort=False)
+                                     axis=1, join='inner', sort=False,
+                                     verify_integrity=True)
 
         y = responses[0]
         print('Variable Y :', y)
@@ -1252,6 +1277,7 @@ class full_dating_regression(object):
         print('Amount of NA:\n', alls.isna().sum(axis=0).sort_values(ascending=False).head(10))
         print('Amount of Inf:\n', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10))
 
+    #def do_transforms(self):
         suggested_transform = test_transforms(alls, responses+features) #ages_features + rate_features
 
         suggested_transform.update(#must_transform
@@ -1285,7 +1311,6 @@ class full_dating_regression(object):
                                    dN_rate=make_best_logtransform(alls.dN_rate)
                                    #null_dN_before=sqrt
                                    )
-
         self.suggested_transform = suggested_transform
 
         # All binary variables should **NOT** be z-scored!
@@ -1326,6 +1351,11 @@ class full_dating_regression(object):
             if diff_args:
                 print('Different transform args:\n', '\n'.join('%35s\t%s' % t for t in diff_args))
 
+        for ft in list(suggested_transform.keys()):
+            if ft not in alls.columns:
+                logger.warning('Hardcoded feature %s not available: delete.', ft)
+                suggested_transform.pop(ft)
+
         alls_transformed = alls.transform(suggested_transform)
 
         print('transformed -> Any NA:', alls_transformed.isna().sum(axis=0).any())
@@ -1333,6 +1363,8 @@ class full_dating_regression(object):
         print('transformed shape:', alls_transformed.shape)
 
         self.a_t = a_t = alls_transformed
+
+    #def do_norm(self):
         a_n = alls_transformed.transform({ft: zscore for ft in responses+features
                                                   if ft not in bin_features})\
                                       .join(alls_transformed[bin_features])
@@ -1356,7 +1388,8 @@ class full_dating_regression(object):
         
         self.a_n = a_n
 
-        print('### Fit of all features')
+    #def do_fitall(self):
+        print('\n### Fit of all features')
 
         ols = sm.OLS(a_n[y], sm.add_constant(a_n[features]))
 
@@ -1371,7 +1404,8 @@ class full_dating_regression(object):
         #scatter_density('dS_rate_std', 'abs_age_dev', data=a_n, alpha=0.5)
         #scatter_density(alls.null_dist_before, alls.null_dS_before)
 
-        print('### PCA of features')
+    #def do_pca(self):
+        print('\n### PCA of features')
 
         self.ft_pca = ft_pca = detailed_pca(a_n, features)
 
@@ -1379,7 +1413,7 @@ class full_dating_regression(object):
         plt.gcf().suptitle('Feature covariance (PCA)')
         plt.show()
 
-        print('#### Factor analysis')
+        print('\n#### Factor analysis')
 
         # To take into account continuous and categorical variables
 
@@ -1390,7 +1424,7 @@ class full_dating_regression(object):
         plt.gcf().suptitle('Feature covariance (Factor Analysis)')
         plt.show()
 
-        print('### Feature decorrelation')
+        print('\n### Feature decorrelation')
         #must_drop_features
         a_n_inde = a_n.drop(["ls", "seconds",  # ~ ingroup_glob_len
                              "ingroup_std_gaps", # ~ ingroup_std_len
@@ -1478,6 +1512,7 @@ class full_dating_regression(object):
         plt.gcf().suptitle('Inde features covariance (PCA)')
         plt.show()
 
+    #def do_fit(self):
         print('### Fit of less colinear features')
 
         ols = sm.OLS(a_n_inde[y], sm.add_constant(a_n_inde[inde_features]))
@@ -1491,8 +1526,8 @@ class full_dating_regression(object):
         #scatter_density('ingroup_glob_len', y, data=a_n_inde, alpha=0.5);
         #sb.violinplot('triplet_zeros_dS', 'abs_age_dev', data=a_n_inde);
 
-        print('#### OLS fit')
-        fit = ols.fit()
+        print('\n#### OLS fit')
+        self.fit = fit = ols.fit()
         fit.summary()
         slopes = sm_ols_summary(fit)
         display_html(slopes)
@@ -1501,24 +1536,46 @@ class full_dating_regression(object):
         # Test of homoscedasticity
         #sms.linear_harvey_collier(fit)
 
-        print('#### Dropping the most colinear features')
+    #def do_dropcolinear(self):
+        print('\n#### Dropping the most colinear features')
         multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
         print(loop_drop_eval(inde_features, lambda x: multicol_test(a_n_inde[x]), nloops=3))
 
-        print('#### Random Forest Regression')
+    #def do_randomforest(self):
+        print('\n#### Random Forest Regression')
         randomforest_regression(a_n_inde[inde_features], a_n_inde[y])
 
+        slopes2 = self.do_bestfit()
+        self.do_worsttrees()
+
+        return slopes2
+
+
+    def do_bestfit(self):
         # Refit without 'null_dS_before' data
-        print('#### Refit without most colinear features')
+        print('\n#### Refit without most colinear features')
+        
+        a_n_inde = self.a_n_inde
+        inde_features = self.inde_features
+        y = self.responses[0]
 
-        print(a_n_inde.null_dS_before.value_counts())
-        print(a_n_inde.prop_splitseq.value_counts())
+        if 'null_dS_before' in a_n_inde.columns:
+            print(a_n_inde.null_dS_before.value_counts())
+        if 'prop_splitseq' in a_n_inde.columns:
+            print(a_n_inde.prop_splitseq.value_counts())
 
-        a_n_inde2 = a_n_inde.query('null_dS_before==0 & prop_splitseq==0').drop(
-                ['null_dS_before', 'prop_splitseq'], axis=1) 
+        #must_drop_features
+
+        print('Drop trees with bad properties: null_{dS,dN,t,dist}_{after,before}, prop_splitseq')
+        bad_props = ['null_%s_%s' % (m,where) for m in measures for where in ('before', 'after')]
+        bad_props.append('prop_splitseq')
+        bad_props = [ft for ft in bad_props if ft in a_n_inde.columns]
+
+        a_n_inde2 = a_n_inde.query(' & '.join('(%s==0)' % p for p in bad_props))\
+                        .drop(bad_props, axis=1, errors='ignore')
         self.a_n_inde2 = a_n_inde2
         print(a_n_inde2.shape)
-        inde_features2 = [ft for ft in inde_features if ft not in ('null_dS_before', 'prop_splitseq')]
+        inde_features2 = [ft for ft in inde_features if ft not in bad_props]
 
         ols2 = sm.OLS(a_n_inde2[y],
                       sm.add_constant(a_n_inde2[inde_features2]))
@@ -1530,6 +1587,7 @@ class full_dating_regression(object):
                                            len(fitlasso2.params))
         print('R² =', self.rsquared2)
         print('adj R² =', self.adj_rsquared2)
+        #print('P(F) = ', self.  ###TODO
         slopes2 = sm_ols_summary(fitlasso2)
         display_html(slopes2)
         self.slopes2 = slopes2.data
@@ -1543,10 +1601,11 @@ class full_dating_regression(object):
         ax.set_ylabel('Residual error')
         ax.set_xlabel('Predicted response')
 
-        print('### Investigate the worst trees')
-        display_html(alls.sort_values(y, ascending=False).head(50))
-
         return self.slopes2
+
+    def do_worsttrees(self):
+        print('### Investigate the worst trees')
+        display_html(self.alls.sort_values(self.responses[0], ascending=False).head(50))
 
 
 from siphon import dependency_func, dependency, auto_internalmethod
