@@ -225,11 +225,11 @@ def match_clades(tree1, tree2, exact=False):
     return matching_clades
 
 
-def ensure_uniq_names(tree, inplace=True):
+def ensure_uniq_names(tree, order='levelorder', inplace=True):
     if not inplace:
         tree = tree.copy()
     c = Counter()
-    for node in tree.traverse('levelorder'):
+    for node in tree.traverse(order):
         name_c = c[node.name]
         c[node.name] += 1
         if name_c:
@@ -239,14 +239,16 @@ def ensure_uniq_names(tree, inplace=True):
 
 
 def main(treefile1, treefile2, exact=False, sort=False, parser='PhylTree',
-         output='<=>!'):
+         output='<=>!', node_order='levelorder'):
     try:
         parse_trees = treeparsers.parserchoice[parser]
         to_ete3 = treeconverters.converterchoice[parser]['ete3']
 
         def iter_trees(treefile, *args, **kwargs):
             for tree in parse_trees(treefile, *args, **kwargs):
-                yield to_ete3(tree)
+                tree = to_ete3(tree)
+                ensure_uniq_names(tree, node_order)
+                yield tree
 
     except KeyError:
         raise ValueError('Bad parser value', parser)
@@ -289,12 +291,16 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--parser', default='PhylTree',
                         help=('Choices: "ete3", "PhylTree", "ProtTree" (case '
                               'insensitive) [%(default)s]'))
+    parser.add_argument('-n', '--node-order', default='levelorder',
+                        choices=['levelorder', 'preorder', 'postorder'],
+                        help='Tree traversal order for numbering duplicate node names')
     parser.add_argument('-o', '--output', default='<=>!',  # '~' for fuzzy
                         help=('Matches to output:\n'
                               '`=` identical,\n'
                               '`!` changed,\n'
                               '`<` only in left tree,\n'
-                              '`>` only in right tree.'))
+                              '`>` only in right tree.\n'
+                              '[%(default)r]'))
     
     args = parser.parse_args()
     main(**vars(args))
