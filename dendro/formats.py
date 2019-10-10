@@ -20,9 +20,11 @@ from Bio import Phylo
 
 
 def beast_comment_parser(text):
-    assert text.startswith('[&') and text.endswith(']') or not text
+    assert not text or text.startswith('[&') and text.endswith(']')
     variables = OrderedDict()
     #reg_interval = re.compile('^{-?\d+')
+    if text is None:
+        return variables
 
     text = re.sub(r'^\[&|\]$', '', text)
     while text:
@@ -52,6 +54,8 @@ def beast_comment_parser(text):
 
 
 def NHX_comment_formatter(variables: dict):
+    if not variables:
+        return ''
     text = '&&NHX:'  # Bio.Phylo does not want '[' or ']' at the start/end.
     for var, value in variables.items():
         text += var + '='
