@@ -86,8 +86,9 @@ def get_children(tree, node):
 
 
 def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
-                 subtreesdir='subtreesCleanO2', ensembl_version=ENSEMBL_VERSION,
-                 ignore_outgroups=False, ignore_error=True):
+                 subtreesdir='subtreesCleanO2', filesuffix='_genes.fa',
+                 ensembl_version=ENSEMBL_VERSION, ignore_outgroups=False,
+                 ignore_error=True):
     """Gather characteristics of the **input alignments**, and output them as
     a tsv file."""
 
@@ -113,13 +114,13 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
     for alfile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                              ancestor,
-                                                             '_genes.fa',
+                                                             filesuffix,
                                                              rootdir,
                                                              subtreesdir):
         try:
             al = AlignIO.read(alfile, format='fasta')
             al = ungap(al)
-            subtreefile = alfile.replace('_genes.fa', '.nwk')
+            subtreefile = alfile.replace(filesuffix, '.nwk')
             tree = ete3.Tree(subtreefile, format=1)
 
             if ignore_outgroups:
@@ -163,7 +164,7 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
             print('\t'.join([subtree, genetree] + al_stats))
                 
-            #treefiles_pattern = alfiles_pattern.replace('_genes.fa', '.nwk')
+            #treefiles_pattern = alfiles_pattern.replace(filesuffix, '.nwk')
         except BaseException as err:
             if ignore_error:
                 logger.exception('At file %s', alfile)
@@ -542,7 +543,7 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 #
 
 def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
-                     subtreesdir='subtreesCleanO2',
+                     subtreesdir='subtreesCleanO2', filesuffix='_m1w04.mlc',
                      ensembl_version=ENSEMBL_VERSION,
                      ignore_outgroups=False, ignore_error=True):
     """Gather characteristics of the **codeml results**, and output them as
@@ -580,7 +581,7 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
     for mlcfile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                               ancestor,
-                                                              '_m1w04.mlc',
+                                                              filesuffix,
                                                               rootdir,
                                                               subtreesdir):
         try:
@@ -700,7 +701,7 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
 def get_cleaning_stats(genetreelistfile, ancestor, 
                        rootdir='.', subtreesdir='subtreesCleanO2',
-                       ignore_error=True, **kwargs):
+                       filesuffix='_genes.fa', ignore_error=True, **kwargs):
     """Data removed from alignment with Gblocks/Hmmcleaner"""
     stats_header = ['subtree', 'genetree', 'gb_Nblocks', 'gb_percent',
                     'hmmc_nseqs', 'hmmc_propseqs', 'hmmc_max',
@@ -709,10 +710,10 @@ def get_cleaning_stats(genetreelistfile, ancestor,
     print('\t'.join(stats_header))
     for alfile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                              ancestor,
-                                                             '_genes.fa',
+                                                             filesuffix,
                                                              rootdir,
                                                              subtreesdir):
-        ext_regex = re.compile(r'\.fa$')
+        ext_regex = re.compile(r'\.'+ filesuffix.split('.')[-1] + r'$')
         try:
             # parse Gblocks output
             gb_logfile = alfile + '-gb.htm'
@@ -760,7 +761,7 @@ def get_cleaning_stats(genetreelistfile, ancestor,
                             + ['' if x is None else ('%g' % x)
                                 for x in output]))
                 
-            #treefiles_pattern = alfiles_pattern.replace('_genes.fa', '.nwk')
+            #treefiles_pattern = alfiles_pattern.replace(filesuffix, '.nwk')
         except BaseException as err:
             if ignore_error:
                 logger.exception('At file %s', alfile)
@@ -800,9 +801,13 @@ if __name__ == '__main__':
     subp = parser.add_subparsers(dest='commands', help='type of statistics to compile')
 
     codemlstats_parser = subp.add_parser('codeml', parents=[parent_parser], aliases=['co'])
+    codemlstats_parser.add_argument('-S', '--filesuffix', default='_m1w04.mlc',
+                                    help='file suffix of the globbing pattern [%(default)s]')
     codemlstats_parser.set_defaults(func=make_subparser_func(get_codeml_stats))
 
     alstats_parser = subp.add_parser('alignment', parents=[parent_parser], aliases=['al'])
+    alstats_parser.add_argument('-S', '--filesuffix', default='_genes.fa',
+                                help='file suffix of the globbing pattern [%(default)s]')
     alstats_parser.set_defaults(func=make_subparser_func(get_al_stats))
 
     treestats_parser = subp.add_parser('tree', parents=[parent_parser], aliases=['tr'])
@@ -811,6 +816,8 @@ if __name__ == '__main__':
     treestats_parser.set_defaults(func=make_subparser_func(get_tree_stats))
     cleaning_parser = subp.add_parser('cleaning', parents=[parent_parser],
                                       aliases=['cl'])
+    cleaning_parser.add_argument('-S', '--filesuffix', default='_genes.fa',
+                                 help='file suffix of the globbing pattern [%(default)s]')
     cleaning_parser.set_defaults(func=make_subparser_func(get_cleaning_stats))
 
     args = parser.parse_args()
