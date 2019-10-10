@@ -1423,7 +1423,7 @@ class full_dating_regression(object):
         fitlasso = ols.fit_regularized()
 
         print(adj_r_squared(a_n[y], fitlasso.fittedvalues, len(fitlasso.params)))
-        display_html(sm_ols_summary(fitlasso))
+        display_html(sm_pretty_slopes(fitlasso))
 
         #sb.violinplot('null_dS_before', 'abs_age_dev', data=a_n, cut=0);
         #scatter_density('r2t_dS_mean', 'abs_brlen_dev', data=a_n, alpha=0.5)
@@ -1546,7 +1546,7 @@ class full_dating_regression(object):
 
         ols = sm.OLS(a_n_inde[y], sm.add_constant(a_n_inde[inde_features]))
         self.fitlasso = fitlasso = ols.fit_regularized()
-        display_html(sm_ols_summary(fitlasso)) #.params.sort_values()
+        display_html(sm_pretty_slopes(fitlasso)) #.params.sort_values()
 
         # WARNING: Lasso shouldn't report meaningful R^2.
         print('R² =', r_squared(a_n_inde[y], fitlasso.fittedvalues))  #, fitlasso.rsquared)
@@ -1559,7 +1559,7 @@ class full_dating_regression(object):
         print('\n#### OLS fit')
         self.fit = fit = ols.fit()
         fit.summary()
-        slopes = sm_ols_summary(fit)
+        slopes = sm_pretty_slopes(fit)
         display_html(slopes)
         self.slopes = slopes.data
 
@@ -1621,7 +1621,7 @@ class full_dating_regression(object):
         #print('\n##### OLS fit (2)')
         #self.fit2 = fit2 = ols.fit()
         #fit2.summary()
-        ##display_html(sm_ols_summary(fit2))
+        ##display_html(sm_pretty_slopes(fit2))
         #display_html(fit2.summary())
 
         print('\n##### LASSO fit (2)')
@@ -1633,7 +1633,7 @@ class full_dating_regression(object):
         print('R² =', self.rsquared2)
         print('adj R² =', self.adj_rsquared2)
         #print('P(F) = ', self.  ###TODO
-        slopes2 = sm_ols_summary(fitlasso2)
+        slopes2 = sm_pretty_slopes(fitlasso2)
         display_html(slopes2)
         self.slopes2 = slopes2.data
 
@@ -1657,7 +1657,7 @@ class full_dating_regression(object):
         # See this page for all possible accessible attributes/methods:
         # https://www.statsmodels.org/stable/generated/statsmodels.regression.linear_model.OLSResults.html#statsmodels.regression.linear_model.OLSResults
         
-        self.reslopes2_styled = sm_ols_summary(refitlasso2)
+        self.reslopes2_styled = sm_pretty_slopes(refitlasso2)
         
         return self.slopes2
 
@@ -2140,7 +2140,7 @@ if __name__ == '__main__':
     olsfit0 = sm.OLS(alls_inde_normed.abs_brlen_error, sm.add_constant(alls_inde_normed[inde_features])).fit()
     olsfit0.params
     olsfit0.summary()
-    sm_ols_summary(olsfit0)
+    sm_pretty_slopes(olsfit0)
 
     # #### robust trees
 
@@ -2151,7 +2151,7 @@ if __name__ == '__main__':
     olsfitr = sm.OLS(data.abs_error, sm.add_constant(data[inde_features])).fit()
     olsfitr.params
     olsfitr.summary()
-    sm_ols_summary(olsfitr)
+    sm_pretty_slopes(olsfitr)
 
 
     # ### Same with the formula syntax
@@ -2165,7 +2165,7 @@ if __name__ == '__main__':
     r_summary = results.summary()
     r_summary
 
-    sm_ols_summary(results)
+    sm_pretty_slopes(results)
 
 
     # ### Add square effects
@@ -2194,7 +2194,7 @@ if __name__ == '__main__':
                                        )
                        ).fit()
 
-    sm_ols_summary(olsfit_sq)
+    sm_pretty_slopes(olsfit_sq)
 
     # There does not seem to be a squared relation for the branch length.
 
@@ -2245,7 +2245,7 @@ if __name__ == '__main__':
                            )
                        ).fit()
 
-    sm_ols_summary(olsfit_nodup_sq)
+    sm_pretty_slopes(olsfit_nodup_sq)
     olsfit_nodup_sq.summary()
 
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(15,18))

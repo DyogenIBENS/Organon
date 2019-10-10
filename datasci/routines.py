@@ -263,7 +263,7 @@ def randomforest_regression(X, y, cv=10, n_estimators=100, max_depth=5, **kwargs
     ft_importance = pd.Series(RFfit.feature_importances_,
                               index=X.columns).sort_values(ascending=False)
     print("R² =", RFfit.score(X, y))
-    print(ft_importance)
+    print(ft_importance)  # Does not give the direction of the effect.
 
     # a list of R² for each fit without a subsample
     RFcrossval = cross_val_score(RF, X, y, cv=cv, n_jobs=-1)
@@ -404,7 +404,7 @@ def lm_summary(lm, features, response, data):
         print("%-17s: %10.6f" % (ft, coef))
 
 
-def sm_ols_summary(olsfit, renames=None):
+def sm_pretty_slopes(olsfit, renames=None):
     """Nicer look for a StatsModels OLS fit (sorted features by slope)."""
     summary = olsfit.summary()
     if summary is not None:
@@ -415,9 +415,11 @@ def sm_ols_summary(olsfit, renames=None):
         r_coefs = olsfit.params.to_frame('coef')
 
     # Sort
-    r_coefs['abs_coef'] = r_coefs.coef.abs()
-    r_coefs.sort_values("abs_coef", ascending=False, inplace=True)
-    r_coefs.drop("abs_coef", axis=1, inplace=True)
+    coef_order = r_coefs.coef.abs().sort_values(ascending=False).index
+    if 'const' in coef_order:
+        coef_order = ['const'] + coef_order.difference(('const',)).tolist()
+
+    r_coefs = r_coefs.reindex(coef_order)
 
     renames = {} if renames is None else renames
 
@@ -428,6 +430,16 @@ def sm_ols_summary(olsfit, renames=None):
                         axis=0,
                         align="zero")
     return r_coefs_styled
+
+
+def sm_pretty_summary(olsfit, renames=None):
+    summary = olsfit.summary()
+    if summary is not None:
+        print(summary.tables[0])
+    display_html(sm_pretty_slopes(olsfit, renames))
+    if summary is not None:
+        for table in tables[2:]:
+            print(table)
 
 
 def drop_eval(features, func):
