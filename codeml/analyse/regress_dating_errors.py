@@ -1290,6 +1290,17 @@ class full_dating_regression(object):
         y = responses[0]
         print('Variable Y :', y)
         print('%d observation × %d features' % alls.shape)
+        if alls.shape[0] == 0:
+            logger.error('NULL inner join from:\nmean_errors\n------\n'
+                         + str(mean_errors.iloc[:5, :5]) + '\n'
+                         '\ndata.ns[dataset_params]\n------\n'
+                         + str(data.ns[dataset_params].iloc[:5, :5]) + '\n'
+                         '\ncs_rates\n------\n'
+                         + str(cs_rates.iloc[:5, :5]) + '\n'
+                         '\nsame_alls\n------\n'
+                         + str(same_alls.iloc[:5, :5]) + '\n'
+                         )
+            sys.exit(1)
         print('Amount of NA:\n', alls.isna().sum(axis=0).sort_values(ascending=False).head(10))
         print('Amount of Inf:\n', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10))
 
@@ -1440,6 +1451,8 @@ class full_dating_regression(object):
         plt.gcf().suptitle('Feature covariance (Factor Analysis)')
         plt.show()
 
+        ###TODO: detect outliers data points based on the FA space. -> and associated features.
+
         print('\n### Feature decorrelation')
         #must_drop_features
         a_n_inde = a_n.drop(["ls", "seconds",  # ~ ingroup_glob_len
@@ -1535,9 +1548,10 @@ class full_dating_regression(object):
         self.fitlasso = fitlasso = ols.fit_regularized()
         display_html(sm_ols_summary(fitlasso)) #.params.sort_values()
 
-        print('R² =', r_squared(a_n_inde[y], fitlasso.fittedvalues))
+        # WARNING: Lasso shouldn't report meaningful R^2.
+        print('R² =', r_squared(a_n_inde[y], fitlasso.fittedvalues))  #, fitlasso.rsquared)
         print('adj. R² =', adj_r_squared(a_n_inde[y], fitlasso.fittedvalues,
-                                         len(fitlasso.params)))
+                                         len(fitlasso.params)) #, fitlasso.rsquared_adj)
 
         #scatter_density('ingroup_glob_len', y, data=a_n_inde, alpha=0.5);
         #sb.violinplot('triplet_zeros_dS', 'abs_age_dev', data=a_n_inde);
@@ -1556,10 +1570,11 @@ class full_dating_regression(object):
         print('\n#### Dropping the most colinear features')
         multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
         print(loop_drop_eval(inde_features, lambda x: multicol_test(a_n_inde[x]), nloops=3))
+        # What is a reasonable threshold for the multicolinearity value?
 
     #def do_randomforest(self):
         print('\n#### Random Forest Regression')
-        randomforest_regression(a_n_inde[inde_features], a_n_inde[y])
+        RFcrossval_r2 = randomforest_regression(a_n_inde[inde_features], a_n_inde[y])
 
         slopes2 = self.do_bestfit()
         self.do_worsttrees()
@@ -1575,8 +1590,6 @@ class full_dating_regression(object):
         inde_features = self.inde_features
         y = self.responses[0]
 
-        if 'null_dS_before' in a_n_inde.columns:
-            print(a_n_inde.null_dS_before.value_counts())
         if 'prop_splitseq' in a_n_inde.columns:
             print(a_n_inde.prop_splitseq.value_counts())
 
@@ -1584,8 +1597,17 @@ class full_dating_regression(object):
 
         print('Drop trees with bad properties: null_{dS,dN,t,dist}_{after,before}, prop_splitseq')
         bad_props = ['null_%s_%s' % (m,where) for m in measures for where in ('before', 'after')]
+        #bad_props += ['%s_zeros_%s' %(what,m) for m in measures for what in ('triplet', 'sister')]
         bad_props.append('prop_splitseq')
         bad_props = [ft for ft in bad_props if ft in a_n_inde.columns]
+        
+        for badp in bad_props:
+            vcounts = a_n_inde[badp].value_counts()
+            if vcounts.shape[0] > 2:
+                logger.warning('%r not binary.', badp)
+            if vcounts.min() > 0.05 * vcounts.sum():
+                logger.warning('Discarding %r==0 trees will remove >5% of the subtrees', badp)
+            print(vcounts, '\n')
 
         a_n_inde2 = a_n_inde.query(' & '.join('(%s==0)' % p for p in bad_props))\
                         .drop(bad_props, axis=1, errors='ignore')
@@ -1596,6 +1618,13 @@ class full_dating_regression(object):
         ols2 = sm.OLS(a_n_inde2[y],
                       sm.add_constant(a_n_inde2[inde_features2]))
 
+        #print('\n##### OLS fit (2)')
+        #self.fit2 = fit2 = ols.fit()
+        #fit2.summary()
+        ##display_html(sm_ols_summary(fit2))
+        #display_html(fit2.summary())
+
+        print('\n##### LASSO fit (2)')
         self.fitlasso2 = fitlasso2 = ols2.fit_regularized()
 
         self.rsquared2 = r_squared(a_n_inde2[y], fitlasso2.fittedvalues)
@@ -1617,6 +1646,19 @@ class full_dating_regression(object):
         ax.set_ylabel('Residual error')
         ax.set_xlabel('Predicted response')
 
+        self.refitlasso2 = refitlasso2 = ols2.fit_regularized(refit=True)
+        print('###### OLS refit of LASSO selected variables')
+        display_html(refitlasso2.summary())
+        self.F_pval2 = refitlasso2.f_pvalue
+        self.lL2 = refitlasso2.llf
+        print('fstat = %g\nP(F > fstat) = %g\nlog-likelihood = %g' %(
+                refitlasso2.fvalue, self.F_pval2, self.lL2))
+
+        # See this page for all possible accessible attributes/methods:
+        # https://www.statsmodels.org/stable/generated/statsmodels.regression.linear_model.OLSResults.html#statsmodels.regression.linear_model.OLSResults
+        
+        self.reslopes2_styled = sm_ols_summary(refitlasso2)
+        
         return self.slopes2
 
     def do_worsttrees(self):
