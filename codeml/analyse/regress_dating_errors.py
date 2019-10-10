@@ -203,29 +203,45 @@ def intersection_plot(**named_sets):
     ax.set_yticklabels(['%s ^ %s' % lab for lab in labels], size='large')
     return ax
 
-def check_load_subtree_stats(aS, ts, cs, clS=None, figsize=(10,3)):
-    logger.info("shapes: aS %s, ts %s, cs %s" % (aS.shape, ts.shape, cs.shape))
-    logger.info("aS has dup: %s", aS.index.has_duplicates)
-    logger.info("ts has dup: %s", ts.index.has_duplicates)
-    logger.info("cs has dup: %s", cs.index.has_duplicates)
-    common_subtrees = set(aS.index) & set(ts.index) & set(cs.index)
-    logger.info("%d common subtrees" % len(common_subtrees))
-    only_al = aS.index.difference(ts.index.union(cs.index))
-    only_tr = ts.index.difference(aS.index.union(cs.index))
-    only_co = cs.index.difference(aS.index.union(ts.index))
-    l_al = len(only_al)
-    l_tr = len(only_tr)
-    l_co = len(only_co)
-    logger.warning("%d only in al stats: %s" % (l_al, list(only_al)[:min(5, l_al)]))
-    logger.warning("%d only in tree stats: %s" % (l_tr, list(only_tr)[:min(5, l_tr)]))
-    logger.warning("%d only in codeml stats: %s" % (l_co, list(only_co)[:min(5, l_co)]))
+#def check_load_subtree_stats(aS, ts, cs, clS=None, figsize=(10,3)):
+def check_subtree_stats(subtrees_stats, figsize=(10,3)):
+    
+    #logger.info("shapes: aS %s, ts %s, cs %s" % (aS.shape, ts.shape, cs.shape))
+    #logger.info("aS has dup: %s", aS.index.has_duplicates)
+    #logger.info("ts has dup: %s", ts.index.has_duplicates)
+    #logger.info("cs has dup: %s", cs.index.has_duplicates)
+    #common_subtrees = set(aS.index) & set(ts.index) & set(cs.index)
+    #logger.info("%d common subtrees" % len(common_subtrees))
+    #only_al = aS.index.difference(ts.index.union(cs.index))
+    #only_tr = ts.index.difference(aS.index.union(cs.index))
+    #only_co = cs.index.difference(aS.index.union(ts.index))
+    #l_al = len(only_al)
+    #l_tr = len(only_tr)
+    #l_co = len(only_co)
+    #logger.warning("%d only in al stats: %s" % (l_al, list(only_al)[:min(5, l_al)]))
+    #logger.warning("%d only in tree stats: %s" % (l_tr, list(only_tr)[:min(5, l_tr)]))
+    #logger.warning("%d only in codeml stats: %s" % (l_co, list(only_co)[:min(5, l_co)]))
+    #
+    #intersect_kwargs = dict(aS=aS.index, ts=ts.index, cs=cs.index)
+    #if clS is not None:
+    #    logger.info("shape clS %s; clS has dup: %s; %d common subtrees.",
+    #                clS.shape, clS.index.has_duplicates,
+    #                len(common_subtrees & set(clS.index)))
+    #    intersect_kwargs['clS'] = clS.index
 
-    intersect_kwargs = dict(aS=aS.index, ts=ts.index, cs=cs.index)
-    if clS is not None:
-        logger.info("shape clS %s; clS has dup: %s; %d common subtrees.",
-                    clS.shape, clS.index.has_duplicates,
-                    len(common_subtrees & set(clS.index)))
-        intersect_kwargs['clS'] = clS.index
+    for stype, ss in subtrees_stats:
+        logger.info("%s shape: %s. Has dup: %s", stype, ss.shape, ss.index.has_duplicates)
+        only_stype = ss.index.difference(set.union(*(set(oss.index)
+                                            for ostype,oss in subtrees_stats
+                                            if ostype != stype))
+                                        )
+        l_only = len(only_stype)
+        logger.warning("%d only in %s stats: %s", l_only, stype,
+                       list(only_stype)[:min(5, l_only)])
+    
+    common_subtrees = set.intersection(*(set(ss.index) for _,ss in subtrees_stats))
+    logger.info("%d common subtrees", len(common_subtrees))
+    intersect_kwargs = {stype: ss.index for stype,ss in subtrees_stats}
 
     ax = intersection_plot(**intersect_kwargs)
     ax.get_figure().set_size_inches(figsize)
@@ -1604,7 +1620,7 @@ class full_dating_regression(object):
         return self.slopes2
 
     def do_worsttrees(self):
-        print('### Investigate the worst trees')
+        print('\n### Investigate the worst trees')
         display_html(self.alls.sort_values(self.responses[0], ascending=False).head(50))
 
 
