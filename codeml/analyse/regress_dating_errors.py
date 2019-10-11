@@ -43,6 +43,7 @@ from sklearn.preprocessing import StandardScaler
 import statsmodels.api as sm
 #import statsmodels.formula.api as smf
 import statsmodels.stats.api as sms
+import statsmodels.graphics as smg  # smg.gofplots.qqplot
 
 from IPython.display import display_html
 import logging
@@ -236,8 +237,9 @@ def check_subtree_stats(subtrees_stats, figsize=(10,3)):
                                             if ostype != stype))
                                         )
         l_only = len(only_stype)
-        logger.warning("%d only in %s stats: %s", l_only, stype,
-                       list(only_stype)[:min(5, l_only)])
+        if l_only:
+            logger.warning("%d only in %s stats: %s", l_only, stype,
+                           list(only_stype)[:min(5, l_only)])
     
     common_subtrees = set.intersection(*(set(ss.index) for _,ss in subtrees_stats))
     logger.info("%d common subtrees", len(common_subtrees))
@@ -1343,7 +1345,7 @@ class full_dating_regression(object):
         # All binary variables should **NOT** be z-scored!
 
         # Remove constant features
-        features = [ft for ft in features if ft in suggested_transform]
+        self.features = features = [ft for ft in features if ft in suggested_transform]
         bin_features = [ft for ft in features if suggested_transform[ft].__name__ == 'binarize']
 
         if ref_suggested_transform:
@@ -1423,7 +1425,7 @@ class full_dating_regression(object):
         fitlasso = ols.fit_regularized()
 
         print(adj_r_squared(a_n[y], fitlasso.fittedvalues, len(fitlasso.params)))
-        display_html(sm_pretty_slopes(fitlasso))
+        sm_pretty_summary(fitlasso)
 
         #sb.violinplot('null_dS_before', 'abs_age_dev', data=a_n, cut=0);
         #scatter_density('r2t_dS_mean', 'abs_brlen_dev', data=a_n, alpha=0.5)
@@ -1432,7 +1434,7 @@ class full_dating_regression(object):
         #scatter_density(alls.null_dist_before, alls.null_dS_before)
 
     #def do_pca(self):
-        print('\n### PCA of features')
+        print('\n### Dimension reduction of features\n#### PCA')
 
         self.ft_pca = ft_pca = detailed_pca(a_n, features)
 
@@ -1444,14 +1446,25 @@ class full_dating_regression(object):
 
         # To take into account continuous and categorical variables
 
-        self.FA = FA = FactorAnalysis(n_components=15)
-        fa_components = FA.fit_transform(a_n[features])
+        self.FA = FA = detailed_pca(a_n, features, FA=True)
 
         heatmap_cov(np.abs(FA.get_covariance()), features, make_corr=True)
         plt.gcf().suptitle('Feature covariance (Factor Analysis)')
         plt.show()
 
-        ###TODO: detect outliers data points based on the FA space. -> and associated features.
+        # Outlier study (can be separated by a line in PC1-PC2 space)
+        # (example from Catarrhini exact m1w04_fsa)
+        #scatter_density(transformed0[:,0], transformed0[:,1], alpha=0.4)
+        #ax = plt.gca()
+        #ax.plot([-3, 3], [0.25, -0.5])
+
+        #xsep = [-3, 3]; ysep = [0.25, -0.5]
+        #eq_sep = lambda x: -0.125 - 0.75/6*x
+        ##x = np.array([-2, -1, 0, 1, 2])
+        ##plt.plot(x, eq_sep(x), 'r.')
+
+        #transformed0_out = transformed0[:,1] > eq_sep(transformed0[:,0])
+        #plt.plot(transformed0[transformed0_out, 0], transformed0[transformed0_out, 1], 'r.')
 
         print('\n### Feature decorrelation')
         #must_drop_features
@@ -1496,21 +1509,27 @@ class full_dating_regression(object):
                                RsynSites=('NsynSites',     'ls'),
                                sitelnL=('lnL', 'ingroup_glob_len'))
 
-        #a_n_inde = logdecorrelate(a_n_inde, a_t,
-        #                                  ('null_dist_before', 'freq_null_dist'),
-        #                                  ('null_dist_after',  'freq_null_dist'),
-        #                                  #('null_t_before',  'freq_null_t'),
-        #                                  #('null_t_after',   'freq_null_t'),
-        #                                  ('null_dS_before', 'freq_null_dS'),
-        #                                  ('null_dS_after',  'freq_null_dS'),
-        #                                  ('null_dN_before', 'freq_null_dN'),
-        #                                  ('null_dN_after',  'freq_null_dN'),
-        #                                  #('consecutive_zeros_t', 'triplet_zeros_t'),
-        #                                  #('sister_zeros_t', 'triplet_zeros_t'),
-        #                                  ('consecutive_zeros_dS', 'triplet_zeros_dS'),
-        #                                  ('consecutive_zeros_dN', 'triplet_zeros_dN'),
-        #                                  ('sister_zeros_dS', 'triplet_zeros_dS'),
-        #                                  ('sister_zeros_dN', 'triplet_zeros_dN'))
+        zeros_to_decorrelate = [('%s_zeros_%s' %(how, m), 'triplet_zeros_'+m)
+                                for m in ('t', 'dS', 'dN')
+                                for how in ('sister', 'consecutive')]
+        zeros_to_decorrelate = [pair for pair in zeros_to_decorrelate
+                                if pair[0] in a_t and pair[1] in a_t]
+        a_n_inde = logdecorrelate(a_n_inde, a_t,
+                                  *zeros_to_decorrelate)
+        #                         ('null_dist_before', 'freq_null_dist'),
+        #                         ('null_dist_after',  'freq_null_dist'),
+        #                         #('null_t_before',  'freq_null_t'),
+        #                         #('null_t_after',   'freq_null_t'),
+        #                         ('null_dS_before', 'freq_null_dS'),
+        #                         ('null_dS_after',  'freq_null_dS'),
+        #                         ('null_dN_before', 'freq_null_dN'),
+        #                         ('null_dN_after',  'freq_null_dN'),
+        #                         ('consecutive_zeros_dS', 'triplet_zeros_dS'),
+        #                         ('consecutive_zeros_dN', 'triplet_zeros_dN'),
+        #                         ('consecutive_zeros_t', 'triplet_zeros_t'),
+        #                         ('sister_zeros_dS', 'triplet_zeros_dS'),
+        #                         ('sister_zeros_dN', 'triplet_zeros_dN'),
+        #                         ('sister_zeros_t', 'triplet_zeros_t'))
 
         #a_n_inde[] = zscore(aC
 
@@ -1518,7 +1537,7 @@ class full_dating_regression(object):
         print('%d independent features (%d rows)' % a_n_inde.shape[::-1])
 
         inde_features = [ft for ft in features if ft in a_n_inde]
-        print('inde_features', len(inde_features))
+        #print('inde_features', len(inde_features))
         inde_features += [colname for colname in a_n_inde.columns.difference(a_n.columns)]
         print('inde_features', len(inde_features))
 
@@ -1528,49 +1547,62 @@ class full_dating_regression(object):
         self.inde_features = inde_features
 
         self.ft_pca_inde = ft_pca_inde = PCA(n_components=15)
-        ft_pca_inde.fit_transform(a_n_inde[inde_features]) # -> components
+        ft_pca_inde.fit_transform(a_n_inde[inde_features]) # -> transformed data
 
         heatmap_cov(np.abs(ft_pca_inde.get_covariance()), inde_features, make_corr=True)
         plt.gcf().suptitle('Inde features covariance (PCA)')
         plt.show()
 
         self.FA_inde = FA_inde = FactorAnalysis(n_components=15)
-        FA_inde.fit_transform(a_n_inde[inde_features]) # -> components
+        self.transformed_inde = transformed_inde = FA_inde.fit_transform(a_n_inde[inde_features])
 
         heatmap_cov(np.abs(FA_inde.get_covariance()), inde_features, make_corr=True)
-        plt.gcf().suptitle('Inde features covariance (PCA)')
+        plt.gcf().suptitle('Inde features covariance (FA)')
         plt.show()
+        fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
+        scatter_density(transformed_inde[:,1], transformed_inde[:,0], alpha=0.4,
+                        ax=ax1)
+        ax1.set_ylabel('PC1')
+        ax1.set_xlabel('PC2')
+        scatter_density(transformed_inde[:,2], transformed_inde[:,0], alpha=0.4,
+                        ax=ax2)
+        ax2.set_xlabel('PC3')
+        plt.show()
+        
 
     #def do_fit(self):
-        print('### Fit of less colinear features')
+        print('\n### Fit of less colinear features')
 
         ols = sm.OLS(a_n_inde[y], sm.add_constant(a_n_inde[inde_features]))
         self.fitlasso = fitlasso = ols.fit_regularized()
-        display_html(sm_pretty_slopes(fitlasso)) #.params.sort_values()
+        display_html(sm_pretty_summary(fitlasso))
 
-        # WARNING: Lasso shouldn't report meaningful R^2.
-        print('R² =', r_squared(a_n_inde[y], fitlasso.fittedvalues))  #, fitlasso.rsquared)
-        print('adj. R² =', adj_r_squared(a_n_inde[y], fitlasso.fittedvalues,
-                                         len(fitlasso.params)) #, fitlasso.rsquared_adj)
+        print('Non zeros params: %d/%d (from %d input features).\n'
+              'Almost zeros params (<1e-8): %d.' % (
+                (fitlasso.params.drop('const') != 0).sum(),
+                 fitlasso.params.drop('const').shape[0],
+                 len(inde_features),
+                 np.isclose(fitlasso.params.drop('const'), 0, atol=1e-8).sum()))
 
         #scatter_density('ingroup_glob_len', y, data=a_n_inde, alpha=0.5);
         #sb.violinplot('triplet_zeros_dS', 'abs_age_dev', data=a_n_inde);
 
-        print('\n#### OLS fit')
-        self.fit = fit = ols.fit()
-        fit.summary()
-        slopes = sm_pretty_slopes(fit)
-        display_html(slopes)
-        self.slopes = slopes.data
+        print('\n#### OLS refit')  #TODO: delete but make a refit.
+        self.fit = fit = ols.fit_regularized(refit=True)
+        pslopes = sm_pretty_summary(fit)
+        display_html(pslopes)
+        self.slopes = pslopes.data
 
         # Test of homoscedasticity
         #sms.linear_harvey_collier(fit)
 
     #def do_dropcolinear(self):
         print('\n#### Dropping the most colinear features')
-        multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
-        print(loop_drop_eval(inde_features, lambda x: multicol_test(a_n_inde[x]), nloops=3))
-        # What is a reasonable threshold for the multicolinearity value?
+        #multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
+        suggest_drop = loop_drop_eval(inde_features,
+                                      lambda x: multicol_test(a_n_inde[x]),
+                                      stop_criterion=20)
+        print(suggest_drop)
 
     #def do_randomforest(self):
         print('\n#### Random Forest Regression')
@@ -1606,14 +1638,15 @@ class full_dating_regression(object):
             if vcounts.shape[0] > 2:
                 logger.warning('%r not binary.', badp)
             if vcounts.min() > 0.05 * vcounts.sum():
-                logger.warning('Discarding %r==0 trees will remove >5% of the subtrees', badp)
+                logger.warning('Discarding %r==0 trees will remove >5%% of the subtrees', badp)
             print(vcounts, '\n')
 
         a_n_inde2 = a_n_inde.query(' & '.join('(%s==0)' % p for p in bad_props))\
                         .drop(bad_props, axis=1, errors='ignore')
         self.a_n_inde2 = a_n_inde2
         print(a_n_inde2.shape)
-        inde_features2 = [ft for ft in inde_features if ft not in bad_props]
+        self.inde_features2 = inde_features2 = [ft for ft in inde_features
+                                                if ft not in bad_props]
 
         ols2 = sm.OLS(a_n_inde2[y],
                       sm.add_constant(a_n_inde2[inde_features2]))
@@ -1626,16 +1659,17 @@ class full_dating_regression(object):
 
         print('\n##### LASSO fit (2)')
         self.fitlasso2 = fitlasso2 = ols2.fit_regularized()
-
-        self.rsquared2 = r_squared(a_n_inde2[y], fitlasso2.fittedvalues)
-        self.adj_rsquared2 = adj_r_squared(a_n_inde2[y], fitlasso2.fittedvalues,
-                                           len(fitlasso2.params))
-        print('R² =', self.rsquared2)
-        print('adj R² =', self.adj_rsquared2)
         #print('P(F) = ', self.  ###TODO
-        slopes2 = sm_pretty_slopes(fitlasso2)
-        display_html(slopes2)
-        self.slopes2 = slopes2.data
+        pslopes2 = sm_pretty_summary(fitlasso2)
+        display_html(pslopes2)
+        self.slopes2 = pslopes2.data
+
+        print('Non zeros params: %d/%d (from %d input features).\n'
+              'Almost zeros params (<1e-8): %d.' % (
+                (self.slopes2.coef.drop('const') != 0).sum(),
+                 self.slopes2.drop('const').shape[0],
+                 len(inde_features2),
+                 np.isclose(self.slopes2.coef.drop('const'), 0, atol=1e-8).sum()))
 
         # Residual plot
         scatter_density(fitlasso2.fittedvalues,
@@ -1646,19 +1680,41 @@ class full_dating_regression(object):
         ax.set_ylabel('Residual error')
         ax.set_xlabel('Predicted response')
 
+        print('\n###### OLS refit of LASSO selected variables')
         self.refitlasso2 = refitlasso2 = ols2.fit_regularized(refit=True)
-        print('###### OLS refit of LASSO selected variables')
-        display_html(refitlasso2.summary())
+
+        param_info = pd.concat((pd.Series({ft: func.__name__ for ft,func
+                                           in self.suggested_transform.items()},
+                                          name='transform'),
+                           pd.Series({ft: sm.OLS(a_n_inde2[y],
+                                                 sm.add_constant(a_n_inde2[ft])
+                                                 ).fit().params[ft]
+                                      for ft in inde_features2
+                                     }, name='Simple regression coef')
+                               ),
+                               axis=1, sort=False)
+        self.reslopes2_styled = sm_pretty_summary(refitlasso2, param_info)
+        display_html(self.reslopes2_styled)
         self.F_pval2 = refitlasso2.f_pvalue
         self.lL2 = refitlasso2.llf
-        print('fstat = %g\nP(F > fstat) = %g\nlog-likelihood = %g' %(
-                refitlasso2.fvalue, self.F_pval2, self.lL2))
+        #print('fstat = %g\nP(F > fstat) = %g\nlog-likelihood = %g' %(
+        #        refitlasso2.fvalue, self.F_pval2, self.lL2))
+
+        smg.gofplots.qqplot(refitlasso2.resid, line='r')
+
+        if hasattr(refitlasso2, 'cov_HC0'):
+            heatmap_cov(refitlasso2.cov_HC0, features, cmap='seismic', make_corr=True)
+            plt.gcf().suptitle('cov_HC0')
+            plt.show()
+            heatmap_cov(refitlasso2.cov_HC1, features, cmap='seismic', make_corr=True)
+            plt.gcf().suptitle('cov_HC1')
+            plt.show()
+        else:
+            logger.warning("No attribute 'cov_HC0' in `refitlasso2`.")
 
         # See this page for all possible accessible attributes/methods:
         # https://www.statsmodels.org/stable/generated/statsmodels.regression.linear_model.OLSResults.html#statsmodels.regression.linear_model.OLSResults
-        
-        self.reslopes2_styled = sm_pretty_slopes(refitlasso2)
-        
+
         return self.slopes2
 
     def do_worsttrees(self):
@@ -2138,9 +2194,7 @@ if __name__ == '__main__':
 
     # Add intercept
     olsfit0 = sm.OLS(alls_inde_normed.abs_brlen_error, sm.add_constant(alls_inde_normed[inde_features])).fit()
-    olsfit0.params
-    olsfit0.summary()
-    sm_pretty_slopes(olsfit0)
+    sm_pretty_summary(olsfit0)
 
     # #### robust trees
 
@@ -2149,9 +2203,7 @@ if __name__ == '__main__':
     # Add intercept
     data = alls_inde_normed[(alls_inde_normed.Ndup == 0) & (alls_inde_normed.Nspe == 7)]
     olsfitr = sm.OLS(data.abs_error, sm.add_constant(data[inde_features])).fit()
-    olsfitr.params
-    olsfitr.summary()
-    sm_pretty_slopes(olsfitr)
+    sm_pretty_summary(olsfitr)
 
 
     # ### Same with the formula syntax
@@ -2160,12 +2212,7 @@ if __name__ == '__main__':
     print(formula)
     ols = smf.ols(formula, data=alls_inde_normed)
     results = ols.fit()
-
-    results.params
-    r_summary = results.summary()
-    r_summary
-
-    sm_pretty_slopes(results)
+    sm_pretty_summary(results)
 
 
     # ### Add square effects
@@ -2194,7 +2241,7 @@ if __name__ == '__main__':
                                        )
                        ).fit()
 
-    sm_pretty_slopes(olsfit_sq)
+    sm_pretty_summary(olsfit_sq)
 
     # There does not seem to be a squared relation for the branch length.
 
@@ -2245,7 +2292,7 @@ if __name__ == '__main__':
                            )
                        ).fit()
 
-    sm_pretty_slopes(olsfit_nodup_sq)
+    sm_pretty_summary(olsfit_nodup_sq)
     olsfit_nodup_sq.summary()
 
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(15,18))

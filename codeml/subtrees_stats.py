@@ -373,20 +373,21 @@ def get_childdist_ete3(tree, nodedist):
     return [(ch, ch.dist) for ch in nodedist[0].children]
 
 
-def count_zero_combinations(tree):
+def count_zero_combinations(tree, exclusive=False):
     """Count the proportions of branch of length 0:
-    - consecutive;
-    - sister;
-    - triplet.
+    - triplet;
+    - sister (if exclusive is True: excluding triplet);
+    - consecutive (if exclusive is True: excluding triplet);
     """
     consecutive_zeros = 0
     n_branches = 0
 
     sister_zeros = 0
     triplet_zeros = 0
-    n_nodes = 0
+    n_nodes = 0  # number of strictly internal nodes
 
     for node in tree.traverse():
+        all_child_zeros = False
         if not node.is_leaf():
             all_child_zeros = all(ch.dist==0 for ch in node.children)
             sister_zeros += all_child_zeros
@@ -397,11 +398,33 @@ def count_zero_combinations(tree):
             if node.dist == 0 and node.up.dist == 0:
                 consecutive_zeros += 1
 
-            # Triplet and sister
+            # Triplet
             if not node.is_leaf():
                 n_nodes += 1
                 if node.dist == 0 and all_child_zeros:
                     triplet_zeros += 1
+                    if exclusive:
+                        consecutive_zeros -= 1
+                        sister_zeros -= 1
+        # Exclusive:
+        #is_triplet0 = False
+        #if not node.is_leaf():
+        #    all_child_zeros = all(ch.dist==0 for ch in node.children)
+        #    if not node.is_root():
+        #        # Triplet
+        #        n_nodes += 1
+        #        is_triplet0 = (node.dist == 0 and all_child_zeros):
+        #        triplet_zeros += int(is_triplet0)
+
+        #    if not is_triplet_zeros or not exclusive:
+        #        sister_zeros += all_child_zeros
+
+        #if not node.is_root():  # If using the ingroup, no node is the root...
+        #    # Consecutive
+        #    n_branches += 1
+        #    if (not is_triplet_zeros or not exclusive):
+        #        consecutive_zeros += (node.dist == 0 and node.up.dist == 0)
+
 
     return (float(consecutive_zeros) / n_branches,
             float(sister_zeros) / (n_nodes+1),
@@ -519,7 +542,7 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
                 B_values = np.array(B_values)
                 output += (B_values.min(), B_values.mean())
-                output += count_zero_combinations(tree)
+                output += count_zero_combinations(tree, exclusive=True)
 
             print('\t'.join((subtree, genetree, root_location) +
                              tuple(str(x) for x in output)))

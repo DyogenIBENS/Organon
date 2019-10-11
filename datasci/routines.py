@@ -19,14 +19,15 @@ import warnings
 
 import scipy.cluster.hierarchy as hclust
 
-from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA, FactorAnalysis
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import cross_val_score
 
 from datasci.graphs import scatter_density, \
                            plot_cov, \
-                           plot_features_radar
-from datasci.stats import normal_fit, cov2cor  #, r_squared, adj_r_squared
+                           plot_features_radar, \
+                           heatmap_cov
+from datasci.stats import normal_fit, cov2cor, r_squared, adj_r_squared
 from datasci.dataframe_recipees import centered_background_gradient, magnify
 
 
@@ -93,6 +94,12 @@ def zscore(x):
 
 
 def decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
+    """
+    *args: tuples of ('y', 'x') of variables in src_data;
+    **kwargs: dict(y='x') of variables in src_data;
+
+    Apply `decorrfunc(src_data[y], src_data[x])` to the new data.
+    """
     if src_data is None:
         src_data = data
 
@@ -272,29 +279,39 @@ def randomforest_regression(X, y, cv=10, n_estimators=100, max_depth=5, **kwargs
     return RFfit
 
 
-def print_pca_loadings(ft_pca, features):
+def print_pca_loadings(pca, features):
+    """Works with sklearn.decomposition.PCA or FactorAnalysis"""
     print("### PC loadings")
     print("%-17s:\t%10s\t%10s" % ('Feature', 'coef PC1', 'coef PC2'))
-    for ft, coef1, coef2 in sorted(zip(features, ft_pca.components_[0,:],
-                                       ft_pca.components_[1,:]),
+    for ft, coef1, coef2 in sorted(zip(features, pca.components_[0,:],
+                                       pca.components_[1,:]),
                                    key=lambda x: (abs(x[1]), abs(x[2])),
                                    reverse=True):
         print("%-17s:\t%10.6f\t%10.6f" % (ft, coef1, coef2))
 
 
-def detailed_pca(alls_normed, features):
+def detailed_pca(alls_normed, features, FA=False):
+    """if FA=True, perform factor analysis instead of PCA"""
 
-    ft_pca = PCA(n_components=15)
-    ft_pca_components = ft_pca.fit_transform(alls_normed[features])
+    Analysis = FactorAnalysis if FA else PCA
+    fa = Analysis(n_components=15)
+    transformed = fa.fit_transform(alls_normed[features])
 
     # ### PC contribution to variance
 
-    print("Components dimensions: %s" % (ft_pca_components.shape,))
+    print("transformed data dimensions: %s" % (transformed.shape,))
+    print("components dimensions: %s" % (fa.components_.shape,))
 
     # Explained variance of each principal component.
-    PC_contrib = ft_pca.explained_variance_ratio_
-    print("Feature contributions:\n", PC_contrib)
+    if FA:
+        print('WARNING: Computing feature contribution from FactorAnalysis without the noise variance!')
+        #PC_contrib = (fa.components_**2 + fa.noise_variance_).sum(axis=1)
+        PC_contrib = (fa.components_**2).sum(axis=1)
+        PC_contrib /= PC_contrib.sum()
+    else:
+        PC_contrib = fa.explained_variance_ratio_
 
+    print("Feature contributions:\n", PC_contrib)
     # Plot cumulative contribution of PC
     fig, ax = plt.subplots()
     ax.bar(np.arange(PC_contrib.size), PC_contrib.cumsum())
@@ -303,22 +320,19 @@ def detailed_pca(alls_normed, features):
     ax.set_ylabel("Cumulative ratio of variance explained")
     plt.show()
 
-    # Coefficients of the linear combination of each parameter in the resulting components
-    print("Components dimensions:", ft_pca.components_.shape)
-
     # ### PC loadings
 
     # weights of each feature in the PCs
 
-    components = pd.DataFrame(ft_pca.components_.T, index=features,
+    components = pd.DataFrame(fa.components_.T, index=features,
                               columns=["PC%d" % (i+1) for i in
-                                       range(ft_pca.components_.shape[0])])
+                                       range(fa.components_.shape[0])])
 
     # Just so that the features with similar component values are grouped together.
     # TO give more weight in the clustering to the first PC, multiply the PC
     # by their eigenvalue.
     ft_dendro = hclust.dendrogram(
-                            hclust.linkage(components*ft_pca.explained_variance_,
+                            hclust.linkage(components*PC_contrib,
                                            'average'),
                             labels=features,
                             count_sort='descending',
@@ -332,12 +346,11 @@ def detailed_pca(alls_normed, features):
             set_caption("Principal Components loadings").\
             set_properties(**{'max-width': '80px', 'font-size': '1pt'}).\
             set_table_styles(magnify())
-    print("Rendered_components:", type(styled_components), styled_components)
+    print("Rendered_components:", type(styled_components))
     display_html(styled_components)
 
     # ### Feature covariance
-
-    ft_cov = ft_pca.get_covariance()
+    ft_cov = fa.get_covariance()
     print("Covariance dimensions:", ft_cov.shape)
     plot_cov(ft_cov[ft_order,:][:,ft_order], ordered_ft, cmap='seismic')
     plt.show()
@@ -350,7 +363,19 @@ def detailed_pca(alls_normed, features):
     plot_features_radar(components, features, PCs=["PC1", "PC3"], ax=ax1)
     fig.suptitle("Features in Principal Component space")
     plt.show()
-    return ft_pca
+
+    print('# Data plotted in component space')
+    scatter_density(transformed[:,0], transformed[:,1], alpha=0.5)
+    ax = plt.gca()
+    ax.set_xlabel('PC1')
+    ax.set_ylabel('PC2')
+    plt.show()
+    scatter_density(transformed[:,0], transformed[:,2], alpha=0.5)
+    ax = plt.gca()
+    ax.set_xlabel('PC1')
+    ax.set_ylabel('PC3')
+    plt.show()
+    return fa
 
 
 # Functions for checking colinearity between variables
@@ -404,7 +429,7 @@ def lm_summary(lm, features, response, data):
         print("%-17s: %10.6f" % (ft, coef))
 
 
-def sm_pretty_slopes(olsfit, renames=None):
+def sm_pretty_slopes(olsfit, merge=None, renames=None):
     """Nicer look for a StatsModels OLS fit (sorted features by slope)."""
     summary = olsfit.summary()
     if summary is not None:
@@ -417,9 +442,13 @@ def sm_pretty_slopes(olsfit, renames=None):
     # Sort
     coef_order = r_coefs.coef.abs().sort_values(ascending=False).index
     if 'const' in coef_order:
-        coef_order = ['const'] + coef_order.difference(('const',)).tolist()
+        coef_order = ['const'] + coef_order.difference(('const',), sort=False).tolist()
 
-    r_coefs = r_coefs.reindex(coef_order)
+    r_coefs = r_coefs.loc[coef_order]
+
+    if merge is not None:
+        # Add additional info about the params.
+        r_coefs = r_coefs.join(merge,sort=False)
 
     renames = {} if renames is None else renames
 
@@ -432,14 +461,21 @@ def sm_pretty_slopes(olsfit, renames=None):
     return r_coefs_styled
 
 
-def sm_pretty_summary(olsfit, renames=None):
-    summary = olsfit.summary()
+def sm_pretty_summary(fit, merge=None, renames=None):
+    summary = fit.summary()
     if summary is not None:
-        print(summary.tables[0])
-    display_html(sm_pretty_slopes(olsfit, renames))
-    if summary is not None:
-        for table in tables[2:]:
-            print(table)
+        display_html(summary.tables[0])
+        for table in summary.tables[2:]:
+            display_html(table)
+    else:
+        print('Warning: R² and adjusted R² not provided for this result.')
+        print('R² =', r_squared(fit.model.endog, fit.fittedvalues),
+              '; Adj. R² =', adj_r_squared(fit.model.endog,
+                                         fit.fittedvalues,
+                                         len(fit.params)))
+    pretty_slopes = sm_pretty_slopes(fit, merge, renames)
+    #display_html(pretty_slopes)
+    return pretty_slopes
 
 
 def drop_eval(features, func):
@@ -455,7 +491,7 @@ def display_drop_eval(features, func):
     return drop_eval(features, func).to_frame.style.bar()
 
 
-def loop_drop_eval(features, func, criterion='min', nloops=None):
+def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=None):
     if nloops is None:
         nloops = len(features)
 
@@ -467,13 +503,18 @@ def loop_drop_eval(features, func, criterion='min', nloops=None):
         
         if criterion == 'min':
             i = dropped_k.values.argmin()  # Numpy argmin -> get an integer index.
+            stopped = False if stop_criterion is None else (dropped_k.values[i] < stop_criterion)
         elif criterion == 'max':
             i = dropped_k.values.argmax()  # Numpy argmin -> get an integer index.
+            stopped = False if stop_criterion is None else (dropped_k.values[i] > stop_criterion)
         else:
             raise ValueError('Unknown criterion %r (min/max)' % criterion)
         
         print('%d. DROP %s' % (k, next_features[i]))
         dropped_features.append(next_features[i])
+        
+        if stopped:
+            break
         next_features = next_features[:i] + next_features[(i+1):]
 
     return dropped_features
