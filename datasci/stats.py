@@ -54,11 +54,34 @@ def f_test(x, y, data=None):
     return p_further
 
 
-def partial_zscore(v, condition):
-    return (v - v[condition].mean()) / v[condition].std()
+def iqr(v):
+    """Inter-quartile range"""
+    q1, q3 = v.quantile([0.25, 0.75])
+    return q3 - q1
 
 
-def rescale_groups(y, hue, by, data=None, ref_hue=None):
+def mad(v):
+    """Median absolute deviation from the median"""
+    return (v - v.median()).abs().median()
+
+
+def partial_zscore(v, condition, ddof=1):
+    return (v - v[condition].mean()) / v[condition].std(ddof=ddof)
+
+def partial_quartiledispersion(v, condition):
+    """Data centered around the median, scaled by the
+    Inter-quartile range. Alternatively, one could normalise by the
+    Median Absolute Deviation from the median."""
+    q1, med, q3 = v[condition].quantile([0.25, 0.5, 0.75])
+    return (v - med) / (q3 - q1)
+    
+def partial_maddispersion(v, condition):
+    med = v[condition].median()
+    mad = (v[condition] - med).abs().median()
+    return (v - med) / mad
+
+def rescale_groups(y, hue, by, data=None, ref_hue=None, center='mean',
+                   scale='std', **scale_kw):
     """
     Rescale groups of measures Y to a comparable size:
     
@@ -68,7 +91,14 @@ def rescale_groups(y, hue, by, data=None, ref_hue=None):
 
     The idea is to detect `hue` effects on `y` accross multiple groups (`by`).
 
-    Works on `long` format (same as seaborn.violinplot)."""
+    Works on `long` format (same as seaborn.violinplot).
+    
+    :param: `center`: 'mean' or 'median', or anything that .transform can accept.
+    :param: `scale`: 'std', iqr, mad, or anything that .transform can accept.
+
+    N.B: std default ddof is 0.
+    """
+    
     hue_levels = data[hue].unique()
     #assert hue_levels.size <= 2, "Not implemented for more than 2 hue values."
     #print(hue_levels)
@@ -76,30 +106,51 @@ def rescale_groups(y, hue, by, data=None, ref_hue=None):
     hue0 = hue_levels[0] if ref_hue is None else ref_hue
 
     # for each group (`by`), subtract the mean and divide by the SD of the subgroup 0.
-    return data.groupby(by, group_keys=False)\
-                    .apply(
-                        lambda v: v.assign(**{y: partial_zscore(v[y], v[hue] == hue0)})
-                    )
-
-    #grouped_y0 = data.loc[data[hue] == hue_levels[0]].groupby(by)#[y]
-    #Y0_means = grouped_y0.agg('mean')
-    #Y0_stds  = grouped_y0.agg('std')
-    #
-    ##transformed_Y = [(data.loc[data[hue] == hue_level, y].groupby(by) - Y_means) / Y_stds
-    ##                 for hue_level in hue_levels]
+    #return data.groupby(by, group_keys=False)\
+    #                .apply(
+    #                    lambda v: v.assign(**{y: scale(v[y], v[hue]==hue0, **scale_kw)})
+    #                )
     
-    #return data.groupby(by).transform(lambda v: (v - Y0_means[v.name])\
-    #                                            / Y0_stds[v.name])
+    # Not good for getting the overall variance of hues!=hue0 (because of intergroup variance)
+    g = data.groupby([by, hue])
+    centered = (data[y] - g[y].transform(center))
+
+    if scale == 'std':
+        scale_kw.setdefault('ddof', 0)
+
+    scales = (data[y].where(data[hue].isin(hue0))
+              if isinstance(hue0, (tuple, list, set, frozenset))
+              else data[y].where(data[hue]==hue0))\
+            .groupby(data[by]).transform(scale, **scale_kw)
+    return centered / scales
+
 
 # Must do a test of variance between 2 groups (blue/green):
 # -> group all blue groups into one single one, normalizing each, and normalizing the
 # corresponding green group by the same factor.
-def multi_vartest(y, hue, by, data=None, ref_hue=None):
+def multi_vartest(y, hue, by, data=None, ref_hue=None, center='mean',
+                  scale='std', **scale_kw):
     # There must be only 2 `hue` values.
     # `by` is the "x" of the violinplot.
-                    
-    transformed_Y = rescale_groups(y, hue, by, data, ref_hue).dropna(subset=[y])
-    print(transformed_Y.groupby(hue)[y].agg('std').sort_values().rename('SD(%s)' % y))
+
+    if data is None:
+        raise NotImplementedError
+    rescaled_y = rescale_groups(y, hue, by, data, ref_hue, center, scale, **scale_kw)
+    transformed_Y = data.assign(**{y:rescaled_y}).dropna(subset=[y])
+
+    # Print details
+    #if scale is partial_zscore:
+    #    func = 'std'
+    #    name = 'std'
+    #elif scale is partial_quartiledispersion:
+    #    func = lambda v: v.quantile(0.75) - v.quantile(0.25)
+    #    name = 'iqr'
+    #elif scale is partial_maddispersion:
+    #    func = lambda v: (v - v.median()).abs().median()
+    #    name = 'mad'
+    scalename = scale.__name__ if callable(scale) else scale
+    print(transformed_Y.groupby(hue)[y].agg(scale, **scale_kw).rename('%s(%s)' % (scalename, y)))
+    #subgroups = transformed_Y.groupby([by, y]).std(ddof=0))
     return stats.levene(*(Y_group for _, Y_group in transformed_Y.groupby(hue)[y]))
     
 

@@ -89,8 +89,8 @@ def binarize(x):
     return np.digitize(x, [0], right=True)
 
 
-def zscore(x):
-    return (x - x.mean()) / x.std() # if x.std() else 1) )
+def zscore(x, ddof=1):
+    return (x - x.mean()) / x.std(ddof=ddof) # if x.std() else 1) )
 
 
 def decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
@@ -105,10 +105,11 @@ def decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
 
     kwargs.update({'R%s' % v[0]: v for v in args})
 
-    return data.assign(**{newvar: decorrfunc(src_data[var],src_data[corrvar])
-                          for newvar, (var, corrvar) in kwargs.items()})\
-               .drop([var for var,_ in kwargs.values()],
-                     axis=1, errors='ignore')
+    return data.drop([var for var,_ in kwargs.values()],
+                     axis=1, errors='ignore')\
+                .assign(**{newvar: decorrfunc(src_data[var],src_data[corrvar])
+                           for newvar, (var, corrvar) in kwargs.items()})
+
 
 decorrelate = partial(decorrelator, np.divide)
 logdecorrelate = partial(decorrelator, np.subtract)
@@ -429,11 +430,14 @@ def lm_summary(lm, features, response, data):
         print("%-17s: %10.6f" % (ft, coef))
 
 
-def sm_pretty_slopes(olsfit, merge=None, renames=None):
+def sm_pretty_slopes(olsfit, merge=None, renames=None, bars=['coef']):
     """Nicer look for a StatsModels OLS fit (sorted features by slope)."""
-    summary = olsfit.summary()
+    try:
+        summary = olsfit.summary()
+    except NotImplementedError:
+        summary = None
     if summary is not None:
-        r_coefs = pd.read_csv(StringIO(olsfit.summary().tables[1].as_csv()),
+        r_coefs = pd.read_csv(StringIO(summary.tables[1].as_csv()),
                               sep=r'\s*,\s*', index_col=0, engine='python')
     else:
         # For example a Lasso fit (OLS().fit_regularized())
@@ -455,14 +459,17 @@ def sm_pretty_slopes(olsfit, merge=None, renames=None):
     param_names = [renames.get(n, n) for n in olsfit.model.exog_names
                    if n not in ('Intercept', 'const')]
     r_coefs_styled = r_coefs.rename(renames).style.bar(
-                        subset=pd.IndexSlice[param_names, "coef"],
+                        subset=pd.IndexSlice[param_names, bars],
                         axis=0,
                         align="zero")
     return r_coefs_styled
 
 
-def sm_pretty_summary(fit, merge=None, renames=None):
-    summary = fit.summary()
+def sm_pretty_summary(fit, merge=None, renames=None, bars=['coef']):
+    try:
+        summary = fit.summary()
+    except NotImplementedError:
+        summary = None
     if summary is not None:
         display_html(summary.tables[0])
         for table in summary.tables[2:]:
@@ -473,7 +480,7 @@ def sm_pretty_summary(fit, merge=None, renames=None):
               '; Adj. R² =', adj_r_squared(fit.model.endog,
                                          fit.fittedvalues,
                                          len(fit.params)))
-    pretty_slopes = sm_pretty_slopes(fit, merge, renames)
+    pretty_slopes = sm_pretty_slopes(fit, merge, renames, bars)
     #display_html(pretty_slopes)
     return pretty_slopes
 
