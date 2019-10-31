@@ -34,6 +34,7 @@ OPTIONS
         (will delay stdout messages).
     -q  Quiet mode.
     -s  Keep the output in its separate subdirectory (Do not move it back).
+    -e  Press enter to answer any questions [NOT implemented]
 '
 ### PARSE COMMAND LINE ###
 
@@ -45,8 +46,9 @@ valgrind=0
 buffer=0
 quiet=0
 subdir=0
+answer=0
 
-while getopts "h?vbqs" opt; do
+while getopts "h?evbqs" opt; do
 	case "$opt" in
 	h|\?)
 		echo "$help"
@@ -59,6 +61,8 @@ while getopts "h?vbqs" opt; do
 	q)  quiet=1
 		;;
 	s)  subdir=1
+		;;
+	e)  answer=1
 		;;
 	esac
 done
@@ -159,10 +163,13 @@ if [ "$valgrind" -eq 1 ]; then
 	valgrind --tool=massif --massif-out-file=../"$genetree.massif.out" \
 		codeml "codeml.$ctlext"
 elif [ "$buffer" -eq 1 ]; then
+	#if [ "$answer" -eq 1 ]; then echo -e '\n' | codeml "codeml.$ctlext" | tee ../"$genetree.log"; else
 	codeml "codeml.$ctlext" | tee ../"$genetree.log"
 elif [ "$quiet" -eq 1 ]; then
+	#if [ "$answer" -eq 1 ]; then echo -e '\n' | codeml "codeml.$ctlext" > ../"$genetree.log"; else
 	codeml "codeml.$ctlext" > ../"$genetree.log"
 else
+	# cannot pipe to 'unbuffer'
 	unbuffer codeml "codeml.$ctlext" | tee ../"$genetree.log"
 fi
 # TODO: build command as string, then eval.
