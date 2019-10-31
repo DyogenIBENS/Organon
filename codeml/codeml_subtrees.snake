@@ -14,7 +14,7 @@ ruleorder: codeml_condor > codeml
 
 wildcard_constraints:
 	ancestorgenetreesuffix='[A-Z][A-Za-z_.-]+ENSGT00\d+[.`a-zA-Z0-9-]*',
-	alignment='(genes|fsa)'
+	alignment='genes|fsa|fsa_hmm'
 #	genetree = 'ENSGT\d+',#,
 #	suffix = '[a-zA-Z.]+'
 #	#bz2_or_not = "|\.bz2"
@@ -59,6 +59,44 @@ else:
 #
 #def get_ctl_pre(wildcards):
 #	return [f.replace('.nwk', '.ctl') for f in get_subtrees(wildcards)]
+def get_subalignments(wildcards):
+	
+	wcards = vars(wildcards)
+	cachefile = '.cache_{basename}_{ancestor}_{model}.{subtreedir}'
+	if 'alignment' in wcards:
+		cachefile = cachefile.replace('{model}', '{model}-{alignment}')
+	
+	cachefile = cachefile + ('.list{id}' if 'id' in wcards else '.list') + '.bz2'
+	
+	cachefile = cachefile.format_map(wcards)
+	
+	if os.path.exists(cachefile):
+		print("Loading from cache %r" % cachefile, file=sys.stderr)
+		with bz2.open(cachefile, 'rt', encoding='utf8') as cache:
+			for line in cache:
+				yield line.rstrip()
+	else:
+		mainpattern = '{{0}}/{subtreedir}/{ancestor}{{0}}*_{alignment}.fa'.format(**vars(wildcards))
+
+		print("Search on pattern: %r" % mainpattern, file=sys.stderr)
+		patterns = [mainpattern.format(genetree) for genetree in GENETREES]
+		#discarded = 0
+		#discarded_codeml = 0
+		#total_genetrees = len(GENETREES)
+		#fmt_progress = '\r[progress: %5d/' + str(total_genetrees) + ' (%.2f)]'
+		
+		with bz2.open(cachefile, 'wt', encoding='utf8') as cache:
+			for processed_genetrees, pattern in enumerate(patterns, start=1):
+				#percentage = float(processed_genetrees) / total_genetrees * 100
+				#print(fmt_progress % (processed_genetrees, percentage),
+				#		end=' ', file=sys.stderr)
+				stricter_pattern = re.compile(pattern.replace('*', '[.`a-zA-Z]*'))
+				for f in iglob(pattern):
+					if stricter_pattern.match(f):
+						yield f
+						cache.write(f + '\n')
+		print("Cached in %r" % cachefile, file=sys.stderr)
+
 
 def get_subtrees_ancestor(wildcards):
 	
@@ -91,7 +129,7 @@ def get_subtrees_ancestor(wildcards):
 				#percentage = float(processed_genetrees) / total_genetrees * 100
 				#print(fmt_progress % (processed_genetrees, percentage),
 				#		end=' ', file=sys.stderr)
-				stricter_pattern = re.compile(pattern.replace('*', '([.`a-zA-Z])*'))
+				stricter_pattern = re.compile(pattern.replace('*', '[.`a-zA-Z]*'))
 				for f in iglob(pattern):
 					if stricter_pattern.match(f):
 						yield f
@@ -117,11 +155,16 @@ def get_ctl_ancestor_pre(wildcards):
 	count = 0
 	ctl_suffix = (wildcards.model if wildcards.alignment == 'genes' else
 				  wildcards.model + '-' + wildcards.alignment)
-	for count, f in enumerate(get_subtrees_ancestor(wildcards), start=1):
-		expected_mlc = f.replace('.nwk', '_%s.mlc' % ctl_suffix)
+	#for count, f in enumerate(get_subtrees_ancestor(wildcards), start=1):
+	for count, f in enumerate(get_subalignments(wildcards), start=1):
+		#expected_mlc = f.replace('.nwk', '_%s.mlc' % ctl_suffix)
+		expected_mlc = f.replace('_%s.fa' % wildcards.alignment,
+								 '_%s.mlc' % ctl_suffix)
 
 		if REDO or not os.path.isfile(expected_mlc):
-			expected_ctl = f.replace('.nwk', '_%s.ctl' % ctl_suffix)
+			#expected_ctl = f.replace('.nwk', '_%s.ctl' % ctl_suffix)
+			expected_ctl = f.replace('_%s.fa' % wildcards.alignment,
+									 '_%s.ctl' % ctl_suffix)
 			r.append(expected_ctl)
 	todo = len(r)
 	print("To include: %d ; already done: %d files." % (todo, count-todo),
@@ -141,8 +184,11 @@ def get_ctl_ancestor(wildcards):
 
 rule all:
 	input: get_ctl_ancestor_pre  # outputs of `make_ctl`
-	wildcard_constraints: id='\d+'
-	output: touch(temp("{basename}_{ancestor}_{model}-{alignment}.{subtreedir}.condor.READY-{id}"))
+	wildcard_constraints:
+		id='\d+|head'
+#		alignment='genes|fsa|fsa_hmm|fsa-hmmc'
+	#output: touch(temp("{basename}_{ancestor}_{model}-{alignment}.{subtreedir}.condor.READY-{id}"))
+	output: temp(touch("{basename}_{ancestor}_{model}-{alignment}.{subtreedir}.condor.READY-{id}"))
 
 # prepare multiple alignment. Once for each gene tree.
 rule prot2gene_in_align:
@@ -205,9 +251,9 @@ rule rm_seq_not_in_tree:
 		"~glouvel/scripts/evosite3d/extract_sequences.py '{input.labels}' "\
 		"'{input.al}' > '{output}'"
 
-subworkflow realign:
-	workdir: os.getcwd()  # != "." which is `workflow.basedir` (the snakefile directory)
-	snakefile: "../seqtools/realign.snake"
+#subworkflow realign:
+#	workdir: os.getcwd()  # != "." which is `workflow.basedir` (the snakefile directory)
+#	snakefile: "../seqtools/realign.snake"
 
 #rule fasta2phylip_realign:
 #	input:  realign("{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.fa")
@@ -219,7 +265,8 @@ subworkflow realign:
 
 rule fasta2phylip:
 	#input:  rules.rm_seq_not_in_tree.output #"{ancestorgenetreesuffix}_genes.fa"
-	input:  realign("{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.fa")
+	#input:  realign("{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.fa")
+	input:  "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.fa"
 	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.phy"
 	shell:
 		"/users/ldog/glouvel/scripts/evosite3d/convert_fasta2phylip.py "\
