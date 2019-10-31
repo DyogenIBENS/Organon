@@ -109,7 +109,7 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                     for typ in ('mean', 'median', 'std')]
     if ignore_outgroups:
         ##TO REMOVE
-        stats_names = ['ingroup_'+s for s in stats_names]
+        stats_names = ['ingroup_'+s for s in stats_names] + ['outgroups']
 
     print('\t'.join(['subtree', 'genetree'] + stats_names))
 
@@ -125,7 +125,7 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
             tree = ete3.Tree(subtreefile, format=1)
 
             if ignore_outgroups:
-                tree, _ = find_ingroup_marked(tree)
+                tree, outgroups = find_ingroup_marked(tree)
                 pattern = r'^(' + '|'.join(re.escape(s)
                                            for s in tree.get_leaf_names()) + ')$'
 
@@ -168,6 +168,9 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
             al_stats = ['%g' % s for stat in compo_stats for s in stat[:-1]]
             al_stats += ['%g' % compo_stats[0][-1]] + ['%g' % s for s in evo_stats]
+            if ignore_outgroups:
+                al_stats += [','.join(l.name for out in outgroups
+                             for l in out.iter_leaves())]
 
             print('\t'.join([subtree, genetree] + al_stats))
                 
@@ -179,7 +182,7 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                 err.args = (str(err.args[0]) + '. At file %s' % alfile,) + err.args[1:]
                 raise
 
-        
+
 def simple_robustness_test(tree, expected_species, ensembl_version=ENSEMBL_VERSION):
     """Determine robustness after the expected set of species at the tips."""
     
@@ -455,7 +458,8 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
           + ('\tnodes_robust\tonly_treebest_spe\taberrant_dists\trebuilt_topo\t'
              'bootstrap_min\tbootstrap_mean\tconsecutive_zeros\tsister_zeros\t'
              'triplet_zeros'
-             if extended else ''))
+             if extended else '')
+          + ('\toutgroups' if ignore_outgroups else ''))
 
     ancgene2sp = make_ancgene2sp(ancestor, phyltree)
     all_ancgene2sp = make_ancgene2sp(phyltree.root, phyltree)
@@ -550,6 +554,8 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                 B_values = np.array(B_values)
                 output += (B_values.min(), B_values.mean())
                 output += count_zero_combinations(tree, exclusive=True)
+            if ignore_outgroups:
+                output += (','.join(l.name for out in outgroups for l in out.iter_leaves()),)
 
             print('\t'.join((subtree, genetree, root_location) +
                              tuple(str(x) for x in output)))
@@ -733,6 +739,9 @@ def get_cleaning_stats(genetreelistfile, ancestor,
                        rootdir='.', subtreesdir='subtreesCleanO2',
                        filesuffix='_genes.fa', ignore_error=True, **kwargs):
     """Data removed from alignment with Gblocks/Hmmcleaner"""
+    if kwargs:
+        logger.warning('Ignored kwargs: %s', kwargs)
+
     stats_header = ['subtree', 'genetree', 'gb_Nblocks', 'gb_percent',
                     'hmmc_nseqs', 'hmmc_propseqs', 'hmmc_max',
                     'hmmc_mean_onlycleaned', 'hmmc_mean']
@@ -809,6 +818,7 @@ def get_cleaning_stats(genetreelistfile, ancestor,
                 err.args = (str(err.args[0]) + '. At file %s' % alfile,) + err.args[1:]
                 raise
 
+
 def read_beastsummary(filename, convert=None):
     # TODO: convert the infinity symbol to 'Inf'
     summary = {}
@@ -829,6 +839,8 @@ def get_beast_stats(genetreelistfile, ancestor,
                     rootdir='.', subtreesdir='subtreesCleanO2',
                     filesuffix='_beastS-summary.txt', ignore_error=True, **kwargs):
     """Data removed from alignment with Gblocks/Hmmcleaner"""
+    if kwargs:
+        logger.warning('Ignored kwargs: %s', kwargs)
     stats_header = ['%s_%s' % (stat, stype)
                     for stat in ('posterior', 'likelihood', 'treeL_12', 'treeL_3',
                                  'TreeHeight', 'gammaShape', 'rateAG',
