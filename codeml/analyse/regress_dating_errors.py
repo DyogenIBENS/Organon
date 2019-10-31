@@ -172,8 +172,9 @@ stat_loaders = {'al':     load_stats_al,
                 'chronos-runs': load_stats_chronosruns,
                 'chronos-logs': load_stats_chronoslogs}
 
-stat_loaders['codemlI'] = stat_loaders['codeml']
 stat_loaders['treeI'] = stat_loaders['tree']
+stat_loaders['codemlfsa'] = stat_loaders['codemlI'] = stat_loaders['codeml']
+stat_loaders['alfsahmmc'] = stat_loaders['alfsa'] = stat_loaders['alI'] = stat_loaders['al']
 
 
 def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
@@ -1272,7 +1273,7 @@ _must_transform = dict(
         consecutive_zeros_dN=binarize,
         sister_zeros_dN=binarize,
         triplet_zeros_dN=binarize,
-        r2t_dN_mean=make_best_logtransform(alls.r2t_dN_mean),
+        r2t_dN_mean=make_best_logtransform,
         gb_Nblocks=notransform,
         hmmc_propseqs=notransform,
         freq_null_dS=binarize,
@@ -1283,9 +1284,7 @@ _must_transform = dict(
         null_dS_after=binarize,
         null_dN_after=binarize,
         #null_dN_before=sqrt
-        **{'dN_rate'+('_'+setting if setting else ''):
-            lambda alls: make_best_logtransform(
-                          alls['dN_rate'+('_'+setting if setting else '')])
+        **{'dN_rate'+('_'+setting if setting else ''): make_best_logtransform
            for setting in ('', 'global', 'local', 'nonlocal', 'global_approx',
                            'local_approx', 'global_beastS')#self.rate_settings
           }
@@ -1366,12 +1365,12 @@ class full_dating_regression(object):
                  'must_drop_features',
                  'must_drop_data']
 
-    default_vars = {'ref_suggested_transform': dict,
-                    'impose_transform': dict,
-                    'to_renormlogdecorr': lambda: ([], {}),
-                    'to_subtract': list,
-                    'must_drop_features': list,
-                    'must_drop_data': dict}
+    init_defaults = {'ref_suggested_transform': dict,
+                     'impose_transform': dict,
+                     'to_renormlogdecorr': lambda: ([], {}),
+                     'to_subtract': list,
+                     'must_drop_features': list,
+                     'must_drop_data': dict}
 
     def __init__(self, data, same_alls, dataset_params, responses, features,
                  measures=MEASURES, ref_suggested_transform=None,
@@ -1380,8 +1379,8 @@ class full_dating_regression(object):
                  must_drop_data=None):
         for k,v in locals().items():
             if k != 'self':
-                if k in default_vars and v is None:
-                    v = default_vars[k]()  # initialize to the proper type.
+                if k in self.init_defaults and v is None:
+                    v = self.init_defaults[k]()  # initialize to the proper type.
                 setattr(self, k, v)
         self.displayed = []  # Figures and styled dfs
 
@@ -1458,8 +1457,8 @@ class full_dating_regression(object):
                          + str(same_alls.iloc[:5, :5]) + '\n'
                          )
             sys.exit(1)
-        print('Amount of NA:\n', alls.isna().sum(axis=0).sort_values(ascending=False).head(10))
-        print('Amount of Inf:\n', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10))
+        print('Amount of NA:', alls.isna().sum(axis=0).sort_values(ascending=False).head(10), sep='\n')
+        print('Amount of Inf:', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10), sep='\n')
 
     #def do_transforms(self):
         suggested_transform = test_transforms(alls,
@@ -1467,7 +1466,12 @@ class full_dating_regression(object):
                                     if ft not in impose_transform]) #ages_features + rate_features
         #TODO: add to self.displayed
 
-        suggested_transform.update(impose_transform)
+        suggested_transform.update(**dict(
+                                    (ft, t(alls[ft]))
+                                    if (t is make_best_logtransform and ft in alls)
+                                    else (ft,t)
+                                    for ft,t in impose_transform.items())
+                                  )
 
         # All binary variables should **NOT** be z-scored!
 
@@ -1516,15 +1520,20 @@ class full_dating_regression(object):
 
         self.suggested_transform = suggested_transform
 
-        alls_transformed = alls.transform(suggested_transform)
+        logger.warning('Replace Inf,-Inf by NaN')
+        alls_transformed = alls.replace([-np.Inf, np.Inf], np.NaN).transform(suggested_transform)
 
         print('transformed -> Any NA:', alls_transformed.isna().sum(axis=0).any())
+        print('transformed -> *All* NA:', alls_transformed.columns[alls_transformed.isna().all()])
 
         print('transformed shape:', alls_transformed.shape)
 
         self.a_t = a_t = alls_transformed
 
     #def do_norm(self):
+        print('Will Z-score:', {ft: zscore for ft in responses+features
+                                 if ft not in bin_features})
+        print('Will join binary features:', bin_features)
         a_n = a_t.transform({ft: zscore for ft in responses+features
                              if ft not in bin_features})\
                  .join(alls_transformed[bin_features])
@@ -1539,13 +1548,13 @@ class full_dating_regression(object):
         display_html(a_n.head())
         na_rows = a_n.isna().any(axis=1)
         if na_rows.any():
-            print('Drop %s NA rows' % na_rows.sum())
+            print('Drop %d NA rows' % na_rows.sum())
             a_n.dropna(inplace=True)
 
         a_nn = a_n.select_dtypes(np.number)  # Numeric columns only.
         inf_rows = np.isinf(a_nn).any(axis=1)
         if inf_rows.any():
-            print('Drop %s Inf rows' % inf_rows.sum())
+            print('Drop %d Inf rows' % inf_rows.sum())
             print('Data with Inf: column %s:\n%s' % (
                         a_nn.columns[np.isinf(a_nn).any()],
                         alls[~na_rows][inf_rows].head(10)))
@@ -1562,6 +1571,13 @@ class full_dating_regression(object):
                                        L1_wt=1,  # lasso)
                                        start_params=None)
 
+        NaN_coefs = fitlasso.params.isna()
+        if NaN_coefs.all():
+            raise RuntimeError("ALL coefs estimated as NaN.")
+        elif NaN_coefs.any():
+            logger.warning("Some coefs estimated as NaN.")
+
+        #fit = ols.fit(cov_type='HC1')
         self.displayed.append(sm_pretty_summary(fitlasso))
         display_html(self.displayed[-1])
 
@@ -1685,28 +1701,35 @@ class full_dating_regression(object):
     #def do_fit(self):
         print('\n### Fit of less colinear features')
 
-        ols = sm.OLS(a_n_inde[y], sm.add_constant(a_n_inde[inde_features]))
+        exog = sm.add_constant(a_n_inde[inde_features])
+        ols = sm.OLS(a_n_inde[y], exog)
         self.fitlasso = fitlasso = ols.fit_regularized(method='elastic_net',
                                              L1_wt=1,  # lasso)
                                              start_params=None)
-        self.displayed.append(sm_pretty_summary(fitlasso))
-        display_html(self.displayed[-1])
+        sorted_coefs = fitlasso.params.drop('const').abs().sort_values()
+        sorted_features = sorted_coefs.index.tolist()
 
         print('Non zeros params: %d/%d (from %d input features).\n'
-              'Almost zeros params (<1e-8): %d.' % (
+              'Almost zeros params (<1e-5): %d.' % (
                 (fitlasso.params.drop('const') != 0).sum(),
                  fitlasso.params.drop('const').shape[0],
                  len(inde_features),
-                 np.isclose(fitlasso.params.drop('const'), 0, atol=1e-8).sum()))
+                 np.isclose(fitlasso.params.drop('const'), 0, atol=1e-5).sum()))
+
+        multicol_test_cumul = pd.Series([multicol_test(exog[['const'] + sorted_features[:i]])
+                                         for i in range(len(sorted_features))],
+                                         index=sorted_features,
+                                         name='cumul_colinearity')
+        self.displayed.append(sm_pretty_summary(fitlasso, multicol_test_cumul))
+        display_html(self.displayed[-1])
 
         #scatter_density('ingroup_glob_len', y, data=a_n_inde, alpha=0.5);
         #sb.violinplot('triplet_zeros_dS', 'abs_age_dev', data=a_n_inde);
 
         print('\n#### OLS refit')  #TODO: delete but make a refit.
-        self.fit = fit = ols.fit_regularized(method='elastic_net',
-                                             L1_wt=1,  # lasso)
-                                             start_params=None,
-                                             refit=True)
+        selected_features = sorted_features[:sorted_coefs.searchsorted(1e-3)]
+        self.fit = fit = sm.OLS(a_n_inde[y], exog[['const'] + selected_features]).fit(cov_type='HC1')
+
         pslopes = sm_pretty_summary(fit)
         display_html(pslopes)
         self.displayed.append(pslopes)
@@ -1714,14 +1737,6 @@ class full_dating_regression(object):
 
         # Test of homoscedasticity
         #sms.linear_harvey_collier(fit)
-
-    #def do_dropcolinear(self):
-        print('\n#### Finding the most colinear features')
-        #multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
-        suggest_drop = loop_drop_eval(inde_features,
-                                      lambda x: multicol_test(a_n_inde[x]),
-                                      stop_criterion=20)
-        print(suggest_drop)
 
     #def do_randomforest(self):
         print('\n#### Random Forest Regression')
@@ -1734,14 +1749,21 @@ class full_dating_regression(object):
 
 
     def do_bestfit(self):
-        # Refit without 'null_dS_before' data
+
+    #def do_dropcolinear(self):
+        print('\n#### Finding the most colinear features')
+        #multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
+        self.suggest_multicolin = loop_drop_eval(inde_features,
+                                      lambda x: multicol_test(a_n_inde[x]),
+                                      stop_criterion=20)
+                                      # protected=['RdS_rate_std', 'dS_rate']...
+        print(self.suggest_multicolin)
+
         print('\n#### Refit without most colinear features')
         
         a_n_inde = self.a_n_inde
         inde_features = self.inde_features
         y = self.responses[0]
-
-        #must_drop_data
 
         print('Drop trees with bad properties: null_{dS,dN,t,dist}_{after,before}, prop_splitseq')
         bad_props = {}
@@ -1763,9 +1785,9 @@ class full_dating_regression(object):
         self.a_n_inde2 = a_n_inde2.loc[a_n_inde2.isin(bad_props)]
         print(a_n_inde2.shape)
         self.inde_features2 = inde_features2 = [ft for ft in inde_features
-                                                if ft not in bad_props]
+                                                if ft not in bad_props+self.suggest_multicolin]
 
-        constant_vars = a_n_inde2[inde_features2].agg(lambda v: v.max() - v.min())
+        constant_vars = a_n_inde2[inde_features2].agg(np.ptp)
         print('Check for newly introduced constant variables:\n',
               constant_vars.sort_values())
         self.inde_features2 = inde_features2 = [ft for ft in inde_features2
@@ -1776,8 +1798,8 @@ class full_dating_regression(object):
         ##display_html(sm_pretty_slopes(fit2))
         #display_html(fit2.summary())
 
-        ols2 = sm.OLS(a_n_inde2[y],
-                      sm.add_constant(a_n_inde2[inde_features2]))
+        exog = sm.add_constant(a_n_inde2[inde_features2])
+        ols2 = sm.OLS(a_n_inde2[y], exog)
 
         print('\n##### LASSO fit (2)')
         self.fitlasso2 = fitlasso2 = ols2.fit_regularized(method='elastic_net',
@@ -1797,17 +1819,17 @@ class full_dating_regression(object):
         self.slopes2 = pslopes2.data
 
         print('Non zeros params: %d/%d (from %d input features).\n'
-              'Almost zeros params (<1e-8): %d.' % (
+              'Almost zeros params (<1e-5): %d.' % (
                 (self.slopes2.coef.drop('const') != 0).sum(),
                  self.slopes2.drop('const').shape[0],
                  len(inde_features2),
-                 np.isclose(self.slopes2.coef.drop('const'), 0, atol=1e-8).sum()))
+                 np.isclose(self.slopes2.coef.drop('const'), 0, atol=1e-5).sum()))
 
-        print('\n###### OLS refit of LASSO selected variables')
-        self.refitlasso2 = refitlasso2 = ols2.fit_regularized(method='elastic_net',
-                                                          L1_wt=1,  # lasso)
-                                                          start_params=None,
-                                                          refit=True)
+        selected_features = self.slopes2.drop('const').query('abs(coef)>=1e-3').index.tolist()
+        print('\n###### OLS refit of LASSO selected variables (1e-3)')
+        self.refitlasso2 = refitlasso2 = sm.OLS(a_n_inde[y],
+                                                exog[['const'] + selected_features])\
+                                           .fit(cov_type='HC1')
 
         param_info = pd.concat((
                         pd.Series({ft: sm.OLS(a_n_inde2[y],
@@ -1815,6 +1837,7 @@ class full_dating_regression(object):
                                               ).fit().params[ft]
                                    for ft in inde_features2
                                   }, name='Simple regression coef'),
+                        self.slopes2.coef.rename('Lasso coef'),
                         pd.Series({ft: func.__name__ for ft,func
                                    in self.suggested_transform.items()},
                                   name='transform'),
@@ -1826,7 +1849,7 @@ class full_dating_regression(object):
                         ),
                         axis=1, sort=False)
         self.reslopes2_styled = sm_pretty_summary(refitlasso2, param_info,
-                                                  bars=['coef', 'Simple regression coef'])
+                                                  bars=['coef', 'Simple regression coef', 'Lasso coef'])
         display_html(self.reslopes2_styled)
         self.displayed.append(self.reslopes2_styled)
 
@@ -1840,16 +1863,22 @@ class full_dating_regression(object):
         fig, axes = plt.subplots(3, figsize=(figsize[0], figsize[1]*2))
         # Plot Y~X with largest coef.
         ax = axes[0]
-        scatter_density(a_n_inde2[y], a_n_inde2[reslopes2.index[1]], alpha=0.5, ax=ax)
-        ax.set_title('Response against largest coef feature.')
+        scatter_density(a_n_inde2[y], a_n_inde2[self.slopes2.index[1]], alpha=0.4, ax=ax)
+        x = np.array(ax.get_xlim())
+        a, b = reslopes2.loc[['const', self.slopes2.index[1]], 'Simple regression coef']
+        ax.plot(x, a + b*x, '--', label='Simple Regression line')
+        a, b = reslopes2.loc[['const', self.slopes2.index[1]], 'Lasso coef']
+        ax.plot(x, a + b*x, '--', label='Lasso regression line')
+        ax.legend()
+        ax.set_title('Response against the feature with the largest Lasso coef.')
         ax.set_ylabel(y)
-        ax.set_xlabel(reslopes2.index[1])
+        ax.set_xlabel(self.slopes2.index[1])
 
         # Residual plot
         ax = axes[1]
         scatter_density(refitlasso2.fittedvalues,
                         a_n_inde2[y] - refitlasso2.fittedvalues,
-                        alpha=0.5, ax=ax)
+                        alpha=0.4, ax=ax)
         ax.set_title('Residuals plot')
         ax.set_ylabel('Residual error')
         ax.set_xlabel('Predicted response')

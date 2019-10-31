@@ -55,8 +55,8 @@ def make_lognegtransform_inc(inc=0):
     return logneginc
 
 def make_logpostransform_inc(inc=0):
-    loginc = lambda x: np.log10(x + x.min() + inc)
-    loginc.__name__ = "log10(%g+min+%%s)" % (inc)
+    loginc = lambda x: np.log10(x - x.min() + inc)
+    loginc.__name__ = "log10(%g-min+%%s)" % (inc)
     return loginc
 
 
@@ -143,7 +143,7 @@ def test_transforms(alls, variables, figsize=(14, 5)):
         
         infinite_vals = np.isinf(var)  # Ignore NAs
         if infinite_vals.any():
-            print("%d infinite values in %r (Dropping)." % (infinite_vals.sum(), ft))
+            print("%d infinite values in %r (observations ignored)." % (infinite_vals.sum(), ft))
             var = var[~infinite_vals]
 
         fig, axes = plt.subplots(1, 3, figsize=figsize)
@@ -366,15 +366,13 @@ def detailed_pca(alls_normed, features, FA=False):
     plt.show()
 
     print('# Data plotted in component space')
-    scatter_density(transformed[:,0], transformed[:,1], alpha=0.5)
-    ax = plt.gca()
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    plt.show()
-    scatter_density(transformed[:,0], transformed[:,2], alpha=0.5)
-    ax = plt.gca()
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC3')
+    fig, (ax0, ax1) = plt.subplots(1, 2, sharey=True)
+    scatter_density(transformed[:,1], transformed[:,0], alpha=0.5, ax=ax0)
+    ax0.set_xlabel('PC2')
+    ax0.set_ylabel('PC1')
+    scatter_density(transformed[:,2], transformed[:,0], alpha=0.5, ax=ax1)
+    ax1.set_xlabel('PC3')
+    ax1.set_ylabel('PC1')
     plt.show()
     return fa
 
@@ -430,7 +428,7 @@ def lm_summary(lm, features, response, data):
         print("%-17s: %10.6f" % (ft, coef))
 
 
-def sm_pretty_slopes(olsfit, merge=None, renames=None, bars=['coef']):
+def sm_pretty_slopes(olsfit, join=None, renames=None, bars=['coef']):
     """Nicer look for a StatsModels OLS fit (sorted features by slope)."""
     try:
         summary = olsfit.summary()
@@ -450,9 +448,9 @@ def sm_pretty_slopes(olsfit, merge=None, renames=None, bars=['coef']):
 
     r_coefs = r_coefs.loc[coef_order]
 
-    if merge is not None:
+    if join is not None:
         # Add additional info about the params.
-        r_coefs = r_coefs.join(merge,sort=False)
+        r_coefs = r_coefs.join(join,sort=False)
 
     renames = {} if renames is None else renames
 
@@ -465,7 +463,7 @@ def sm_pretty_slopes(olsfit, merge=None, renames=None, bars=['coef']):
     return r_coefs_styled
 
 
-def sm_pretty_summary(fit, merge=None, renames=None, bars=['coef']):
+def sm_pretty_summary(fit, join=None, renames=None, bars=['coef']):
     try:
         summary = fit.summary()
     except NotImplementedError:
@@ -480,7 +478,7 @@ def sm_pretty_summary(fit, merge=None, renames=None, bars=['coef']):
               '; Adj. R² =', adj_r_squared(fit.model.endog,
                                          fit.fittedvalues,
                                          len(fit.params)))
-    pretty_slopes = sm_pretty_slopes(fit, merge, renames, bars)
+    pretty_slopes = sm_pretty_slopes(fit, join, renames, bars)
     #display_html(pretty_slopes)
     return pretty_slopes
 
