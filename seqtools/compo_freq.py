@@ -14,7 +14,7 @@ import numpy as np
 import argparse
 from Bio import AlignIO
 from collections import Counter
-from seqtools.IUPAC import gaps, nucleotides, unknown, ambiguous
+from seqtools.IUPAC import gaps, nucleotides, unknown, ambiguous, stop_codons
 
 import logging
 logger = logging.getLogger(__name__)
@@ -32,22 +32,11 @@ def get_seq_counts(alignment):
     seq_gap  = np.zeros(len(alignment))
     seq_N    = np.zeros(len(alignment))
     seq_CpG  = np.zeros(len(alignment))
+    seq_stops = np.zeros(len(alignment))
 
     length = alignment.get_alignment_length()
 
     for i, record in enumerate(alignment):
-        #gaps = record.seq.count('-')
-        #N = record.seq.count('N')
-        #A = record.seq.count('A')
-        #T = record.seq.count('T')
-        #G = record.seq.count('G')
-        #C = record.seq.count('C')
-        #for symbol, possible in ambiguous.items():
-        #    symbol_count = record.seq.count(symbol)
-        #    N += symbol_count # * (1. - len(possible)/4.)
-        #    #for p in possible:
-        #if gaps + N + A + T + G + C != length:
-        #    logger.error('Unexpected nucleotides occured, please check.')
 
         counts = Counter(record.seq)
         CpG = record.seq.count('CG')
@@ -61,13 +50,14 @@ def get_seq_counts(alignment):
                 seq_nucl[nucleotides.index(p), i] += 0.25 * counts[a]
 
         assert seq_nucl[:, i].sum() + seq_gap[i] + seq_N[i] == length
+        seq_stops[i] = sum(str(record.seq[k:k+3]) in stop_codons for k in range(0,length,3))
 
         seq_CpG[i]  = CpG
 
-    return length, seq_nucl, seq_gap, seq_N, seq_CpG
+    return length, seq_nucl, seq_gap, seq_N, seq_CpG, seq_stops
 
 
-def get_seq_freqs(length, seq_nucl, seq_gap, seq_N, seq_CpG):
+def get_seq_freqs(length, seq_nucl, seq_gap, seq_N, seq_CpG, seq_stops):
     """composition frequencies **per sequence**"""
     seq_nucltot = seq_nucl.sum(axis=0)
     seq_lengths = seq_nucltot + seq_N
@@ -77,18 +67,19 @@ def get_seq_freqs(length, seq_nucl, seq_gap, seq_N, seq_CpG):
     seq_N_freq    = seq_N.astype(float)    / seq_lengths
     seq_gap_freq  = seq_gap.astype(float)  / length
     seq_CpG_freq  = seq_CpG * 2. / seq_nucltot  # Is the *2 necessary?
+    seq_stop_freq = seq_stops * 3. / seq_lengths
     
     return (seq_lengths,) + tuple(seq_nucl_freq) + \
-           (seq_GC_freq, seq_N_freq, seq_gap_freq, seq_CpG_freq)
-    #return (seq_lengths, seq_nucl_freq, seq_N_freq, seq_gap_freq, seq_CpG_freq)
-    
+           (seq_GC_freq, seq_N_freq, seq_gap_freq, seq_CpG_freq, seq_stop_freq)
+
 
 def get_al_compo_summary(length, seq_counts, seq_freqs):
     """Stats over the whole alignment
     
     Return: for each summary type, a list of values for each compositional element.
     """
-    seq_nucl, seq_gap, seq_N, seq_CpG = seq_counts
+    #seq_nucl, seq_gap, seq_N, seq_CpG = seq_counts
+    seq_nucl, seq_gap, seq_N, seq_CpG, seq_stops = seq_counts
     
     seq_lengths = seq_freqs[0]
 
@@ -98,13 +89,14 @@ def get_al_compo_summary(length, seq_counts, seq_freqs):
     gap_count  = seq_gap.sum()
     N_count    = seq_N.sum()
     CpG_count  = seq_CpG.sum()
+    stop_count = seq_stops.sum()
 
     global_stats = (length,) \
                    + tuple(nucl_count.astype(float) / nucl_tot) \
                    + (float(GC_count)      / (nucl_tot),
                    +  float(N_count)       / (nucl_tot+N_count),
                       float(gap_count)     / length,
-                      float(CpG_count) * 2 / nucl_tot)
+                      float(CpG_count) * 2 / nucl_tot, float(stop_count)* 3 / nucl_tot)
 
     seq_means   = [s.mean()     for s in seq_freqs]
     seq_medians = [np.median(s) for s in seq_freqs]
@@ -116,6 +108,7 @@ def get_al_compo_summary(length, seq_counts, seq_freqs):
 
     seq_w_stds  = [weighted_std(s, weights=seq_lengths) for s in seq_freqs]
 
+    # TODO: return a np.array
     return global_stats, seq_means, seq_medians, seq_stds, seq_w_means, seq_w_stds
 
 
@@ -141,7 +134,8 @@ def main(alignment_file, format='fasta', byseq=False):
     n_stats = len(stats[0])
     
     # column names
-    print('\t'.join(['%8s']*(n_stats+1)) % ('', 'len', 'A', 'C', 'G', 'T', 'GC', 'N', 'gaps', 'CpG'))
+    print('\t'.join(['%8s']*(n_stats+1)) % (
+          '', 'len', 'A', 'C', 'G', 'T', 'GC', 'N', 'gaps', 'CpG', 'stops'))
     
     row_template = '\t'.join(['%8s'] + ['%8g']*n_stats)
 

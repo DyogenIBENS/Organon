@@ -18,6 +18,7 @@ ambiguous = {'R': set('AG'),
 
 aa = 'ABCDEFGHIKLMNPQRSTVWYZ'
 unknown_aa = 'X'
+stop_codons = set(('TGA', 'TAG', 'TAA'))  # In standard alphabet
 #aa = {
 #      'A':        Ala        Alanine
 #      'B':        Asx        Aspartic acid or Asparagine

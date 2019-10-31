@@ -100,6 +100,7 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                     for typ in ('glob', 'mean', 'med', 'std', 'w_mean', 'w_std')
                     for measure in ('len', 'A','C','G','T', 'GC', 'N',
                                     'gaps', 'CpG')]
+    stats_names += ['glob_stops']
     # /!\ WARNING for future self: the below summary stats are **column-wise**!!!
     # (VS sequence-wise above)
     stats_names += ['%s_%s_%s' %(seqtype, measure, typ)
@@ -137,7 +138,13 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
             # Compositional stats
             _, compo_stats = make_al_compo(al)
-            
+
+            # Coding sequence stats
+            #seq_stops = []
+            #for seq in al:
+            #    stops = sum(seq[i:(i+3)] in stop_codons
+            #                for i in range(0, al.get_alignment_length(), 3))
+
             # ~Evolutionary stats (conservation): arrays of column-wise values
             seqlabels = tree.get_leaf_names()
             al = reorder_al(al, seqlabels)
@@ -148,7 +155,7 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
             ## By nucleotide column, then by codon.
             for nucl, minlength in [(True,6), (False,66)]:
                 _, entropy, alint = get_position_stats(al, nucl=nucl, allow_N=True)
-                
+
                 pars_score = parsimony_score(alint, tree, seqlabels,
                                              minlength=minlength,
                                              get_children=get_children)
@@ -158,15 +165,15 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                   pars_score.mean(),
                                   median(pars_score),
                                   pars_score.std()))
-            
-            al_stats = ['%g' % s for stat in compo_stats for s in stat]
-            al_stats += ['%g' % s for s in evo_stats]
+
+            al_stats = ['%g' % s for stat in compo_stats for s in stat[:-1]]
+            al_stats += ['%g' % compo_stats[0][-1]] + ['%g' % s for s in evo_stats]
 
             print('\t'.join([subtree, genetree] + al_stats))
                 
             #treefiles_pattern = alfiles_pattern.replace(filesuffix, '.nwk')
         except BaseException as err:
-            if ignore_error:
+            if ignore_error and not isinstance(err, KeyboardInterrupt):
                 logger.exception('At file %s', alfile)
             else:
                 err.args = (str(err.args[0]) + '. At file %s' % alfile,) + err.args[1:]
@@ -551,7 +558,7 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                 err.args = (str(err.args[0]) + ". At file %s" % mlcfile,) + err.args[1:]
             else:
                 err.args = ("At file %s" % mlcfile,)
-            if ignore_error:
+            if ignore_error and not isinstance(err, KeyboardInterrupt):
                 logger.exception('Unknown exception')
             else:
                 raise
@@ -716,7 +723,7 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                 err.args = (str(err.args[0]) + ". At file %s" % mlcfile,) + err.args[1:]
             else:
                 err.args = ("At file %s" % mlcfile,)
-            if ignore_error:
+            if ignore_error and not isinstance(err, KeyboardInterrupt):
                 logger.exception('Unknown exception')
             else:
                 raise
@@ -731,23 +738,33 @@ def get_cleaning_stats(genetreelistfile, ancestor,
                     'hmmc_mean_onlycleaned', 'hmmc_mean']
 
     print('\t'.join(stats_header))
+    regex = re.compile(r'\.'+ filesuffix.split('.')[-1] + r'$')
+    hmmc_replacement = '_prot_hmm.log'
+    # Ad Hoc FIX:
+    if filesuffix == '_fsa.fa':
+        regex = re.compile(r'/' + re.escape(subtreesdir) + '/'
+                           + re.escape(ancestor)
+                           + r'(ENSGT[0-9]+[A-Za-z.])'
+                           + re.escape(filesuffix) + r'$')
+        hmmc_replacement = r'/{}/realign/{}\1_protfsa_hmm.log'.format(
+                                subtreesdir, ancestor)
     for alfile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                              ancestor,
                                                              filesuffix,
                                                              rootdir,
                                                              subtreesdir):
-        ext_regex = re.compile(r'\.'+ filesuffix.split('.')[-1] + r'$')
         try:
             # parse Gblocks output
             gb_logfile = alfile + '-gb.htm'
             if op.exists(gb_logfile):
                 gb = parse_gb_html(gb_logfile)
+                #TODO: fix those percentages relatively to the ungapped al
                 output = [gb['Nblocks'], gb['positions']['percent']]
             else:
                 output = [None, None]
             
             # parse hmmc output
-            hmmc_logfile = ext_regex.sub('_prot_hmm.log', alfile, count=1)
+            hmmc_logfile = regex.sub(hmmc_replacement, alfile, count=1)
             if op.exists(hmmc_logfile):
                 hmmc_ranges = parse_seqranges(hmmc_logfile)
 
@@ -768,7 +785,7 @@ def get_cleaning_stats(genetreelistfile, ancestor,
                                        Ncleaned / (length - seq_gaps[i]),
                                        Ncleaned / (length - seq_gaps[i] - seq_N[i])]
 
-                cleaned_props = seq_stats[:,0]
+                cleaned_props = seq_stats[:,0]  # FIXME: seq_stats[:,1]
                 cleaned_seqs = (cleaned_props > 0).sum()
                 
                 output += [cleaned_seqs,
@@ -786,10 +803,71 @@ def get_cleaning_stats(genetreelistfile, ancestor,
                 
             #treefiles_pattern = alfiles_pattern.replace(filesuffix, '.nwk')
         except BaseException as err:
-            if ignore_error:
+            if ignore_error and not isinstance(err, KeyboardInterrupt):
                 logger.exception('At file %s', alfile)
             else:
                 err.args = (str(err.args[0]) + '. At file %s' % alfile,) + err.args[1:]
+                raise
+
+def read_beastsummary(filename, convert=None):
+    # TODO: convert the infinity symbol to 'Inf'
+    summary = {}
+    with open(filename) as f:
+        colnames = next(f).split()[1:]
+        if convert is None:
+            for line in f:
+                fields = line.split()
+                summary[fields[0]] = dict(zip(colnames, fields[1:]))
+        else:
+            for line in f:
+                fields = line.split()
+                summary[fields[0]] = {k: convert(x) for k,x in zip(colnames, fields[1:])}
+    return summary
+
+
+def get_beast_stats(genetreelistfile, ancestor, 
+                    rootdir='.', subtreesdir='subtreesCleanO2',
+                    filesuffix='_beastS-summary.txt', ignore_error=True, **kwargs):
+    """Data removed from alignment with Gblocks/Hmmcleaner"""
+    stats_header = ['%s_%s' % (stat, stype)
+                    for stat in ('posterior', 'likelihood', 'treeL_12', 'treeL_3',
+                                 'TreeHeight', 'gammaShape', 'rateAG',
+                                 'ucldMean_12', 'ucldMean_3', 'ucldStdev_12', 'ucldStdev_3',
+                                 'rate_12_mean', 'rate_12_var', 'rate_3_mean', 'rate_3_var',
+                                 'birthRateY')  # 'mrca_age_primates', 'mrca_age_simii'
+                    for stype in ('mean', 'stddev', 'med')]
+
+    select_vars = ('posterior', 'likelihood', 'treeLikelihood.myalignment_1,2',
+                   'treeLikelihood.myalignment_3',
+                   'TreeHeight', 'gammaShape', 'rateAG',
+                   'ucldMean.1,2', 'ucldMean.3', 'ucldStdev.1,2', 'ucldStdev.3',
+                   'rate.1,2.mean', 'rate.1,2.variance', 'rate.3.mean',
+                   'rate.3.variance', 'birthRateY')
+    print('\t'.join(['subtree', 'genetree'] + stats_header))
+    for beastsummary, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
+                                                             ancestor,
+                                                             filesuffix,
+                                                             rootdir,
+                                                             subtreesdir):
+        try:
+            #if not op.exists(beastsummary):
+            #    output = [None]*len(stats_header)
+            #else:
+            summary = read_beastsummary(beastsummary)
+            output = [summary[var][stype] for var in select_vars
+                      for stype in ('mean', 'stddev', 'median')]
+
+            print('\t'.join([subtree, genetree] + output))
+
+        except BaseException as err:
+            info = 'At file %s' % beastsummary
+            if ignore_error and not isinstance(err, KeyboardInterrupt):
+                logger.exception(info)
+            else:
+                if err.args:
+                    err.args = (str(err.args[0]) + '. ' + info,) + err.args[1:]
+                else:
+                    err.args = (info,)
                 raise
 
 
@@ -842,6 +920,10 @@ if __name__ == '__main__':
     cleaning_parser.add_argument('-S', '--filesuffix', default='_genes.fa',
                                  help='file suffix of the globbing pattern [%(default)s]')
     cleaning_parser.set_defaults(func=make_subparser_func(get_cleaning_stats))
+    beaststats_parser = subp.add_parser('beast', parents=[parent_parser], aliases=['be'])
+    beaststats_parser.add_argument('-S', '--filesuffix', default='_beastS-summary.txt',
+                             help='file suffix of the globbing pattern [%(default)s]')
+    beaststats_parser.set_defaults(func=make_subparser_func(get_beast_stats))
 
     args = parser.parse_args()
     if args.debug:

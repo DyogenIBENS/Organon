@@ -36,6 +36,9 @@ ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9_.-]+)ENS')
 
 BEAST_MEASURES = set('%s%s' % (v,s) for v in ('height', 'length', 'rate')
                      for s in ('', '_median', '_95%_HPD', '_range')).union(('posterior',))
+BEAST_DEFAULTS = {'%s%s' % (v,s): np.NaN for v in ('height', 'length', 'rate')
+                  for s in ('', 'median')}
+BEAST_DEFAULTS.update(posterior=np.NaN, dist=np.NaN)
 CODEML_MEASURES = set(('dN', 'dS', 't', 'N*dN', 'S*dS'))
 
 
@@ -178,11 +181,14 @@ def yield_lines_whilematch(file_obj, regex, line=None, jump=0):
         match = regex.match(line.rstrip())
 
 
-def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name']):
+def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name'],
+                      defaults=None):
     """Appropriate for matching nodes only when the differences are polytomies
     or extra single-child nodes."""
     srcleaf_sets = OrderedDict()  # Conserve the tree post-ordering
     #clade2node = OrderedDict()
+    if defaults is None:
+        defaults = {}
 
     for srcnode in srctree.traverse('postorder'):
         if srcnode.is_leaf():
@@ -212,9 +218,9 @@ def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name'
         for srcnode, srcclade in srcleaf_sets.items():
             # Find the first source clade containing or equal to the target clade.
             if srcclade >= clade:
-                newfeatures = dict((ft[0], getattr(srcnode, ft[1], None))
+                newfeatures = dict((ft[0], getattr(srcnode, ft[1], defaults.get(ft[0])))
                                      if isinstance(ft, tuple)
-                                     else (ft, getattr(srcnode, ft, None))
+                                     else (ft, getattr(srcnode, ft, defaults.get(ft)))
                                      for ft in update_features)
                 logger.debug('Adding features %r -> %r', srcnode.name, node.name)
                 node.add_features(**newfeatures)
@@ -1522,7 +1528,8 @@ def setup_fulltree(resultfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
 
         update_tree_nodes(fulltree, tree,
                           update_features=['dist' if m=='beast:dist' else m
-                                           for m in measures])
+                                           for m in measures],
+                          defaults=BEAST_DEFAULTS)
     return fulltree
 
 
