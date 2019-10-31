@@ -27,8 +27,10 @@ def get_git_repo(module=None, modulepath=None):
         moduledir, mfile = op.split(op.abspath(module.__file__))  #op.realpath
     else:
         moduledir, mfile = op.split(op.expandvars(op.expanduser(modulepath)))
+    repo, _ = run_git_command(['rev-parse', '--show-toplevel'], moduledir)
+    repo = repo.strip()
 
-    return moduledir, mfile
+    return repo, op.join(moduledir.replace(repo, ''), mfile)
 
 
 def run_git_command(args, moduledir, timeout=10):
@@ -46,7 +48,7 @@ def run_git_command(args, moduledir, timeout=10):
         p.kill()
         out, err = p.communicate()
         raise
-    return out, err
+    return out.decode(), err
 
 
 def get_git_commit(moduledir, mfile=None, timeout=10):
@@ -61,7 +63,7 @@ def get_git_commit(moduledir, mfile=None, timeout=10):
 
     if err:
         print(err, file=sys.stderr)
-    return out.decode().rstrip().split('\t', maxsplit=2)
+    return out.rstrip().split('\t', maxsplit=2)
 
 
 def print_git_commit(*args, sep='\n', **kwargs):
@@ -73,8 +75,8 @@ def get_unstaged_changed(moduledir, timeout=10):
     out, err = run_git_command(['diff', '--name-status'], moduledir, timeout)
     if err:
         print(err, file=sys.stderr)
-    outlines = [(line, op.getmtime(line.split('\t')[1]))
-                for line in out.decode().rstrip().split('\n')]
+    outlines = [(line, op.getmtime(op.join(moduledir, line.split('\t')[1])))
+                for line in out.rstrip().split('\n')]
     outlines.sort(key=lambda v: v[1])
     return [line + '\t' + time.strftime(DATE_FORMAT, time.localtime(t))
             for line,t in outlines]
@@ -85,7 +87,7 @@ def get_staged_changed(moduledir, timeout=10):
                                moduledir, timeout)
     if err:
         print(err, file=sys.stderr)
-    return out.decode().rstrip().split('\n')
+    return out.rstrip().split('\n')
 
 
 def print_git_state(module=None, modulepath=None, sep='\n', timeout=10):
