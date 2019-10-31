@@ -2,16 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """Module to display various informations about files and local environment."""
-# Alternative module name: silicotope
+# Alternative module name: silicotope, silicodrome
 
 
 import sys
 import os
+import time
 import os.path as op
 import subprocess
 import inspect
 import socket
 
+DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 
 def get_caller_module():
     return inspect.getframeinfo(inspect.getouterframes(inspect.currentframe())[1][0])[0]
@@ -33,7 +35,7 @@ def run_git_command(args, moduledir, timeout=10):
     """Run a git command by moving to the appropriate directory first.
     By default the directory is this module directory, or a given loaded module.
     """
-    p = subprocess.Popen(['git'] + args,
+    p = subprocess.Popen(['git', '--no-pager'] + args,
                          cwd=moduledir,
                          stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE)
@@ -50,7 +52,7 @@ def run_git_command(args, moduledir, timeout=10):
 def get_git_commit(moduledir, mfile=None, timeout=10):
     # '%x09' is a tab
     args = ['log', '-1',
-            '--date=format:%Y-%m-%d %H:%M:%S',
+            '--date=format:'+DATE_FORMAT,
             '--format=%h\t%ad\t%<(70,trunc)%s']
     if mfile:
         args.append(mfile)
@@ -67,14 +69,19 @@ def print_git_commit(*args, sep='\n', **kwargs):
 
 
 def get_unstaged_changed(moduledir, timeout=10):
-    out, err = run_git_command(['diff', '--name-only'], moduledir, timeout)
+    # Interesting diff options: --name-status, --name-only
+    out, err = run_git_command(['diff', '--name-status'], moduledir, timeout)
     if err:
         print(err, file=sys.stderr)
-    return out.decode().rstrip().split('\n')
+    outlines = [(line, op.getmtime(line.split('\t')[1]))
+                for line in out.decode().rstrip().split('\n')]
+    outlines.sort(key=lambda v: v[1])
+    return [line + '\t' + time.strftime(DATE_FORMAT, time.localtime(t))
+            for line,t in outlines]
 
 
 def get_staged_changed(moduledir, timeout=10):
-    out, err = run_git_command(['diff', '--name-only', '--staged'],
+    out, err = run_git_command(['diff', '--name-status', '--staged'],
                                moduledir, timeout)
     if err:
         print(err, file=sys.stderr)
@@ -91,7 +98,6 @@ def print_git_state(module=None, modulepath=None, sep='\n', timeout=10):
     print(sep.join(state))
 
 
-
 def redisplay():
     """Reset the correct DISPLAY environment variable, when using `tmux` over
     `ssh`."""
@@ -101,3 +107,12 @@ def redisplay():
                             .rstrip()
     print('%s -> %s' % (os.environ['DISPLAY'], correct_localhost))
     os.environ['DISPLAY'] = correct_localhost
+
+
+if __name__=='__main__':
+    if len(sys.argv)==2 and sys.argv[1] == 'git_state':
+        print_git_state(modulepath=(os.getcwd()+'/'))
+    else:
+        print('USAGE: ./run_environment.py git_state')
+        sys.exit(2)
+
