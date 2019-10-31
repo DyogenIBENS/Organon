@@ -347,7 +347,7 @@ def heatmap_cov(ft_cov, features=None, cmap='seismic', make_corr=False,
     ax_ddg.set_position(ax_ddg.get_position().translated(-w_cb, 0))
     #plt.tight_layout(pad=0)
     #plt.show()
-    #return fig
+    return fig
 
 
 def plot_loadings(components, cmap="PRGn"):

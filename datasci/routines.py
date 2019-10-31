@@ -262,7 +262,7 @@ def test_transforms(alls, variables, figsize=(14, 5)):
         suggested_transform[ft] = sorted(transform_skews.items(),
                                          key=lambda x: abs(x[1]))[0][0]
 
-    return suggested_transform
+    return suggested_transform  #, figs
 
 
 def randomforest_regression(X, y, cv=10, n_estimators=100, max_depth=5, **kwargs):

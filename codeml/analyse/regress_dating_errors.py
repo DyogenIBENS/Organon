@@ -32,18 +32,21 @@ from datasci.compare import pairwise_intersections, align_sorted
 from datasci.stats import r_squared, adj_r_squared, multicol_test, multi_vartest,\
                           rescale_groups, iqr, mad, f_test
 from datasci.routines import *
+from datasci.dataframe_recipees import *
 
 from dendro.any import myPhylTree as phyltree_methods, ete3 as ete3_methods
 import ete3
 
 from LibsDyogen import myPhylTree
 
+import scipy.stats as stats  # stats.levene
 from sklearn.decomposition import PCA, FactorAnalysis
 from sklearn.linear_model import LinearRegression, Lasso  # Lasso doesn't work.
 from sklearn.preprocessing import StandardScaler
 import statsmodels.api as sm
 #import statsmodels.formula.api as smf
 import statsmodels.stats.api as sms
+import statsmodels.stats.multitest as smm
 import statsmodels.graphics as smg  # smg.gofplots.qqplot
 
 from IPython.display import display_html
@@ -283,11 +286,20 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
 def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     """Load ages dataframe, join with parent information, and compute the
     'robust' info"""
+    
     ages = pd.read_csv(ages_file, sep='\t', index_col=0)\
             .rename(columns=lambda n: n.replace('.', '_'))\
             .rename_axis('name')  # If coming from date_dup.R
     if measures is None:
         measures = [c[4:] for c in ages.columns if c.startswith('age_')] 
+
+    # Type checks:
+    dtypes = {} if measures is None else {'%s_%s' % (s,m): float
+                                            for s in ('age', 'branch')
+                                            for m in measures}
+    dtypes.update(calibrated=bool, parent=str, taxon=str, is_outgroup=bool,
+                  type=str, root=str, subgenetree=str)
+    ages = ages.astype(dtypes, copy=False, errors='raise')
 
     logger.info("Shape ages: %s; has dup: %s" % (ages.shape, ages.index.has_duplicates))
     n_nodes = ages.shape[0]
@@ -1023,6 +1035,8 @@ def compute_branchrate_std(ages_controled, dist_measures,
         ages_controled = ages_controled.query(mean_condition)
         if not ages_controled.shape[0]:
             logger.warning('Selected 0 rows with `mean_condition`.')
+    elif not ages_controled.shape[0]:
+        logger.warning('0 rows in data')
     sgg = subgenetree_groups = ages_controled[groupby_cols].groupby('subgenetree', sort=False)
 
     # ### Average (substitution) rates over the tree:
@@ -1240,6 +1254,99 @@ def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts,
     return age_analysis_data(ages_controled, ages_controled_withnonrobust, ns,
                              control_ages, control_brlen, mean_errors)
 
+_must_transform = dict(
+        ingroup_nucl_entropy_median=binarize,
+        #ingroup_nucl_parsimony_median=binarize, #constant
+        ingroup_codon_entropy_median=binarize,
+        ingroup_codon_parsimony_median=binarize,
+        rebuilt_topo=binarize,
+        consecutive_zeros=binarize, # - triplet_zeros
+        sister_zeros=binarize,      # - triplet_zeros
+        triplet_zeros=binarize,
+        bootstrap_min=notransform,
+        prop_splitseq=binarize,
+        convergence_warning=binarize,  # notransform
+        consecutive_zeros_dS=binarize,
+        sister_zeros_dS=binarize,
+        triplet_zeros_dS=binarize,
+        consecutive_zeros_dN=binarize,
+        sister_zeros_dN=binarize,
+        triplet_zeros_dN=binarize,
+        r2t_dN_mean=make_best_logtransform(alls.r2t_dN_mean),
+        gb_Nblocks=notransform,
+        hmmc_propseqs=notransform,
+        freq_null_dS=binarize,
+        null_dist_before=binarize,
+        null_dS_before=binarize,
+        null_dN_before=binarize,
+        null_dist_after=binarize,
+        null_dS_after=binarize,
+        null_dN_after=binarize,
+        #null_dN_before=sqrt
+        **{'dN_rate'+('_'+setting if setting else ''):
+            lambda alls: make_best_logtransform(
+                          alls['dN_rate'+('_'+setting if setting else '')])
+           for setting in ('', 'global', 'local', 'nonlocal', 'global_approx',
+                           'local_approx', 'global_beastS')#self.rate_settings
+          }
+       )
+
+# Example parametrisation (seemed reasonable for most regressions so far)
+_must_drop_features = ["ls", "seconds",  # ~ ingroup_glob_len
+                       "ingroup_std_gaps", # ~ ingroup_std_len
+                       "dS_treelen",       # ~dS_rate
+                       "dN_treelen",
+                       "treelen",
+                       "ingroup_codon_entropy_mean", # ~ ingroup_codon_parsimony_mean
+                       "ingroup_codon_entropy_std",  # 
+                       "ingroup_nucl_entropy_std",   # ~ ingroup_codon_parsimony_std
+                       "ingroup_nucl_entropy_mean",
+                       "ingroup_nucl_entropy_median",  # ~ ingroup_codon_entropy_median
+                       "ingroup_nucl_parsimony_mean",
+                       "ingroup_nucl_parsimony_std",
+                       "r2t_t_mean", "r2t_dS_mean", "r2t_dN_mean",
+                       "r2t_t_std",  "r2t_dS_std",  "r2t_dN_std",
+                       "bootstrap_mean",  # ~ bootstrap_min
+                       "brOmega_skew",
+                       # decorrelated:
+                       "ingroup_mean_CpG",
+                       "ingroup_std_N",
+                       "ingroup_std_CpG",  # ~ ingroup_std_GC
+                       "NnonsynSites"]  # ~ ls/3 - NsynSites
+                    # decorrelated:
+                    # "ingroup_codon_parsimony_std",
+                    # "NnonsynSites", "Nsynsites", "brOmega_std",
+                    # "ingroup_mean_CpG", "ingroup_std_N", "lnL",
+                    # "dS_rate_std", "t_rate_std", "dN_rate_std", "dist_rate_std"
+
+_must_renormlogdecorr = (
+    [('brOmega_std',   'brOmega_mean'),
+     #('ingroup_std_N', 'ingroup_mean_N'),
+     ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean')]
+      # Normalise the rate deviations by the rate mean.
+    + [('%s_rate_std%s' %(m, ('_'+setting if setting else '')),
+        '%s_rate%s' %(m, ('_'+setting if setting else '')))
+       for setting in ('', 'global', 'local', 'nonlocal', 'global_approx',
+                       'local_approx', 'global_beastS')#self.rate_settings
+       for m in MEASURES], #self.measures]
+    dict(RsynSites=('NsynSites',     'ls'),
+         sitelnL=('lnL', 'ingroup_glob_len')))
+
+_must_logdecorr = (
+        [('%s_zeros%s' %(how, ('' if m=='dist' else '_'+m)),
+          'triplet_zeros'+('' if m=='dist' else '_'+m))
+         for m in MEASURES
+         for how in ('sister', 'consecutive')],
+        {})
+
+# variable name, variable values. Dropped by .isin()
+_must_drop_data = dict(prop_splitseq=(1,),
+                       **{'null_%s_%s' % (m,where): (1,)
+                          for m in MEASURES
+                          for where in ('before', 'after')},
+                       **{'%s_zeros%s' %(what,('' if m=='dist' else '_'+m)): (1,)
+                          for m in MEASURES
+                          for what in ('triplet', 'sister')})
 
 # anc = 'Catarrhini'
 # param = 'um1.new'
@@ -1251,17 +1358,32 @@ class full_dating_regression(object):
                  'dataset_params',
                  'responses',
                  'features',
-                 'measures',
+                 'measures',  # measures of branch lengths and ages.
                  'ref_suggested_transform',
-                 'must_transform',
-                 'must_drop_features']
+                 'impose_transform',
+                 'to_renormlogdecorr',
+                 'to_subtract',
+                 'must_drop_features',
+                 'must_drop_data']
+
+    default_vars = {'ref_suggested_transform': dict,
+                    'impose_transform': dict,
+                    'to_renormlogdecorr': lambda: ([], {}),
+                    'to_subtract': list,
+                    'must_drop_features': list,
+                    'must_drop_data': dict}
 
     def __init__(self, data, same_alls, dataset_params, responses, features,
                  measures=MEASURES, ref_suggested_transform=None,
-                 must_transform=None, must_drop_features=None):
+                 impose_transform=None, to_renormlogdecorr=None,
+                 to_subtract=None, must_drop_features=None,
+                 must_drop_data=None):
         for k,v in locals().items():
             if k != 'self':
+                if k in default_vars and v is None:
+                    v = default_vars[k]()  # initialize to the proper type.
                 setattr(self, k, v)
+        self.displayed = []  # Figures and styled dfs
 
     @classmethod
     def from_other(cls, other_regression):
@@ -1307,9 +1429,9 @@ class full_dating_regression(object):
         dataset_params = self.dataset_params
         responses = self.responses
         features = self.features
-        ref_suggested_transform = self.ref_suggested_transform if self.ref_suggested_transform else {}
-        must_transform = must_transform if self.must_transform else {}
-        must_drop_features = must_drop_features if self.must_drop_features else {}
+        ref_suggested_transform = self.ref_suggested_transform
+        impose_transform = self.impose_transform
+        must_drop_features = self.must_drop_features
 
         ages_controled = data.ages_controled
         mean_errors = data.mean_errors
@@ -1340,44 +1462,12 @@ class full_dating_regression(object):
         print('Amount of Inf:\n', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10))
 
     #def do_transforms(self):
-        suggested_transform = test_transforms(alls, responses+features) #ages_features + rate_features
+        suggested_transform = test_transforms(alls,
+                                [ft for ft in responses+features
+                                    if ft not in impose_transform]) #ages_features + rate_features
+        #TODO: add to self.displayed
 
-        suggested_transform.update(#must_transform
-                                   ingroup_nucl_entropy_median=binarize,
-                                   #ingroup_nucl_parsimony_median=binarize, #constant
-                                   ingroup_codon_entropy_median=binarize,
-                                   ingroup_codon_parsimony_median=binarize,
-                                   rebuilt_topo=binarize,
-                                   consecutive_zeros=binarize, # - triplet_zeros
-                                   sister_zeros=binarize,      # - triplet_zeros
-                                   triplet_zeros=binarize,
-                                   bootstrap_min=notransform,
-                                   prop_splitseq=binarize,
-                                   convergence_warning=binarize,  # notransform
-                                   consecutive_zeros_dS=binarize,
-                                   sister_zeros_dS=binarize,
-                                   triplet_zeros_dS=binarize,
-                                   consecutive_zeros_dN=binarize,
-                                   sister_zeros_dN=binarize,
-                                   triplet_zeros_dN=binarize,
-                                   r2t_dN_mean=make_best_logtransform(alls.r2t_dN_mean),
-                                   gb_Nblocks=notransform,
-                                   hmmc_propseqs=notransform,
-                                   freq_null_dS=binarize,
-                                   null_dist_before=binarize,
-                                   null_dS_before=binarize,
-                                   null_dN_before=binarize,
-                                   null_dist_after=binarize,
-                                   null_dS_after=binarize,
-                                   null_dN_after=binarize)
-        if 'dN' in self.measures:
-            suggested_transform.update(**{'dN_rate'+('_'+setting if setting else ''):
-                                          make_best_logtransform(
-                                              alls['dN_rate'+('_'+setting if setting else '')])
-                                          for setting in self.rate_settings}
-                                       #null_dN_before=sqrt
-                                       )
-        self.suggested_transform = suggested_transform
+        suggested_transform.update(impose_transform)
 
         # All binary variables should **NOT** be z-scored!
 
@@ -1423,6 +1513,8 @@ class full_dating_regression(object):
             if ft not in alls.columns:
                 logger.warning('Hardcoded feature %s not available: delete.', ft)
                 suggested_transform.pop(ft)
+
+        self.suggested_transform = suggested_transform
 
         alls_transformed = alls.transform(suggested_transform)
 
@@ -1470,7 +1562,8 @@ class full_dating_regression(object):
                                        L1_wt=1,  # lasso)
                                        start_params=None)
 
-        display_html(sm_pretty_summary(fitlasso))
+        self.displayed.append(sm_pretty_summary(fitlasso))
+        display_html(self.displayed[-1])
 
         #sb.violinplot('null_dS_before', 'abs_age_dev', data=a_n, cut=0);
         #scatter_density('r2t_dS_mean', 'abs_brlen_dev', data=a_n, alpha=0.5)
@@ -1483,8 +1576,9 @@ class full_dating_regression(object):
 
         self.ft_pca = ft_pca = detailed_pca(a_n, features)
 
-        heatmap_cov(np.abs(ft_pca.get_covariance()), features, cmap='seismic', make_corr=True, dendro_pad=0.2)
-        plt.gcf().suptitle('Feature covariance (PCA)')
+        heatmap_cov(np.abs(ft_pca.get_covariance()), features, cmap='seismic',
+                    make_corr=True, dendro_pad=0.2).suptitle('Feature covariance (PCA)')
+        self.displayed.append(plt.gcf())
         plt.show()
 
         print('\n#### Factor analysis')
@@ -1493,8 +1587,9 @@ class full_dating_regression(object):
 
         self.FA = FA = detailed_pca(a_n, features, FA=True)
 
-        heatmap_cov(np.abs(FA.get_covariance()), features, make_corr=True)
-        plt.gcf().suptitle('Feature covariance (Factor Analysis)')
+        heatmap_cov(np.abs(FA.get_covariance()), features, make_corr=True)\
+                .suptitle('Feature covariance (Factor Analysis)')
+        self.displayed.append(plt.gcf())
         plt.show()
 
         # Outlier study (can be separated by a line in PC1-PC2 space)
@@ -1513,85 +1608,34 @@ class full_dating_regression(object):
 
         print('\n### Feature decorrelation')
         #must_drop_features
-        a_n_inde = a_n.drop(["ls", "seconds",  # ~ ingroup_glob_len
-                             "ingroup_std_gaps", # ~ ingroup_std_len
-                             "dS_treelen",       # ~dS_rate
-                             "dN_treelen",
-                             "treelen",
-                             "ingroup_codon_entropy_mean", # ~ ingroup_codon_parsimony_mean
-                             "ingroup_codon_entropy_std",  # 
-                             "ingroup_nucl_entropy_std",   # ~ ingroup_codon_parsimony_std
-                             "ingroup_nucl_entropy_mean",
-                             "ingroup_nucl_entropy_median",  # ~ ingroup_codon_entropy_median
-                             "ingroup_nucl_parsimony_mean",
-                             "ingroup_nucl_parsimony_std",
-                             "r2t_t_mean", "r2t_dS_mean", "r2t_dN_mean",
-                             "r2t_t_std",  "r2t_dS_std",  "r2t_dN_std",
-                             "bootstrap_mean",  # ~ bootstrap_min
-                             "brOmega_skew",
-                             # decorrelated:
-                             "ingroup_mean_CpG",
-                             "ingroup_std_N",
-                             "ingroup_std_CpG",  # ~ ingroup_std_GC
-                             "NnonsynSites"  # ~ ls/3 - NsynSites
-                             ],
-                             axis=1)  # errors='ignore'
-        # decorrelated:
-        # "ingroup_codon_parsimony_std",
-        # "NnonsynSites", "Nsynsites", "brOmega_std",
-        # "ingroup_mean_CpG", "ingroup_std_N", "lnL",
-        # "dS_rate_std", "t_rate_std", "dN_rate_std", "dist_rate_std"
+        a_n_inde = a_n.drop(must_drop_features, axis=1)
         print('%d Independent features (%d rows)' % a_n_inde.shape[::-1])
 
-        to_renormlogdecorr = [('brOmega_std',   'brOmega_mean'),
-                              #('ingroup_std_N', 'ingroup_mean_N'),
-                              ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean')]
-        # Normalise the rate deviations by the rate mean.
-        to_renormlogdecorr += [('%s_rate_std%s' %(m, ('_'+setting if setting else '')),
-                                '%s_rate%s' %(m, ('_'+setting if setting else '')))
-                                for setting in self.rate_settings
-                                for m in self.measures]
-        missing_torenormlogdecorr = [pair for pair in to_renormlogdecorr
-                                     if pair[0] not in a_t or pair[1] not in a_t]
-        if missing_torenormlogdecorr:
+        self.missing_torenormlogdecorr = [pair for pair in
+                         self.to_renormlogdecorr[0] + list(self.to_renormlogdecorr[1].values())
+                         if pair[0] not in a_t or pair[1] not in a_t]
+        if self.missing_torenormlogdecorr:
             logger.warning('Unexpected missing pairs to renormlogdecorr: %s',
-                           missing_torenormlogdecorr)
-        to_renormlogdecorr = [pair for pair in to_renormlogdecorr
-                              if pair[0] in a_t and pair[1] in a_t]
+                           self.missing_torenormlogdecorr)
+        to_renormlogdecorr = ([pair for pair in self.to_renormlogdecorr[0]
+                               if pair[0] in a_t and pair[1] in a_t],
+                              {key:pair for key,pair in self.to_renormlogdecorr[1].items()
+                               if pair[0] in a_t and pair[1] in a_t})
         a_n_inde = renorm_logdecorrelate(a_n_inde, a_t, 
-                               *to_renormlogdecorr,
-                               RsynSites=('NsynSites',     'ls'),
-                               sitelnL=('lnL', 'ingroup_glob_len'))
+                                         *to_renormlogdecorr[0],
+                                         **to_renormlogdecorr[1])
 
-        zeros_to_decorrelate = [('%s_zeros_%s' %(how, m), 'triplet_zeros_'+m)
-                                for m in self.measures
-                                for how in ('sister', 'consecutive')]
-        missing_zeros_todecorr = [pair for pair in zeros_to_decorrelate
+        self.missing_zeros_todecorr = [pair for pair in self.to_subtract#[0]
                                   if pair[0] not in a_t or pair[1] not in a_t]
-        if missing_zeros_todecorr:
+        if self.missing_zeros_todecorr:
             logger.warning('Unexpected missing pairs of zero measures to decorr: %s',
-                           missing_zeros_todecorr)
-        zeros_to_decorrelate = [pair for pair in zeros_to_decorrelate
+                           self.missing_zeros_todecorr)
+        zeros_to_decorrelate = [pair for pair in self.to_subtract
                                 if pair[0] in a_t and pair[1] in a_t]
-        a_n_inde = logdecorrelate(a_n_inde, a_t,
-                                  *zeros_to_decorrelate)
-        #                         ('null_dist_before', 'freq_null_dist'),
-        #                         ('null_dist_after',  'freq_null_dist'),
-        #                         #('null_t_before',  'freq_null_t'),
-        #                         #('null_t_after',   'freq_null_t'),
-        #                         ('null_dS_before', 'freq_null_dS'),
-        #                         ('null_dS_after',  'freq_null_dS'),
-        #                         ('null_dN_before', 'freq_null_dN'),
-        #                         ('null_dN_after',  'freq_null_dN'),
-        #                         ('consecutive_zeros_dS', 'triplet_zeros_dS'),
-        #                         ('consecutive_zeros_dN', 'triplet_zeros_dN'),
-        #                         ('consecutive_zeros_t', 'triplet_zeros_t'),
-        #                         ('sister_zeros_dS', 'triplet_zeros_dS'),
-        #                         ('sister_zeros_dN', 'triplet_zeros_dN'),
-        #                         ('sister_zeros_t', 'triplet_zeros_t'))
+        
+        a_n_inde = logdecorrelate(a_n_inde, a_t, *zeros_to_decorrelate)
 
-        #a_n_inde[] = zscore(aC
-
+        # special_decorr
         a_n_inde['CpG_odds'] = zscore(log(alls.ingroup_mean_CpG / (alls.ingroup_mean_GC**2)))
         print('%d independent features (%d rows)' % a_n_inde.shape[::-1])
 
@@ -1601,9 +1645,11 @@ class full_dating_regression(object):
         print('inde_features', len(inde_features))
 
         new_inde_features = set(inde_features) - set(features)
-        self.decorr = {'R'+var1: '/ '+var2 for var1, var2 in to_renormlogdecorr}
-        self.decorr.update(RsynSites='NsynSites / ls', sitelnL='lnL / ingroup_glob_len',
-                           CpG_odds='ingroup_mean_CpG / ingroup_mean_GC^2',
+        # Description of the transformation for the user.
+        self.decorr = {'R'+var1: '/ '+var2 for var1, var2 in to_renormlogdecorr[0]}
+        self.decorr.update(CpG_odds='ingroup_mean_CpG / ingroup_mean_GC^2',
+                           **{key: '%s / %s' % (v1, v2) for key, (v1,v2)
+                              in to_renormlogdecorr[1].items()},
                            **{'R'+var1: '- '+var2 for var1,var2 in zeros_to_decorrelate})
 
         self.a_n_inde = a_n_inde
@@ -1612,15 +1658,17 @@ class full_dating_regression(object):
         self.ft_pca_inde = ft_pca_inde = PCA(n_components=15)
         ft_pca_inde.fit_transform(a_n_inde[inde_features]) # -> transformed data
 
-        heatmap_cov(np.abs(ft_pca_inde.get_covariance()), inde_features, make_corr=True)
-        plt.gcf().suptitle('Inde features covariance (PCA)')
+        heatmap_cov(np.abs(ft_pca_inde.get_covariance()), inde_features,
+                    make_corr=True).suptitle('Inde features covariance (PCA)')
+        self.displayed.append(plt.gcf())
         plt.show()
 
         self.FA_inde = FA_inde = FactorAnalysis(n_components=15)
         self.transformed_inde = transformed_inde = FA_inde.fit_transform(a_n_inde[inde_features])
 
         heatmap_cov(np.abs(FA_inde.get_covariance()), inde_features, make_corr=True)
-        plt.gcf().suptitle('Inde features covariance (FA)')
+        self.displayed.append(plt.gcf())
+        self.displayed[-1].suptitle('Inde features covariance (FA)')
         plt.show()
         fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
         scatter_density(transformed_inde[:,1], transformed_inde[:,0], alpha=0.4,
@@ -1631,7 +1679,8 @@ class full_dating_regression(object):
                         ax=ax2)
         ax2.set_xlabel('PC3')
         plt.show()
-        
+        self.displayed.append(fig)
+
 
     #def do_fit(self):
         print('\n### Fit of less colinear features')
@@ -1640,7 +1689,8 @@ class full_dating_regression(object):
         self.fitlasso = fitlasso = ols.fit_regularized(method='elastic_net',
                                              L1_wt=1,  # lasso)
                                              start_params=None)
-        display_html(sm_pretty_summary(fitlasso))
+        self.displayed.append(sm_pretty_summary(fitlasso))
+        display_html(self.displayed[-1])
 
         print('Non zeros params: %d/%d (from %d input features).\n'
               'Almost zeros params (<1e-8): %d.' % (
@@ -1659,6 +1709,7 @@ class full_dating_regression(object):
                                              refit=True)
         pslopes = sm_pretty_summary(fit)
         display_html(pslopes)
+        self.displayed.append(pslopes)
         self.slopes = pslopes.data
 
         # Test of homoscedasticity
@@ -1690,31 +1741,26 @@ class full_dating_regression(object):
         inde_features = self.inde_features
         y = self.responses[0]
 
-        if 'prop_splitseq' in a_n_inde.columns:
-            print(a_n_inde.prop_splitseq.value_counts())
-
-        #must_drop_features
+        #must_drop_data
 
         print('Drop trees with bad properties: null_{dS,dN,t,dist}_{after,before}, prop_splitseq')
-        bad_props = ['null_%s_%s' % (m,where) for m in self.measures
-                                                for where in ('before', 'after')]
-        bad_props += ['%s_zeros%s' %(what,('' if m=='dist' else '_'+m))
-                        for m in self.measures
-                        for what in ('triplet', 'sister')]
-        bad_props.append('prop_splitseq')
-        bad_props = [ft for ft in bad_props if ft in a_n_inde.columns]
-        
-        for badp in bad_props:
+        bad_props = {}
+        for badp, badval in must_drop_data.items():
+            if badp not in a_n_inde.columns:
+                continue
             vcounts = a_n_inde[badp].value_counts()
             if vcounts.shape[0] > 2:
                 logger.warning('%r not binary.', badp)
-            if vcounts.min() > 0.05 * vcounts.sum():
-                logger.warning('Discarding %r==0 trees will remove >5%% of the subtrees', badp)
+            if (a_n_inde[badp].isin(badval).sum()) > 0.05 * vcounts.count():
+                logger.warning('Discarding %s.isin(%s) trees will remove >5%% of the subtrees',
+                               badp, badval)
             print(vcounts, '\n')
+            bad_props[bapd] = badval
 
-        a_n_inde2 = a_n_inde.query(' & '.join('(%s==0)' % p for p in bad_props))\
-                        .drop(bad_props, axis=1, errors='ignore')
-        self.a_n_inde2 = a_n_inde2
+        #a_n_inde2 = a_n_inde.query(' & '.join('(%s==0)' % p for p in bad_props))\
+        #                .drop(bad_props, axis=1, errors='ignore')
+        a_n_inde2 = a_n_inde.loc
+        self.a_n_inde2 = a_n_inde2.loc[a_n_inde2.isin(bad_props)]
         print(a_n_inde2.shape)
         self.inde_features2 = inde_features2 = [ft for ft in inde_features
                                                 if ft not in bad_props]
@@ -1747,6 +1793,7 @@ class full_dating_regression(object):
         #print('P(F) = ', self.  ###TODO
         pslopes2 = sm_pretty_summary(fitlasso2)
         display_html(pslopes2)
+        self.displayed.append(pslopes2)
         self.slopes2 = pslopes2.data
 
         print('Non zeros params: %d/%d (from %d input features).\n'
@@ -1780,8 +1827,10 @@ class full_dating_regression(object):
                         axis=1, sort=False)
         self.reslopes2_styled = sm_pretty_summary(refitlasso2, param_info,
                                                   bars=['coef', 'Simple regression coef'])
-        reslopes2 = self.reslopes2_styled.data
         display_html(self.reslopes2_styled)
+        self.displayed.append(self.reslopes2_styled)
+
+        reslopes2 = self.reslopes = self.reslopes2_styled.data
         self.F_pval2 = refitlasso2.f_pvalue
         self.lL2 = refitlasso2.llf
         #print('fstat = %g\nP(F > fstat) = %g\nlog-likelihood = %g' %(
@@ -1806,15 +1855,16 @@ class full_dating_regression(object):
         ax.set_xlabel('Predicted response')
 
         smg.gofplots.qqplot(refitlasso2.resid, line='r', ax=axes[2])
-        #plt.show()
+        plt.show()
+        self.displayed.append(fig)
 
         if hasattr(refitlasso2, 'cov_HC0'):
-            heatmap_cov(refitlasso2.cov_HC0, features, cmap='seismic', make_corr=True)
-            plt.gcf().suptitle('cov_HC0')
+            heatmap_cov(refitlasso2.cov_HC0, features, cmap='seismic', make_corr=True).suptitle('cov_HC0')
             plt.show()
-            heatmap_cov(refitlasso2.cov_HC1, features, cmap='seismic', make_corr=True)
-            plt.gcf().suptitle('cov_HC1')
+            self.displayed.append(plt.gcf())
+            heatmap_cov(refitlasso2.cov_HC1, features, cmap='seismic', make_corr=True).suptitle('cov_HC1')
             plt.show()
+            self.displayed.append(plt.gcf())
         else:
             logger.warning("No attribute 'cov_HC0' in `refitlasso2`.")
 
