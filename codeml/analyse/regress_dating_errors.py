@@ -164,7 +164,6 @@ def load_stats_chronoslogs(logsfile):
                      dtype={'action': 'category'})
     return ls
 
-
 stat_loaders = {'al':     load_stats_al,
                 'tree':   load_stats_tree,
                 'codeml': load_stats_codeml,
@@ -301,6 +300,17 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     dtypes.update(calibrated=bool, parent=str, taxon=str, is_outgroup=bool,
                   type=str, root=str, subgenetree=str)
     ages = ages.astype(dtypes, copy=False, errors='raise')
+
+    # Convert beast string ranges to floats, in 2 columns:
+    rangevars = ['height_95%_HPD', 'height_range', 'length_95%_HPD', 'length_range', 'rate_95%_HPD', 'rate_range']
+    if ages.columns.intersection(range_vars):
+        for var in rangevars:
+            parsedrange = ages[var].replace("None", "NaN")\
+                          .str.strip('{}').str.split(r'\.\.', n=2, expand=True)\
+                          .astype(float)
+            ages[var+'_low'] = parsedrange[0]
+            ages[var+'_up'] = parsedrange[1]
+        ages.drop(columns=var, inplace=True)
 
     logger.info("Shape ages: %s; has dup: %s" % (ages.shape, ages.index.has_duplicates))
     n_nodes = ages.shape[0]
