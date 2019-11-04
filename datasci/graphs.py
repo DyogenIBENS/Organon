@@ -68,17 +68,21 @@ def softstyle():
 
 ### Helping functions ###
 
-def plotby(df, by, kind='line', ncols=3, sharex=True, sharey=True, **kwds):
+def plotby(df, by, kind='line', ncols=3, sharex=True, sharey=True, order=None,
+            **kwds):
     """Groupby and plot each group on a separate subplot.
     
-    See seaborn.catplot.
+    See seaborn.catplot. Or the subplots=True option in pandas.DataFrame.plot.
     """
     df_grouped = df.groupby(by)
-    ngroups = len(df_grouped)
+    groups = list(df_grouped.groups) if order is None else order
+    ngroups = len(groups)
     nrows = ngroups // ncols + 1*(ngroups % ncols > 0)
-    fig, axes = plt.subplots(nrows, ncols, sharex, sharey)
+    fig, axes = plt.subplots(nrows, ncols, sharex, sharey, squeeze=False)
     #print(kde_axes, type(kde_axes))
-    for i, (title, data) in enumerate(df_grouped):
+
+    for i, title in enumerate(groups):
+        data = df_grouped.get_group(title)
         #print("title")
         ax = axes[i // ncols, i % ncols]
         subkwds = dict((key,v[i]) if isinstance(v, list)
@@ -87,11 +91,13 @@ def plotby(df, by, kind='line', ncols=3, sharex=True, sharey=True, **kwds):
                        for key,v in kwds.items())
         #print(subkwds)
         data.plot(kind=kind, ax=ax, title=title, **subkwds)
+    #ax.set_xlabel
 
     # Hide unnecessary axes
     for j in range(i+1, nrows*ncols):
         ax = axes[j // ncols, j % ncols]
         ax.axis('off')
+
 
     return axes
 
