@@ -30,7 +30,8 @@ from datasci.graphs import scatter_density, \
                            dodged_violin
 from datasci.compare import pairwise_intersections, align_sorted
 from datasci.stats import r_squared, adj_r_squared, multicol_test, multi_vartest,\
-                          rescale_groups, iqr, mad, f_test
+                          rescale_groups, iqr, mad, trimstd, trimmean, \
+                          mean_absdevmed, f_test
 from datasci.routines import *
 from datasci.dataframe_recipees import *
 
@@ -1317,19 +1318,28 @@ _must_drop_features = ["ls", "seconds",  # ~ ingroup_glob_len
                        "r2t_t_std",  "r2t_dS_std",  "r2t_dN_std",
                        "bootstrap_mean",  # ~ bootstrap_min
                        "brOmega_skew",
-                       # decorrelated:
-                       "ingroup_mean_CpG",
                        "ingroup_std_N",
                        "ingroup_std_CpG",  # ~ ingroup_std_GC
-                       "NnonsynSites"]  # ~ ls/3 - NsynSites
-                    # decorrelated:
-                    # "ingroup_codon_parsimony_std",
-                    # "NnonsynSites", "Nsynsites", "brOmega_std",
-                    # "ingroup_mean_CpG", "ingroup_std_N", "lnL",
-                    # "dS_rate_std", "t_rate_std", "dN_rate_std", "dist_rate_std"
+                       "NnonsynSites",  # ~ ls/3 - NsynSites
+                       # decorrelated:
+                       "ingroup_mean_CpG",
+                       # "ingroup_codon_parsimony_std",
+                       # "NnonsynSites", "Nsynsites", "brOmega_std",
+                       # "ingroup_mean_CpG", "ingroup_std_N", "lnL",
+                       # "dS_rate_std", "t_rate_std", "dN_rate_std", "dist_rate_std"
+                       # BeastS
+                       "treeL_12_med", #~mean
+                       "birthRateY_med",
+                       "ucldMean_12_med",
+                       "ucldStdev_12_med",
+                       "ucldMean_3_med",
+                       "TreeHeight_med",
+                       "rate_12_mean_med",
+                       "gammaShape_med",
+                       "rateAG_med"]
 
 _must_renormlogdecorr = (
-    [('brOmega_std',   'brOmega_mean'),
+    [('brOmega_std', 'brOmega_mean'),
      #('ingroup_std_N', 'ingroup_mean_N'),
      ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean')]
       # Normalise the rate deviations by the rate mean.
@@ -1337,7 +1347,9 @@ _must_renormlogdecorr = (
         '%s_rate%s' %(m, ('_'+setting if setting else '')))
        for setting in ('', 'global', 'local', 'nonlocal', 'global_approx',
                        'local_approx', 'global_beastS')#self.rate_settings
-       for m in MEASURES], #self.measures]
+       for m in MEASURES]
+    + [('treeL_3_stddev', 'treeL_3_med'),
+       ('treeL_12_stddev', 'treeL_12_med')],
     dict(RsynSites=('NsynSites',     'ls'),
          sitelnL=('lnL', 'ingroup_glob_len')))
 
@@ -1357,6 +1369,9 @@ _must_drop_data = dict(prop_splitseq=(1,),
                           for m in MEASURES
                           for what in ('triplet', 'sister')})
 
+_protected_features = ['RdS_rate_std', 'RbeastS_rate_std',
+                       'dS_rate_std', 'beastS_rate_std',
+                       'ingroup_glob_len']
 # anc = 'Catarrhini'
 # param = 'um1.new'
 # nsCata = age_analyses[anc][param].ns
@@ -1373,20 +1388,22 @@ class full_dating_regression(object):
                  'to_renormlogdecorr',
                  'to_subtract',
                  'must_drop_features',
+                 'protected_features',
                  'must_drop_data']
 
     init_defaults = {'ref_suggested_transform': dict,
                      'impose_transform': dict,
+                     'must_drop_features': list,
                      'to_renormlogdecorr': lambda: ([], {}),
                      'to_subtract': list,
-                     'must_drop_features': list,
+                     'protected_features': list,
                      'must_drop_data': dict}
 
     def __init__(self, data, same_alls, dataset_params, responses, features,
                  measures=MEASURES, ref_suggested_transform=None,
-                 impose_transform=None, to_renormlogdecorr=None,
-                 to_subtract=None, must_drop_features=None,
-                 must_drop_data=None):
+                 impose_transform=None, must_drop_features=None,
+                 to_renormlogdecorr=None, to_subtract=None,
+                 protected_features=None, must_drop_data=None):
         for k,v in locals().items():
             if k != 'self':
                 if k in self.init_defaults and v is None:
@@ -1399,6 +1416,7 @@ class full_dating_regression(object):
         """Instantiate by copying all attributes from another instance."""
         self = cls(**{ivar: getattr(other_regression, ivar)
                                for ivar in cls.init_vars})
+        #vars() doesn't contain properties nor private attributes
         for k,v in vars(other_regression).items():
             if k not in cls.init_vars:
                 setattr(self, k, v)
@@ -1541,9 +1559,9 @@ class full_dating_regression(object):
         self.a_t = a_t = alls_transformed
 
     #def do_norm(self):
-        print('Will Z-score:', {ft: zscore for ft in responses+features
-                                 if ft not in bin_features})
-        print('Will join binary features:', bin_features)
+        logger.debug('Will Z-score: %s', [ft for ft in responses+features if ft not in bin_features])
+            #{ft: zscore for ft in responses+features if ft not in bin_features})
+        logger.debug('Will join binary features: %s', bin_features)
         a_n = a_t.transform({ft: zscore for ft in responses+features
                              if ft not in bin_features})\
                  .join(alls_transformed[bin_features])
@@ -1555,6 +1573,7 @@ class full_dating_regression(object):
 
         print(a_n.shape)
         print('normed -> Any NA:', a_n.columns.values[a_n.isna().any(axis=0)])
+        print('Check a_n.head():')
         display_html(a_n.head())
         na_rows = a_n.isna().any(axis=1)
         if na_rows.any():
@@ -1600,7 +1619,9 @@ class full_dating_regression(object):
     #def do_pca(self):
         print('\n### Dimension reduction of features\n#### PCA')
 
-        self.ft_pca = ft_pca = detailed_pca(a_n, features)
+        ft_pca, ft_pca_outputs = detailed_pca(a_n, features)
+        self.ft_pca = ft_pca
+        self.displayed.extend(ft_pca_outputs)
 
         heatmap_cov(np.abs(ft_pca.get_covariance()), features, cmap='seismic',
                     make_corr=True, dendro_pad=0.2).suptitle('Feature covariance (PCA)')
@@ -1611,7 +1632,9 @@ class full_dating_regression(object):
 
         # To take into account continuous and categorical variables
 
-        self.FA = FA = detailed_pca(a_n, features, FA=True)
+        FA, fa_outputs = detailed_pca(a_n, features, FA=True)
+        self.FA = FA
+        self.displayed.extend(fa_outputs)
 
         heatmap_cov(np.abs(FA.get_covariance()), features, make_corr=True)\
                 .suptitle('Feature covariance (Factor Analysis)')
@@ -1634,7 +1657,11 @@ class full_dating_regression(object):
 
         print('\n### Feature decorrelation')
         #must_drop_features
-        a_n_inde = a_n.drop(must_drop_features, axis=1)
+        try:
+            a_n_inde = a_n.drop(must_drop_features, axis=1)
+        except KeyError as err:
+            logger.warning("Not in `self.a_n`:" + err.args[0])
+            a_n_inde = a_n.drop(must_drop_features, axis=1, errors='ignore')
         print('%d Independent features (%d rows)' % a_n_inde.shape[::-1])
 
         self.missing_torenormlogdecorr = [pair for pair in
@@ -1711,25 +1738,32 @@ class full_dating_regression(object):
     #def do_fit(self):
         print('\n### Fit of less colinear features')
 
+    #def lassoselect_and_fit(a_n_inde, inde_features, atol=1e-3, method='elastic_net',
+    #                        L1_wt=1, cov_type='HC1'):
         exog = sm.add_constant(a_n_inde[inde_features])
         ols = sm.OLS(a_n_inde[y], exog)
         self.fitlasso = fitlasso = ols.fit_regularized(method='elastic_net',
                                              L1_wt=1,  # lasso)
                                              start_params=None)
-        sorted_coefs = fitlasso.params.drop('const').abs().sort_values()
+        sorted_coefs = fitlasso.params.drop('const').abs().sort_values(ascending=False)
         sorted_features = sorted_coefs.index.tolist()
 
+        atol = 1e-3  # Threshold to discard coefficients
         print('Non zeros params: %d/%d (from %d input features).\n'
-              'Almost zeros params (<1e-5): %d.' % (
+              'Almost zeros params (<%g): %d.' % (
                 (fitlasso.params.drop('const') != 0).sum(),
                  fitlasso.params.drop('const').shape[0],
                  len(inde_features),
-                 np.isclose(fitlasso.params.drop('const'), 0, atol=1e-5).sum()))
+                 atol,
+                 np.isclose(fitlasso.params.drop('const'), 0, atol=atol).sum()))
 
-        multicol_test_cumul = pd.Series([multicol_test(exog[['const'] + sorted_features[:i]])
-                                         for i in range(len(sorted_features))],
-                                         index=sorted_features,
-                                         name='cumul_colinearity')
+        multicol_test_cumul = pd.DataFrame(columns=['cumul_colinearity', 'cumul_colinearity_noconst'],
+                                   index=sorted_features,
+                                   dtype=float)
+        for i, ft in enumerate(sorted_features, start=1):
+            multicol_test_cumul.loc[ft] = [multicol_test(exog[['const'] + sorted_features[:i]]),
+                                           multicol_test(exog[sorted_features[:i]])]
+
         self.displayed.append(sm_pretty_summary(fitlasso, multicol_test_cumul))
         display_html(self.displayed[-1])
 
@@ -1737,7 +1771,7 @@ class full_dating_regression(object):
         #sb.violinplot('triplet_zeros_dS', 'abs_age_dev', data=a_n_inde);
 
         print('\n#### OLS refit')  #TODO: delete but make a refit.
-        selected_features = sorted_features[:sorted_coefs.searchsorted(1e-3)]
+        selected_features = sorted_coefs[sorted_coefs > atol].index.tolist()
         self.fit = fit = sm.OLS(a_n_inde[y], exog[['const'] + selected_features]).fit(cov_type='HC1')
 
         pslopes = sm_pretty_summary(fit)
@@ -1748,6 +1782,8 @@ class full_dating_regression(object):
         # Test of homoscedasticity
         #sms.linear_harvey_collier(fit)
 
+        #return lassoselected_and_fitted
+
     #def do_randomforest(self):
         print('\n#### Random Forest Regression')
         RFcrossval_r2 = randomforest_regression(a_n_inde[inde_features], a_n_inde[y])
@@ -1757,27 +1793,37 @@ class full_dating_regression(object):
 
         return reslopes2
 
+    @property
+    def suggest_multicolin(self):
+        try:
+            return self._suggest_multicolin
+        except AttributeError:
+            print('\n#### Finding the most colinear features')
+            #multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
+            protected_features = [ft for ft in self.protected_features
+                                    if ft in self.inde_features]
+            self._suggest_multicolin, outputs = loop_drop_eval(self.inde_features,
+                                          lambda x: multicol_test(self.a_n_inde[x]),
+                                          stop_criterion=20,
+                                          protected=protected_features)
+            self.displayed.extend(outputs)
+            return self._suggest_multicolin
+
 
     def do_bestfit(self):
 
     #def do_dropcolinear(self):
-        print('\n#### Finding the most colinear features')
-        #multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
-        self.suggest_multicolin = loop_drop_eval(inde_features,
-                                      lambda x: multicol_test(a_n_inde[x]),
-                                      stop_criterion=20)
-                                      # protected=['RdS_rate_std', 'dS_rate']...
-        print(self.suggest_multicolin)
-
-        print('\n#### Refit without most colinear features')
-        
         a_n_inde = self.a_n_inde
         inde_features = self.inde_features
         y = self.responses[0]
 
+        print(self.suggest_multicolin)
+
+        print('\n#### Refit without most colinear features')
+        
         print('Drop trees with bad properties: null_{dS,dN,t,dist}_{after,before}, prop_splitseq')
         bad_props = {}
-        for badp, badval in must_drop_data.items():
+        for badp, badval in self.must_drop_data.items():
             if badp not in a_n_inde.columns:
                 continue
             vcounts = a_n_inde[badp].value_counts()
@@ -1787,15 +1833,14 @@ class full_dating_regression(object):
                 logger.warning('Discarding %s.isin(%s) trees will remove >5%% of the subtrees',
                                badp, badval)
             print(vcounts, '\n')
-            bad_props[bapd] = badval
+            bad_props[badp] = badval
 
         #a_n_inde2 = a_n_inde.query(' & '.join('(%s==0)' % p for p in bad_props))\
         #                .drop(bad_props, axis=1, errors='ignore')
-        a_n_inde2 = a_n_inde.loc
-        self.a_n_inde2 = a_n_inde2.loc[a_n_inde2.isin(bad_props)]
-        print(a_n_inde2.shape)
+        a_n_inde2 = self.a_n_inde2 = a_n_inde.loc[a_n_inde.isin(bad_props).any(axis=1)]
+        print("New shape after removing bad data:", a_n_inde2.shape)
         self.inde_features2 = inde_features2 = [ft for ft in inde_features
-                                                if ft not in bad_props+self.suggest_multicolin]
+                                                if ft not in list(bad_props)+self.suggest_multicolin]
 
         constant_vars = a_n_inde2[inde_features2].agg(np.ptp)
         print('Check for newly introduced constant variables:\n',
@@ -1822,22 +1867,41 @@ class full_dating_regression(object):
         elif NaN_coefs.any():
             logger.warning("Some coefs estimated as NaN.")
 
+        sorted_coefs = fitlasso2.params.drop('const').abs().sort_values(ascending=False)
+        sorted_features = sorted_coefs.index.tolist()
+
+        atol = 1e-3
+        print('Non zeros params: %d/%d (from %d input features).\n'
+              'Almost zeros params (<%g): %d.' % (
+                (fitlasso2.params.drop('const') != 0).sum(),
+                 fitlasso2.params.drop('const').shape[0],
+                 len(inde_features2),
+                 atol,
+                 np.isclose(fitlasso2.params.drop('const'), 0, atol=atol).sum()))
+
+        multicol_test_cumul = pd.DataFrame(columns=['cumul_colinearity', 'cumul_colinearity_noconst'],
+                                   index=sorted_features,
+                                   dtype=float)
+        for i, ft in enumerate(sorted_features, start=1):
+            multicol_test_cumul.loc[ft] = [multicol_test(exog[['const'] + sorted_features[:i]]),
+                                           multicol_test(exog[sorted_features[:i]])]
+
         #print('P(F) = ', self.  ###TODO
-        pslopes2 = sm_pretty_summary(fitlasso2)
+        pslopes2 = sm_pretty_summary(fitlasso2, multicol_test_cumul)
         display_html(pslopes2)
         self.displayed.append(pslopes2)
         self.slopes2 = pslopes2.data
 
         print('Non zeros params: %d/%d (from %d input features).\n'
-              'Almost zeros params (<1e-5): %d.' % (
+              'Almost zeros params (<%g): %d.' % (
                 (self.slopes2.coef.drop('const') != 0).sum(),
                  self.slopes2.drop('const').shape[0],
-                 len(inde_features2),
-                 np.isclose(self.slopes2.coef.drop('const'), 0, atol=1e-5).sum()))
+                 len(inde_features2), atol,
+                 np.isclose(self.slopes2.coef.drop('const'), 0, atol=atol).sum()))
 
-        selected_features = self.slopes2.drop('const').query('abs(coef)>=1e-3').index.tolist()
+        selected_features = self.slopes2.drop('const').query('abs(coef)>=@atol').index.tolist()
         print('\n###### OLS refit of LASSO selected variables (1e-3)')
-        self.refitlasso2 = refitlasso2 = sm.OLS(a_n_inde[y],
+        self.refitlasso2 = refitlasso2 = sm.OLS(a_n_inde2[y],
                                                 exog[['const'] + selected_features])\
                                            .fit(cov_type='HC1')
 
@@ -1876,9 +1940,9 @@ class full_dating_regression(object):
         scatter_density(a_n_inde2[y], a_n_inde2[self.slopes2.index[1]], alpha=0.4, ax=ax)
         x = np.array(ax.get_xlim())
         a, b = reslopes2.loc[['const', self.slopes2.index[1]], 'Simple regression coef']
-        ax.plot(x, a + b*x, '--', label='Simple Regression line')
+        ax.plot(x, 0 + b*x, '--', label='Simple Regression line (a=%g b=%g)' % (0,b))
         a, b = reslopes2.loc[['const', self.slopes2.index[1]], 'Lasso coef']
-        ax.plot(x, a + b*x, '--', label='Lasso regression line')
+        ax.plot(x, a + b*x, '--', label='Lasso regression line (a=%g b=%g)' % (a,b))
         ax.legend()
         ax.set_title('Response against the feature with the largest Lasso coef.')
         ax.set_ylabel(y)
@@ -1898,14 +1962,17 @@ class full_dating_regression(object):
         self.displayed.append(fig)
 
         if hasattr(refitlasso2, 'cov_HC0'):
-            heatmap_cov(refitlasso2.cov_HC0, features, cmap='seismic', make_corr=True).suptitle('cov_HC0')
-            plt.show()
-            self.displayed.append(plt.gcf())
-            heatmap_cov(refitlasso2.cov_HC1, features, cmap='seismic', make_corr=True).suptitle('cov_HC1')
+            heatmap_cov(refitlasso2.cov_HC0, ['const']+selected_features, cmap='seismic', make_corr=True).suptitle('cov_HC0')
             plt.show()
             self.displayed.append(plt.gcf())
         else:
             logger.warning("No attribute 'cov_HC0' in `refitlasso2`.")
+        if hasattr(refitlasso2, 'cov_HC1'):
+            heatmap_cov(refitlasso2.cov_HC1, ['const']+selected_features, cmap='seismic', make_corr=True).suptitle('cov_HC1')
+            plt.show()
+            self.displayed.append(plt.gcf())
+        else:
+            logger.warning("No attribute 'cov_HC1' in `refitlasso2`.")
 
         # See this page for all possible accessible attributes/methods:
         # https://www.statsmodels.org/stable/generated/statsmodels.regression.linear_model.OLSResults.html#statsmodels.regression.linear_model.OLSResults
@@ -1915,6 +1982,15 @@ class full_dating_regression(object):
     def do_worsttrees(self):
         print('\n### Investigate the worst trees')
         display_html(self.alls.sort_values(self.responses[0], ascending=False).head(50))
+
+    def show(self):
+        for out in self.outputs:
+            if isinstance(out, (pd.Series, pd.DataFrame, pd.io.formats.style.Styler)):
+                display_html(out)
+            elif isinstance(out, mpl.figure.Figure):
+                display(out)
+            else:
+                print(out)
 
 
 from siphon import dependency_func, dependency, auto_internalmethod

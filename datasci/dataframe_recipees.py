@@ -27,14 +27,15 @@ def centered_background_gradient(s, cmap='PRGn', center=0, extend=0):
 def magnify():
     """Increase the size of the table cells."""
     return [dict(selector="th",
-                 props=[("font-size", "12pt")]),
+                 props=[("font-size", "4pt"),
+                        ("writing-mode", "bt-rl")]),
             dict(selector="td",
                  props=[('padding', "0em 0em")]),
             dict(selector="th:hover",
-                 props=[("font-size", "12pt")]),
+                 props=[("font-size", "10pt")]),
             dict(selector="tr:hover td:hover",
-                 props=[('max-width', '200px'),
-                        ('font-size', '12pt')])
+                 props=[('max-width', '150px'),
+                        ('font-size', '10pt')])
             ]
 
 
@@ -66,22 +67,74 @@ def tolong(df, x=None, subset=None, varname=None, idname=None):
     return df.stack().reset_index().rename(columns=renames)
 
 
-def matplotlib_stylebar(y, data, color='#d65f5f'):
+def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
+                        err=None, ticks=False):
+    if y is None:
+        try:
+            y = data.columns.tolist()
+        except AttributeError:  # it is a Series.
+            y = data.name
+            if y is None:
+                y = 'Y'
+            data = data.to_frame(y)
     if not isinstance(y, list):
         y = [y]
-    axes = data.plot.barh(y=y, color='#d65f5f', width=0.95, subplots=True, legend=False, sharex=False, sharey=True, layout=(1, len(y)))
-    axes.flat[0].invert_yaxis()
-    for ax, yvar in zip(axes.flat, y):
-        for j, val in enumerate(data[yvar].values):
-            ax.text(0, j, '%.5f' % val, va='center')
-        ax.set_xlim(data[yvar].min(), data[yvar].max())
-        #ax.grid(False)
-        ax.spines['top'].set_visible(True)
-        ax.spines['bottom'].set_visible(False)
+    if horizontal:
+        kind = 'barh'
+        sharex, sharey = False, True
+        layout = (1, len(y))
+        text = lambda ax, pos, val: ax.text(ax.get_xlim()[1], pos, '%.5f' % val,
+                                            va='center', ha='right')
+        xerr, yerr = err, None
+    else:
+        kind = 'bar'
+        sharex, sharey = True, False
+        layout = (len(y), 1)
+        text = lambda ax, pos, val: ax.text(pos, ax.get_ylim()[1], '%.5f' % val, ha='center',
+                                            va='top', rotation=90)
+        xerr, yerr = None, err
+
+    axes = data.plot(kind=kind, y=y, color='#d65f5f', width=0.95,
+                     subplots=True, legend=False, sharex=sharex, sharey=sharey,
+                     layout=layout, yerr=yerr, xerr=xerr,
+                     error_kw={'capsize': 3, 'elinewidth': 1, 'alpha': 0.7})#'ecolor': mpl.rcParams['text.color']})
+    if horizontal:
+        axes.flat[0].invert_yaxis()
+    for i, (ax, yvar) in enumerate(zip(axes.flat, y)):
+        ymin, ymax = data[yvar].min(), data[yvar].max()
+        if err is not None and np.ndim(err)==3:
+            max_low_err = err[i,0].max()
+            max_up_err = err[i,1].max()
+            if not np.isnan(max_low_err):
+                ymin -= max_low_err
+            if not np.isnan(max_up_err):
+                ymax += max_up_err
+        #if align=='left':
+        #    datalim = 0, ymax-ymin
+        #    #bottom = ymin, heights = data[yvar] - ymin
+        #elif align=='zero':
+        #    maxabs = max(abs(ymin), abs(ymax))
+        #    datalim = (-maxabs, maxabs)
+        #elif align=='mid':
+        #    datalim = ymin, ymax
+
+        if horizontal:
+            ax.set_xlim(ymin, ymax)
+            if not ticks: ax.set_xticklabels([])
+            #ax.grid(False)
+            ax.spines['top'].set_visible(True)
+            ax.spines['bottom'].set_visible(False)
+            ax.xaxis.set_label_position('top')
+        else:
+            ax.set_ylim(ymin, ymax)
+            if not ticks: ax.set_yticklabels([])
+            ax.set_title(None)
+            ax.set_ylabel(yvar)
         ax.grid(False)
         ax.tick_params(left=False, bottom=False)
-        ax.set_xticklabels([])
-        ax.xaxis.set_label_position('top')
+        # Add the table content (Once the xlim/ylim is set!)
+        for j, val in enumerate(data[yvar].values):
+            text(ax, j, val)
     return axes.flat
 
 
@@ -93,16 +146,17 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
         broadcast_axis = 1 - axis
         data = data.subtract(data.min(axis=axis), broadcast_axis)\
                    .div(np.ptp(data.values, axis=axis), axis=broadcast_axis)
-    im = plt.imshow(data, cmap=cmap, aspect='auto')
-    ax = plt.gca()
-    #ax.pcolormesh(); ax.invert_yaxis()
+    #im = plt.imshow(data, cmap=cmap, aspect='auto', interpolation='none'); ax = plt.gca()
+    im = plt.pcolormesh(data, cmap=cmap, edgecolors=''); ax = plt.gca(); ax.invert_yaxis()
+    yticks = np.arange(data.shape[0]) + 0.5
+    xticks = np.arange(data.shape[1]) + 0.5
     ax.xaxis.tick_top()
     ax.xaxis.set_label_position('top')
 
-    ax.set_yticks(np.arange(data.shape[0]))
+    ax.set_yticks(yticks)
     ax.set_yticklabels(data.index, {'fontweight': 'bold'})
 
-    ax.set_xticks(np.arange(data.shape[1]))
+    ax.set_xticks(xticks)
     ax.set_xticklabels(data.columns, {'fontweight': 'bold'})
     ax.tick_params(axis='y', labelsize='large')
 
@@ -121,8 +175,8 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
     #print(styled_data.ctx)
 
     cell_txts = []
-    for x in range(data.shape[1]):
-        for y in range(data.shape[0]):
+    for x,xt in enumerate(xticks):
+        for y,yt in enumerate(yticks):
             attributes = styled_data.ctx[(y, x)]  # if it's not a MultiIndex
             dict_attr = dict(t.split(':') for t in attributes)
             try:
@@ -131,7 +185,7 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
                 err.args += ((y, x), attributes)
                 raise
             cell_txts.append(
-                    ax.text(x, y, float_fmt % orig_data.iloc[y,x],
+                    ax.text(xt, yt, float_fmt % orig_data.iloc[y,x],
                             color=textcolor, va='center', ha='center'))
 
     # Get cell width/height

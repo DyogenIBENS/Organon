@@ -273,8 +273,8 @@ def plot_cov(ft_cov, features, cmap='seismic', figax=None, cax=None,
     img = ax.imshow(ft_cov, cmap=cmap, norm=norm, aspect='auto', origin='lower') #plt.pcolormesh
     ax.set_xticks(np.arange(len(features)))
     ax.set_yticks(np.arange(len(features)))
-    ax.set_yticklabels(features)
-    ax.set_xticklabels(features, rotation=45, ha='right')
+    ax.set_yticklabels(features, ha='right', va='center')
+    ax.set_xticklabels(features, rotation=90, ha='center', va='top')
     if ylabel:
         ax.set_ylabel(ylabel)
     ax.set_title("Feature covariance")

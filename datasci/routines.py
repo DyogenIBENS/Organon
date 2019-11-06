@@ -13,6 +13,7 @@ from io import StringIO
 from functools import partial
 import numpy as np
 import pandas as pd
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from IPython.display import display_html
 import warnings
@@ -28,7 +29,9 @@ from datasci.graphs import scatter_density, \
                            plot_features_radar, \
                            heatmap_cov
 from datasci.stats import normal_fit, cov2cor, r_squared, adj_r_squared
-from datasci.dataframe_recipees import centered_background_gradient, magnify
+from datasci.dataframe_recipees import centered_background_gradient, magnify, \
+                                        matplotlib_stylebar
+
 
 
 # Variable transformation
@@ -298,6 +301,7 @@ def detailed_pca(alls_normed, features, FA=False):
     fa = Analysis(n_components=15)
     transformed = fa.fit_transform(alls_normed[features])
 
+    outputs = []
     # ### PC contribution to variance
 
     print("transformed data dimensions: %s" % (transformed.shape,))
@@ -320,6 +324,7 @@ def detailed_pca(alls_normed, features, FA=False):
     ax.set_xlabel("Principal Components")
     ax.set_ylabel("Cumulative ratio of variance explained")
     plt.show()
+    outputs.append(fig)
 
     # ### PC loadings
 
@@ -345,10 +350,11 @@ def detailed_pca(alls_normed, features, FA=False):
     styled_components = components.loc[ordered_ft].style.\
             apply(centered_background_gradient, cmap="PRGn", extend=0.15).\
             set_caption("Principal Components loadings").\
-            set_properties(**{'max-width': '80px', 'font-size': '1pt'}).\
+            set_properties(**{'max-width': '60px', 'font-size': '1pt'}).\
             set_table_styles(magnify())
-    print("Rendered_components:", type(styled_components))
+    #print("Rendered_components:", type(styled_components))
     display_html(styled_components)
+    outputs.append(styled_components)
 
     # ### Feature covariance
     ft_cov = fa.get_covariance()
@@ -364,6 +370,7 @@ def detailed_pca(alls_normed, features, FA=False):
     plot_features_radar(components, features, PCs=["PC1", "PC3"], ax=ax1)
     fig.suptitle("Features in Principal Component space")
     plt.show()
+    outputs.append(fig)
 
     print('# Data plotted in component space')
     fig, (ax0, ax1) = plt.subplots(1, 2, sharey=True)
@@ -374,7 +381,8 @@ def detailed_pca(alls_normed, features, FA=False):
     ax1.set_xlabel('PC3')
     ax1.set_ylabel('PC1')
     plt.show()
-    return fa
+    outputs.append(fig)
+    return fa, outputs
 
 
 # Functions for checking colinearity between variables
@@ -496,16 +504,41 @@ def display_drop_eval(features, func):
     return drop_eval(features, func).to_frame.style.bar()
 
 
-def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=None):
+def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=None,
+                   protected=None, show='matplotlib'):
+    if protected is None:
+        protected = []
     if nloops is None:
-        nloops = len(features)
+        nloops = len(set(features).difference(protected))
+
+    outputs = []
+    if show is None:
+        def show(series):
+            pass
+    elif show in ('mpl', 'matplotlib'):
+        rcwidth, rcheight = mpl.rcParams['figure.figsize']
+        bw = max(0.15, rcwidth/len(features))
+        bh = min(rcheight, bw*5)
+        def show(series):
+            ax, = matplotlib_stylebar(series, horizontal=False, ticks=True)
+            ax.figure.set_size_inches(bw*series.shape[0], bh)
+            plt.show()
+            outputs.append(ax.figure)
+    elif show in ('pd', 'pandas'):
+        def show(df):
+            styled = series.to_frame().style.bar()
+            display_html(styled)
+            outputs.append(styled)
+    elif not callable(show):
+        raise ValueError('`show` must be a value in [None, "pandas", "matplotlib"] or a callable')
 
     dropped_features = []
     next_features = [ft for ft in features]
     for k in range(nloops):
         dropped_k = drop_eval(next_features, func)
-        display_html(dropped_k.to_frame().style.bar())
-        
+        show(dropped_k)
+
+        dropped_k[protected] = dropped_k.min() if criterion=='max' else dropped_k.max()
         if criterion == 'min':
             i = dropped_k.values.argmin()  # Numpy argmin -> get an integer index.
             stopped = False if stop_criterion is None else (dropped_k.values[i] < stop_criterion)
@@ -515,6 +548,8 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
         else:
             raise ValueError('Unknown criterion %r (min/max)' % criterion)
         
+        if next_features[i] in protected:
+            break
         print('%d. DROP %s' % (k, next_features[i]))
         dropped_features.append(next_features[i])
         
@@ -522,5 +557,7 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
             break
         next_features = next_features[:i] + next_features[(i+1):]
 
-    return dropped_features
+    if not stopped:
+        print('WARNING: could not reach the criterion %s' % stop_criterion)
+    return dropped_features, outputs
 

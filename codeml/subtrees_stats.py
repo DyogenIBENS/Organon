@@ -847,7 +847,7 @@ def get_beast_stats(genetreelistfile, ancestor,
                                  'ucldMean_12', 'ucldMean_3', 'ucldStdev_12', 'ucldStdev_3',
                                  'rate_12_mean', 'rate_12_var', 'rate_3_mean', 'rate_3_var',
                                  'birthRateY')  # 'mrca_age_primates', 'mrca_age_simii'
-                    for stype in ('mean', 'stddev', 'med')]
+                    for stype in ('mean', 'stdev', 'med')]  # Mean,std over the iterations.
 
     select_vars = ('posterior', 'likelihood', 'treeLikelihood.myalignment_1,2',
                    'treeLikelihood.myalignment_3',

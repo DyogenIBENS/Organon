@@ -54,15 +54,32 @@ def f_test(x, y, data=None):
     return p_further
 
 
+# The functions below use Pandas series methods (quantile, mean, etc.)
 def iqr(v):
-    """Inter-quartile range"""
+    """Inter-quartile range. Also see scipy.stats.iqr"""
     q1, q3 = v.quantile([0.25, 0.75])
     return q3 - q1
 
 
 def mad(v):
-    """Median absolute deviation from the median"""
+    """Median absolute deviation from the median.
+    
+    See scipy.stats.median_absolute_deviation"""
     return (v - v.median()).abs().median()
+
+def mean_absdevmed(v):
+    """*Mean* absolute deviation from the median."""
+    return (v - v.median()).abs().mean()
+
+
+# Also see scipy.stats.trim_mean and tmean (propagates NaN values)
+def trimmean(v, cut=0.05):
+    q0, q1 = v.quantile([cut, 1 - cut])
+    return v[(v >= q0) & (v < q1)].mean()
+
+def trimstd(v, ddof=1, cut=0.05):
+    q0, q1 = v.quantile([cut, 1 - cut])
+    return v[(v >= q0) & (v < q1)].std(ddof=ddof)
 
 
 def partial_zscore(v, condition, ddof=1):
