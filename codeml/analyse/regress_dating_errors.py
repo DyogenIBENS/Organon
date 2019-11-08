@@ -488,13 +488,42 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
 
 # for averaging by taking into account branch length: with Omega.
 # NOTE: columns will be reordered following `var`.
-def group_average(g, var, weight_var="median_brlen"):
+def old_group_average(g, var, weight_var="median_brlen"):
     g = g[~g[weight_var].isna()]
-    if not g.shape[0]:
-        return pd.Series([np.NaN]*len(var))
-    values = np.ma.array(g[var], mask=g[var].isna())
+    #g = g.dropna(subset=[weight_var])
+    #if not g.shape[0]:
+    #    return pd.Series([np.NaN]*len(var))
     return pd.Series(np.average(g[var], axis=0, weights=g[weight_var]))
     # TODO: append the count of removed rows (NA in weight_var)
+
+def raw_group_average(g, var, weight_var):
+    #values = np.ma.array(g[var].values, mask=g[var].isna().values)
+    gv = g[var].values
+    gw = g[weight_var].values
+    keep = ~np.isnan(gw)
+    return np.average(gv[keep], axis=0, weights=gw[keep])
+
+def npraw_group_average(gvalues, var_idx, weight_idx):
+    #values = np.ma.array(g[var].values, mask=g[var].isna().values)
+    gv = gvalues[:,var_idx]
+    gw = gvalues[:,weight_idx]
+    keep = ~np.isnan(gw)
+    return np.average(gv[keep], axis=0, weights=gw[keep])
+
+def npraw_group_average_w0(gvalues):
+    #values = np.ma.array(g[var].values, mask=g[var].isna().values)
+    gv = gvalues[:,1:]
+    gw = gvalues[:,0]
+    keep = ~np.isnan(gw)
+    return np.average(gv[keep], axis=0, weights=gw[keep])
+
+def group_average(g, var, weight_var):
+    #values = np.ma.array(g[var].values, mask=g[var].isna().values)
+    gv = g[var].values
+    gw = g[weight_var].values
+    keep = ~np.isnan(gw)
+    return pd.Series(np.average(gv[keep], axis=0, weights=gw[keep]))
+
 
 def group_weighted_std(g, var, weight_var="median_brlen"):
     return pd.Series(weighted_std(g[var], axis=0, weights=g[weight_var]))
@@ -1053,44 +1082,68 @@ def compute_branchrate_std(ages_controled, dist_measures,
         logger.warning('0 rows in data')
     sgg = subgenetree_groups = ages_controled[groupby_cols].groupby('subgenetree', sort=False)
 
-    # ### Average (substitution) rates over the tree:
+    ### Average (substitution) rates over the tree:
     #     sum of all branch values / sum of branch lengths
 
     # Sum aggregation + division broadcasted on columns
     # FIXME: actually wouldn't it be simpler dividing before groupby?
-    cs_rates = sgg[dist_measures].sum().div(sgg[branchtime].sum(), axis=0)\
-                .rename(columns=lambda d: d.replace('branch_', '')+'_rate')
-    #cs_rates["omega"] = (sgg.branch_dN / sgg.branch_dS).apply() 
+    cs_rates = sgg[dist_measures].sum().div(sgg[branchtime].sum(), axis=0)
+    #cs_rates["omega"] = (sgg.branch_dN / sgg.branch_dS).apply()
+
+    # This weird operation fills the subgenetree-mean-rate into each node name.
+    aligned_csrates = ages_controled[['subgenetree']]\
+                            .join(cs_rates, on='subgenetree', sort=False)\
+                            .drop(columns='subgenetree')
+
+    ### Weighted standard deviation of substitution rates among branches
+    # the squared deviations from the mean rate:
+    rate_dev = (ages_controled[dist_measures]\
+                    .div(ages_controled[branchtime], axis=0)\
+                    .sub(aligned_csrates, axis=0)**2)\
+                .join(ages_controled[['subgenetree', branchtime]], sort=False)
+    #logger.debug('rate_dev.shape = %s; columns = %s', rate_dev.shape, rate_dev.columns)
+
+    cs_rates.rename(columns=lambda d: d.replace('branch_', '')+'_rate', inplace=True)
     rate_measures = cs_rates.columns.tolist()  #[(m.replace('branch_', '') + '_rate') for m in dist_measures]
-    #cs_rates.columns = rate_measures
 
-    # ### Weighted standard deviation of substitution rates among branches
+    #tmp = pd.merge(ages_controled[["subgenetree", branchtime] + dist_measures],
+    #               cs_rates, left_on="subgenetree", right_index=True, sort=False)
 
-    tmp = pd.merge(ages_controled[["subgenetree", branchtime] + dist_measures],
-                   cs_rates, left_on="subgenetree", right_index=True)
-
-    #rate_dev = pd.DataFrame({
-    #            "branch_dist": (tmp.branch_dist/ tmp.median_brlen - tmp.dist_rate)**2,
-    #            "branch_t":    (tmp.branch_t   / tmp.median_brlen - tmp.t_rate)**2,
-    #            "branch_dS":   (tmp.branch_dS  / tmp.median_brlen - tmp.dS_rate)**2,
-    #            "branch_dN":   (tmp.branch_dN  / tmp.median_brlen - tmp.dN_rate)**2,
-    #            #"omega":       (ages_controled.dN / ages_controled.dS - tmp.omega)**2,
-    #            "subgenetree": tmp.subgenetree,
-    #            "median_brlen": tmp.median_brlen})
-
-    # subtract branch rate with mean rate, then square.
-    rate_dev_dict = {d: (tmp[d] / tmp[branchtime] - tmp[r])**2
-                     for d,r in zip(dist_measures, rate_measures)}
+    ### subtract branch rate with mean rate, then square.
+    #rate_dev_dict = {d: (tmp[d] / tmp[branchtime] - tmp[r])**2
+    #                 for d,r in zip(dist_measures, rate_measures)}
     
-    rate_dev = pd.DataFrame(rate_dev_dict)\
-                    .join(tmp[['subgenetree', branchtime]])
-    #display_html(rate_dev.head())
+    #rate_dev = pd.DataFrame(rate_dev_dict)\
+    #                .join(tmp[['subgenetree', branchtime]], sort=False)
 
-    cs_wstds = rate_dev.groupby("subgenetree", sort=False).apply(
-                (lambda x, var, weight_var:
-                                    sqrt(group_average(x, var, weight_var))),
-                dist_measures, branchtime)\
-                .set_axis([r+'_std' for r in rate_measures], axis=1, inplace=False)
+    # Caching the column indices to apply raw numpy computations (faster).
+    #dist_measures_idx = rate_dev.columns.get_indexer(dist_measures)
+    #branchtime_idx = rate_dev.columns.tolist().index(branchtime)
+    rsgg = rate_dev.groupby("subgenetree", sort=False)[[branchtime] + dist_measures]
+    #rsgg_g0name = list(rsgg.groups.keys())[0]
+    #rsgg_g0 = rsgg.get_group(rsgg_g0name)
+    #logger.debug('group 0 "%s" shape = %s; columns = %s; name = %s',
+    #             rsgg_g0name, rsgg_g0.shape, rsgg_g0.columns, getattr(rsgg_g0, 'name', None))
+    #logger.debug('group 0 mean rate =\n%s;\nvalues = %s',
+    #             cs_rates.loc[rsgg_g0name], rsgg_g0.values)
+    #logger.debug('group 0 group_average = %s', npraw_group_average_w0(rsgg_g0.values))
+
+    cs_wstds = rsgg.apply(lambda g: pd.Series(np.sqrt(
+                                                npraw_group_average_w0(g.values)),
+                                              name=g.name)
+                    ).set_axis([r+'_std' for r in rate_measures], axis=1, inplace=False)
+
+    #cs_wstds = pd.DataFrame(
+    #            np.stack(
+    #                rsgg.apply(
+    #                (lambda x:
+    #                        sqrt(
+    #                            npraw_group_average_w0(x.values)
+    #                            )
+    #                        )
+    #                )
+    #            ),
+    #            columns=[r+'_std' for r in rate_measures])
 
     cs_rates = pd.concat((cs_rates, cs_wstds), axis=1, sort=False, verify_integrity=True)
     # Checks
