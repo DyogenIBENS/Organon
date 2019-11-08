@@ -14,7 +14,9 @@ import numpy as np
 import pandas as pd
 import matplotlib as mpl
 #mpl.use('TkAgg', warn=False)
-get_ipython().magic('matplotlib inline')
+#try:
+#    get_ipython().magic('matplotlib inline')
+#except UnknownBackend:
 import matplotlib.pyplot as plt
 import seaborn as sb
 
@@ -1266,6 +1268,52 @@ def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts,
     return age_analysis_data(ages_controled, ages_controled_withnonrobust, ns,
                              control_ages, control_brlen, mean_errors)
 
+
+def lassoselect_and_refit(a, y, features, atol=1e-3, method='elastic_net',
+                          L1_wt=1, cov_type='HC1'):
+    displayed = []
+    exog = sm.add_constant(a[features])
+    ols = sm.OLS(a[y], exog)
+    fitlasso = ols.fit_regularized(method=method,
+                                   L1_wt=L1_wt,  # lasso)
+                                   start_params=None)
+
+    print('Non zeros params: %d/%d (from %d input features).\n'
+          'Almost zeros params (<%g): %d.' % (
+            (fitlasso.params.drop('const') != 0).sum(),
+             fitlasso.params.drop('const').shape[0],
+             len(features),
+             atol,
+             np.isclose(fitlasso.params.drop('const'), 0, atol=atol).sum()))
+
+    sorted_coefs = fitlasso.params.drop('const').abs().sort_values(ascending=False)
+    sorted_features = sorted_coefs.index.tolist()
+    multicol_test_cumul = pd.DataFrame(columns=['cumul_colinearity', 'cumul_colinearity_noconst'],
+                               index=sorted_features,
+                               dtype=float)
+    for i, ft in enumerate(sorted_features, start=1):
+        multicol_test_cumul.loc[ft] = [multicol_test(exog[['const'] + sorted_features[:i]]),
+                                       multicol_test(exog[sorted_features[:i]])]
+
+    displayed.append(sm_pretty_summary(fitlasso, multicol_test_cumul))
+    display_html(displayed[-1])
+
+    #scatter_density('ingroup_glob_len', y, data=a, alpha=0.5);
+    #sb.violinplot('triplet_zeros_dS', 'abs_age_dev', data=a);
+
+    print('\n#### OLS refit')  #TODO: delete but make a refit.
+    selected_features = sorted_coefs[sorted_coefs > atol].index.tolist()
+    fit = sm.OLS(a[y], exog[['const'] + selected_features]).fit(cov_type='HC1')
+
+    pslopes = sm_pretty_summary(fit)
+    display_html(pslopes)
+    displayed.append(pslopes)
+
+    # Test of homoscedasticity
+    #sms.linear_harvey_collier(fit)
+    return fitlasso, fit, pslopes, displayed
+
+
 _must_transform = dict(
         ingroup_nucl_entropy_median=binarize,
         #ingroup_nucl_parsimony_median=binarize, #constant
@@ -1369,8 +1417,10 @@ _must_drop_data = dict(prop_splitseq=(1,),
                           for m in MEASURES
                           for what in ('triplet', 'sister')})
 
-_protected_features = ['RdS_rate_std', 'RbeastS_rate_std',
-                       'dS_rate_std', 'beastS_rate_std',
+_protected_features = ['RdS_rate_std', 'dS_rate_std',
+                       'RdS_rate_std_local', 'dS_rate_std_local',
+                       'RdS_rate_std_nonlocal', 'dS_rate_std_nonlocal',
+                       'RbeastS_rate_std', 'beastS_rate_std',
                        'ingroup_glob_len']
 # anc = 'Catarrhini'
 # param = 'um1.new'
@@ -1419,7 +1469,11 @@ class full_dating_regression(object):
         #vars() doesn't contain properties nor private attributes
         for k,v in vars(other_regression).items():
             if k not in cls.init_vars:
-                setattr(self, k, v)
+                try:
+                    setattr(self, k, v)
+                except AttributeError as err:
+                    err.args += (k,)
+                    raise
         return self
 
     def do_rates(self, unnamed_rate_setting=None, **named_rate_settings):
@@ -1446,6 +1500,71 @@ class full_dating_regression(object):
         self.cs_rates = pd.concat(toconcat, axis=1,
                                   sort=False, verify_integrity=True)
         #self.features.extend(self.cs_rates.columns)
+
+    @property  #@dependency
+    def suggested_transform(self):
+        try:
+            return self._suggested_transform
+        except AttributeError:
+            responses, features = self.responses, self.features
+            ref_suggested_transform = self.ref_suggested_transform
+            impose_transform = self.impose_transform
+            alls = self.alls
+
+            suggested_transform = test_transforms(alls,
+                                    [ft for ft in responses+features
+                                        if ft not in impose_transform]) #ages_features + rate_features
+            #TODO: add to self.displayed
+
+            suggested_transform.update(**dict(
+                                        (ft, t(alls[ft]))
+                                        if (t is make_best_logtransform and ft in alls)
+                                        else (ft,t)
+                                        for ft,t in impose_transform.items())
+                                      )
+
+            if ref_suggested_transform:
+                onlyref = []
+                onlynew = []
+                diff_funcs = []
+                diff_args = []
+                for k in set(ref_suggested_transform).union(suggested_transform):
+                    if k not in ref_suggested_transform:
+                        onlynew.append(k)
+                    elif k not in suggested_transform:
+                        onlyref.append(k)
+                    else:
+                        reffunc = ref_suggested_transform[k].__name__
+                        newfunc = suggested_transform[k].__name__
+                        if reffunc != newfunc:
+                            reffunc0, *refargs = reffunc.split('(')
+                            newfunc0, *newargs = newfunc.split('(')
+                            if reffunc0 == newfunc0:
+                                newargs = newargs[0] if newargs else ''
+                                refargs = refargs[0] if refargs else ''
+                                diff_args.append((k, '%s VS %s' % (newargs.rstrip(')'),
+                                    refargs.rstrip(')'))))
+                            else:
+                                diff_funcs.append((k, '%s VS %s : *updating*.' % (reffunc, newfunc)))
+                                # *Updating*
+                                suggested_transform[k] = ref_suggested_transform[k]
+                if onlynew:
+                    print('Transforms only in new:', ', '.join(onlynew))
+                if onlyref:
+                    print('Transforms only in ref:', ', '.join(onlyref))
+                if diff_funcs:
+                    print('Different transforms:\n', '\n'.join('%35s\t%s' % t for t in diff_funcs))
+                if diff_args:
+                    print('Different transform args:\n', '\n'.join('%35s\t%s' % t for t in diff_args))
+
+            for ft in list(suggested_transform.keys()):
+                if ft not in alls.columns:
+                    logger.warning('Hardcoded feature %s not available: delete.', ft)
+                    suggested_transform.pop(ft)
+
+            self._suggested_transform = suggested_transform
+            return suggested_transform
+
 
     def do(self):
         """Run self.do_rates() first."""
@@ -1489,64 +1608,12 @@ class full_dating_regression(object):
         print('Amount of Inf:', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10), sep='\n')
 
     #def do_transforms(self):
-        suggested_transform = test_transforms(alls,
-                                [ft for ft in responses+features
-                                    if ft not in impose_transform]) #ages_features + rate_features
-        #TODO: add to self.displayed
-
-        suggested_transform.update(**dict(
-                                    (ft, t(alls[ft]))
-                                    if (t is make_best_logtransform and ft in alls)
-                                    else (ft,t)
-                                    for ft,t in impose_transform.items())
-                                  )
-
-        # All binary variables should **NOT** be z-scored!
+        suggested_transform = self.suggested_transform  # Calling the cached property
 
         # Remove constant features
         self.features = features = [ft for ft in features if ft in suggested_transform]
+        # All binary variables should **NOT** be z-scored!
         bin_features = [ft for ft in features if suggested_transform[ft].__name__ == 'binarize']
-
-        if ref_suggested_transform:
-            onlyref = []
-            onlynew = []
-            diff_funcs = []
-            diff_args = []
-            for k in set(ref_suggested_transform).union(suggested_transform):
-                if k not in ref_suggested_transform:
-                    onlynew.append(k)
-                elif k not in suggested_transform:
-                    onlyref.append(k)
-                else:
-                    reffunc = ref_suggested_transform[k].__name__
-                    newfunc = suggested_transform[k].__name__
-                    if reffunc != newfunc:
-                        reffunc0, *refargs = reffunc.split('(')
-                        newfunc0, *newargs = newfunc.split('(')
-                        if reffunc0 == newfunc0:
-                            newargs = newargs[0] if newargs else ''
-                            refargs = refargs[0] if refargs else ''
-                            diff_args.append((k, '%s VS %s' % (newargs.rstrip(')'),
-                                refargs.rstrip(')'))))
-                        else:
-                            diff_funcs.append((k, '%s VS %s : *updating*.' % (reffunc, newfunc)))
-                            # *Updating*
-                            suggested_transform[k] = ref_suggested_transform[k]
-            if onlynew:
-                print('Transforms only in new:', ', '.join(onlynew))
-            if onlyref:
-                print('Transforms only in ref:', ', '.join(onlyref))
-            if diff_funcs:
-                print('Different transforms:\n', '\n'.join('%35s\t%s' % t for t in diff_funcs))
-            if diff_args:
-                print('Different transform args:\n', '\n'.join('%35s\t%s' % t for t in diff_args))
-
-        for ft in list(suggested_transform.keys()):
-            if ft not in alls.columns:
-                logger.warning('Hardcoded feature %s not available: delete.', ft)
-                suggested_transform.pop(ft)
-
-        self.suggested_transform = suggested_transform
 
         logger.warning('Replace Inf,-Inf by NaN')
         alls_transformed = alls.replace([-np.Inf, np.Inf], np.NaN).transform(suggested_transform)
@@ -1594,7 +1661,8 @@ class full_dating_regression(object):
     #def do_fitall(self):
         print('\n### Fit of all features (lasso)')
 
-        ols = sm.OLS(a_n[y], sm.add_constant(a_n[features]))
+        exog = sm.add_constant(a_n[features])
+        ols = sm.OLS(a_n[y], exog)
 
         fitlasso = ols.fit_regularized(method='elastic_net',
                                        L1_wt=1,  # lasso)
@@ -1606,8 +1674,16 @@ class full_dating_regression(object):
         elif NaN_coefs.any():
             logger.warning("Some coefs estimated as NaN.")
 
+        sorted_coefs = fitlasso.params.drop('const').abs().sort_values(ascending=False)
+        sorted_features = sorted_coefs.index.tolist()
+        multicol_test_cumul = pd.DataFrame(columns=['cumul_colinearity', 'cumul_colinearity_noconst'],
+                                   index=sorted_features,
+                                   dtype=float)
+        for i, ft in enumerate(sorted_features, start=1):
+            multicol_test_cumul.loc[ft] = [multicol_test(exog[['const'] + sorted_features[:i]]),
+                                           multicol_test(exog[sorted_features[:i]])]
         #fit = ols.fit(cov_type='HC1')
-        self.displayed.append(sm_pretty_summary(fitlasso))
+        self.displayed.append(sm_pretty_summary(fitlasso, multicol_test_cumul))
         display_html(self.displayed[-1])
 
         #sb.violinplot('null_dS_before', 'abs_age_dev', data=a_n, cut=0);
@@ -1738,51 +1814,11 @@ class full_dating_regression(object):
     #def do_fit(self):
         print('\n### Fit of less colinear features')
 
-    #def lassoselect_and_fit(a_n_inde, inde_features, atol=1e-3, method='elastic_net',
-    #                        L1_wt=1, cov_type='HC1'):
-        exog = sm.add_constant(a_n_inde[inde_features])
-        ols = sm.OLS(a_n_inde[y], exog)
-        self.fitlasso = fitlasso = ols.fit_regularized(method='elastic_net',
-                                             L1_wt=1,  # lasso)
-                                             start_params=None)
-        sorted_coefs = fitlasso.params.drop('const').abs().sort_values(ascending=False)
-        sorted_features = sorted_coefs.index.tolist()
-
-        atol = 1e-3  # Threshold to discard coefficients
-        print('Non zeros params: %d/%d (from %d input features).\n'
-              'Almost zeros params (<%g): %d.' % (
-                (fitlasso.params.drop('const') != 0).sum(),
-                 fitlasso.params.drop('const').shape[0],
-                 len(inde_features),
-                 atol,
-                 np.isclose(fitlasso.params.drop('const'), 0, atol=atol).sum()))
-
-        multicol_test_cumul = pd.DataFrame(columns=['cumul_colinearity', 'cumul_colinearity_noconst'],
-                                   index=sorted_features,
-                                   dtype=float)
-        for i, ft in enumerate(sorted_features, start=1):
-            multicol_test_cumul.loc[ft] = [multicol_test(exog[['const'] + sorted_features[:i]]),
-                                           multicol_test(exog[sorted_features[:i]])]
-
-        self.displayed.append(sm_pretty_summary(fitlasso, multicol_test_cumul))
-        display_html(self.displayed[-1])
-
-        #scatter_density('ingroup_glob_len', y, data=a_n_inde, alpha=0.5);
-        #sb.violinplot('triplet_zeros_dS', 'abs_age_dev', data=a_n_inde);
-
-        print('\n#### OLS refit')  #TODO: delete but make a refit.
-        selected_features = sorted_coefs[sorted_coefs > atol].index.tolist()
-        self.fit = fit = sm.OLS(a_n_inde[y], exog[['const'] + selected_features]).fit(cov_type='HC1')
-
-        pslopes = sm_pretty_summary(fit)
-        display_html(pslopes)
-        self.displayed.append(pslopes)
+        self.fitlasso, self.fit, pslopes, displayed = lassoselect_and_refit(
+                                a_n_inde, y, inde_features, atol=1e-3,
+                                method='elastic_net', L1_wt=1, cov_type='HC1')
         self.slopes = pslopes.data
-
-        # Test of homoscedasticity
-        #sms.linear_harvey_collier(fit)
-
-        #return lassoselected_and_fitted
+        self.displayed.extend(displayed)
 
     #def do_randomforest(self):
         print('\n#### Random Forest Regression')
@@ -1792,6 +1828,7 @@ class full_dating_regression(object):
         self.do_worsttrees()
 
         return reslopes2
+
 
     @property
     def suggest_multicolin(self):
@@ -1852,7 +1889,13 @@ class full_dating_regression(object):
         #fit2.summary()
         ##display_html(sm_pretty_slopes(fit2))
         #display_html(fit2.summary())
-
+        
+        #self.fitlasso2, self.refitlasso2, self.reslopes2_styled, displayed = \
+        #        lassoselect_and_refit(a_n_inde2, y, inde_features2, atol=1e-3,
+        #                        method='elastic_net', L1_wt=1, cov_type='HC1')
+        #self.reslopes2 = self.reslopes2_styled.data
+        #self.displayed.extend(displayed)
+        
         exog = sm.add_constant(a_n_inde2[inde_features2])
         ols2 = sm.OLS(a_n_inde2[y], exog)
 
@@ -1927,7 +1970,7 @@ class full_dating_regression(object):
         display_html(self.reslopes2_styled)
         self.displayed.append(self.reslopes2_styled)
 
-        reslopes2 = self.reslopes = self.reslopes2_styled.data
+        reslopes2 = self.reslopes2 = self.reslopes2_styled.data
         self.F_pval2 = refitlasso2.f_pvalue
         self.lL2 = refitlasso2.llf
         #print('fstat = %g\nP(F > fstat) = %g\nlog-likelihood = %g' %(
