@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 from IPython.display import display_html
 import warnings
 
+import scipy.stats as stats
 import scipy.cluster.hierarchy as hclust
 
 from sklearn.decomposition import PCA, FactorAnalysis
@@ -31,7 +32,20 @@ from datasci.graphs import scatter_density, \
 from datasci.stats import normal_fit, cov2cor, r_squared, adj_r_squared
 from datasci.dataframe_recipees import centered_background_gradient, magnify, \
                                         matplotlib_stylebar
+import logging
 
+#logfmt = "%(levelname)-7s:%(name)s:%(funcName)-20s:%(message)s"
+#logf = logging.Formatter(logfmt)
+#
+#try:
+#    from UItools import colorlog
+#    #clogfmt = "$LVL%(levelname)-7s:$RESET${white}l.%(lineno)3s:%(funcName)-20s:$RESET%(message)s"
+#    clogfmt = "$LVL%(levelname)-7s:$RESET${white}l.%(lineno)2s:$RESET%(message)s"
+#    colorlogf = colorlog.ColoredFormatter(clogfmt)
+#except ImportError:
+#    colorlogf = logf
+
+logger = logging.getLogger(__name__)
 
 
 # Variable transformation
@@ -109,17 +123,34 @@ def decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
     kwargs.update({'R%s' % v[0]: v for v in args})
 
     return data.drop([var for var,_ in kwargs.values()],
-                     axis=1, errors='ignore')\
-                .assign(**{newvar: decorrfunc(src_data[var],src_data[corrvar])
-                           for newvar, (var, corrvar) in kwargs.items()})
+                         axis=1, errors='ignore')\
+                    .assign(**{newvar: decorrfunc(src_data[var],src_data[corrvar])
+                               for newvar, (var, corrvar) in kwargs.items()})
 
 
-decorrelate = partial(decorrelator, np.divide)
-logdecorrelate = partial(decorrelator, np.subtract)
+def check_decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
+    decorrelated = decorrelator(decorrfunc, data, src_data, *args, **kwargs)
+    if src_data is None:
+        src_data = data
+    kwargs.update({'R%s' % v[0]: v for v in args})
 
-renorm_decorrelate = partial(decorrelator,
+    # Display the Old VS New correlation coefficient.
+    for newvar, (var, corrvar) in kwargs.items():
+        old_r, old_pval = stats.spearmanr(src_data[var], src_data[corrvar])
+        new_r, new_pval = stats.spearmanr(decorrelated[newvar], src_data[corrvar])
+        if abs(old_r) <= abs(new_r):
+            logger.warning('Did not decrease correlation: %s / %s: '
+                           'abs(Spearman R) %.4f -> %.4f', var, corrvar,
+                           old_r, new_r)
+    return decorrelated
+
+
+decorrelate = partial(check_decorrelator, np.divide)
+logdecorrelate = partial(check_decorrelator, np.subtract)
+
+renorm_decorrelate = partial(check_decorrelator,
                              lambda v,cv: zscore(np.divide(v,cv)))
-renorm_logdecorrelate = partial(decorrelator,
+renorm_logdecorrelate = partial(check_decorrelator,
                                 lambda v,cv: zscore(np.subtract(v,cv)))
 
 
@@ -387,39 +418,49 @@ def detailed_pca(alls_normed, features, FA=False):
 
 # Functions for checking colinearity between variables
 
-# ~~> datasci.routine ?
-def check_decorrelate(var, correlated_var, data, logdata=None):
-    _, axes = plt.subplots(2, 1 if logdata is None else 2)
-    axes = axes.flat
+def display_decorrelate(var, correlated_var, data, logdata=None):
+    nrows = 2
+    ncols = 1 if logdata is None else 2
+    fig = plt.figure()
     
-    if logdata is None:
-        ax0, ax2 = axes
-    else:
-        ax0, ax1, ax2, ax3 = axes
+    ax0 = fig.add_subplot(nrows, ncols, 1)
+    ax1 = fig.add_subplot(nrows, ncols, 1+ncols, sharex=ax0)
+    if logdata is not None:
+        ax2 = fig.add_subplot(nrows, ncols, 2)
+        ax3 = fig.add_subplot(nrows, ncols, 2+ncols, sharex=ax2)
         
     scatter_density(correlated_var, var, alpha=0.5, s=9, data=data, ax=ax0)
     
-    # Plot the uncorrelated variables
+    # Plot the decorrelated variables
     #if var not in data.columns and re.search(r'[+-/*]', var):
     #    var = data[var]
     #    correlated_var = data[correlated_var]
 
-    uncor_var = data[var] / data[correlated_var]
-    uncor_null = (data[var] == 0) & (data[correlated_var] == 0)
-    uncor_var[uncor_null] = 0
-    scatter_density(data[correlated_var], uncor_var, s=9, alpha=0.5, ax=ax2)
+    decor_var = data[var] / data[correlated_var]
+    decor_null = (data[var] == 0) & (data[correlated_var] == 0)
+    decor_var[decor_null] = 0
+    scatter_density(data[correlated_var], decor_var, s=9, alpha=0.5, ax=ax1)
     
+    print('Pearson R: %.4f -> %.4f' % (stats.pearsonr(data[var], data[correlated_var])[0], 
+          stats.pearsonr(decor_var, data[correlated_var])[0]))
+    print('Spearman R: %.4f -> %.4f' % (stats.spearmanr(data[var], data[correlated_var])[0], 
+          stats.spearmanr(decor_var, data[correlated_var])[0]))
     ax0.set_title("Original scale")
     ax0.set_ylabel("Original %s" % var)
-    ax2.set_ylabel("Uncorrelated %s" % var)
-    ax2.set_xlabel(correlated_var)
+    ax1.set_ylabel("Decorrelated %s" % var)
+    ax1.set_xlabel(correlated_var)
     
     if logdata is not None:
-        # Plot the log of uncorrelated variables
-        scatter_density(correlated_var, var, s=9, alpha=0.5, data=logdata, ax=ax1)
-        scatter_density(data[correlated_var], logdata[var] - logdata[correlated_var], s=9, alpha=0.5, ax=ax3)
+        # Plot the log of decorrelated variables
+        logdecor_var = logdata[var] - logdata[correlated_var]
+        scatter_density(correlated_var, var, s=9, alpha=0.5, data=logdata, ax=ax2)
+        scatter_density(logdata[correlated_var], logdecor_var, s=9, alpha=0.5, ax=ax3)
+        #ax2.set_xlabel("log(%s)" % correlated_var)
         ax3.set_xlabel("log(%s)" % correlated_var)
-        ax1.set_title("Log-scale")
+        ax2.set_title("Log-scale")
+        print('Pearson R (log VS log): %.4f -> %.4f' %(
+              stats.pearsonr(logdata[var], logdata[correlated_var])[0], 
+              stats.pearsonr(logdecor_var, logdata[correlated_var])[0]))
 
 
 # Functions for linear models
