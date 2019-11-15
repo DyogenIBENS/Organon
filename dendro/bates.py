@@ -420,3 +420,8 @@ def iter_distleaves(tree, get_data, root=None, root_dist=0):
         leafdist = sum(dist for node, dist in leafpath[1:])
         yield leaf, leafdist
 
+
+def iter_dataframe_bysister(df, parent='parent'):
+    for parentname, children_rows in df.groupby(parent):
+        yield parentname, children_rows
+

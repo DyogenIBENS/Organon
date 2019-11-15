@@ -76,6 +76,7 @@ if not logger.hasHandlers():
     logger.handlers = []
     logger.addHandler(sh)
     #logging.basicConfig(handlers=[sh])
+    logging.basicConfig()
 # to reset:
 #logging.shutdown()
 
@@ -177,6 +178,7 @@ stat_loaders = {'al':     load_stats_al,
 stat_loaders['treeI'] = stat_loaders['tree']
 stat_loaders['codemlfsa'] = stat_loaders['codemlI'] = stat_loaders['codeml']
 stat_loaders['alfsahmmc'] = stat_loaders['alfsa'] = stat_loaders['alI'] = stat_loaders['al']
+stat_loaders['cleaningfsa'] = stat_loaders['cleaning']
 
 
 def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
@@ -1157,6 +1159,56 @@ def compute_branchrate_std(ages_controled, dist_measures,
     return cs_rates
 
 
+def triplet_aggfunc(func, func_args, func_kwargs, parentgrouped, row):
+    """To use within `apply` only! (because of .name attribute)"""
+    try:
+        children_rows = parentgrouped.get_group(row.name)
+    except KeyError:
+        #logger.debug('parent %r not found', row.name)
+        return pd.Series(np.NaN, index=row.index)
+    return pd.concat((row, children_rows), sort=False).agg(func, *func_args, **func_kwargs)
+
+
+def raw_triplet_std(row, parentgrouped):
+    try:
+        children_rows = parentgrouped.get_group(row.name)
+    except KeyError:
+        #logger.debug('parent %r not found', row.name)
+        return np.full(row.shape[0], np.NaN)
+    return np.nanstd(np.vstack((row, children_rows)), axis=0, ddof=0)
+
+
+def compute_correlated_rate(ages_controled, dist_measures,
+                            branchtime='median_brlen_dS', taxon_age=None,
+                            mean_condition=None,
+                            std_condition=None):
+    rates = ages_controled[dist_measures].div(ages_controled[branchtime], axis=0)
+    sister_rates = rates.groupby(ages_controled.parent, sort=False)
+    #compute_triplet_std = partial(triplet_aggfunc, 'std', (), {'ddof': 0}, sister_rates)
+    #compute_triplet_std = lambda row: pd.Series(raw_triplet_std(row, sister_rates))
+    #logger.debug('rates: type=%s; shape=%s; columns=%s', type(rates), rates.shape, rates.columns)
+    #logger.debug('rates.head() =\n%s', rates.head(20))
+
+    #TODO: subset ages_controled where 'type!="leaf"'
+    triplet_rate_corrstds = rates.apply(raw_triplet_std, axis=1, raw=False,
+                                    result_type='expand', args=(sister_rates,))
+
+    groupby_cols = ["subgenetree", "taxon_parent", "taxon",
+                    branchtime] + dist_measures
+    if taxon_age is not None:
+        groupby_cols.append(taxon_age)  ## "median_age"/"median_age_dS"
+
+    if mean_condition:
+        triplet_rate_corrstds = triplet_rate_corrstds.loc[ages_controled.query(mean_condition).index]
+        if not triplet_rate_corrstds.shape[0]:
+            logger.warning('Selected 0 rows with `mean_condition`.')
+    elif not triplet_rate_corrstds.shape[0]:
+        logger.warning('0 rows in data')
+    
+    #return triplet_rate_corrstds
+    return triplet_rate_corrstds.groupby(ages['subgenetree'], sort=False).mean()
+
+
 def subset_on_criterion_tails(criterion_serie, ages=None, ages_file=None,
                               outbase=None, criterion_name=None, nquantiles=4,
                               thresholds=None, save=False):
@@ -1439,10 +1491,10 @@ _must_drop_features = ["ls", "seconds",  # ~ ingroup_glob_len
                        "gammaShape_med",
                        "rateAG_med"]
 
+# FIXME: only if the variable was log-transformed!
 _must_renormlogdecorr = (
-    [('brOmega_std', 'brOmega_mean'),
-     #('ingroup_std_N', 'ingroup_mean_N'),
-     ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean')]
+    [('brOmega_std', 'brOmega_mean')]
+     #('ingroup_std_N', 'ingroup_mean_N')]
       # Normalise the rate deviations by the rate mean.
     + [('%s_rate_std%s' %(m, ('_'+setting if setting else '')),
         '%s_rate%s' %(m, ('_'+setting if setting else '')))
@@ -1454,21 +1506,27 @@ _must_renormlogdecorr = (
     dict(RsynSites=('NsynSites',     'ls'),
          sitelnL=('lnL', 'ingroup_glob_len')))
 
+_must_renormdecorr = (
+    [('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean')],
+    {})
+
 _must_logdecorr = (
-        [('%s_zeros%s' %(how, ('' if m=='dist' else '_'+m)),
-          'triplet_zeros'+('' if m=='dist' else '_'+m))
-         for m in MEASURES
-         for how in ('sister', 'consecutive')],
+        #[('%s_zeros%s' %(how, ('' if m=='dist' else '_'+m)),
+        #  'triplet_zeros'+('' if m=='dist' else '_'+m))
+        # for m in MEASURES
+        # for how in ('sister', 'consecutive')],
+        [],  # No need anymore since this is now handled in treestats.
         {})
 
 # variable name, variable values. Dropped by .isin()
+# Must be the decorr variable name.
 _must_drop_data = dict(prop_splitseq=(1,),
                        **{'null_%s_%s' % (m,where): (1,)
                           for m in MEASURES
                           for where in ('before', 'after')},
                        **{'%s_zeros%s' %(what,('' if m=='dist' else '_'+m)): (1,)
                           for m in MEASURES
-                          for what in ('triplet', 'sister')})
+                          for what in ('triplet', 'Rsister')}) #Rconsecutive
 
 _protected_features = ['RdS_rate_std', 'dS_rate_std',
                        'RdS_rate_std_local', 'dS_rate_std_local',
@@ -1488,6 +1546,7 @@ class full_dating_regression(object):
                  'measures',  # measures of branch lengths and ages.
                  'ref_suggested_transform',
                  'impose_transform',
+                 'to_renormdecorr',
                  'to_renormlogdecorr',
                  'to_subtract',
                  'must_drop_features',
@@ -1497,15 +1556,16 @@ class full_dating_regression(object):
     init_defaults = {'ref_suggested_transform': dict,
                      'impose_transform': dict,
                      'must_drop_features': list,
+                     'to_renormdecorr': lambda: ([], {}),
                      'to_renormlogdecorr': lambda: ([], {}),
-                     'to_subtract': list,
+                     'to_subtract': lambda: ([], {}),
                      'protected_features': list,
                      'must_drop_data': dict}
 
     def __init__(self, data, same_alls, dataset_params, responses, features,
                  measures=MEASURES, ref_suggested_transform=None,
                  impose_transform=None, must_drop_features=None,
-                 to_renormlogdecorr=None, to_subtract=None,
+                 to_renormdecorr=None, to_renormlogdecorr=None, to_subtract=None,
                  protected_features=None, must_drop_data=None):
         for k,v in locals().items():
             if k != 'self':
@@ -1793,19 +1853,49 @@ class full_dating_regression(object):
             a_n_inde = a_n.drop(must_drop_features, axis=1, errors='ignore')
         print('%d Independent features (%d rows)' % a_n_inde.shape[::-1])
 
-        self.missing_torenormlogdecorr = [pair for pair in
+        self.missing_todecorr = [pair for pair in
                          self.to_renormlogdecorr[0] + list(self.to_renormlogdecorr[1].values())
+                         self.to_renormdecorr[0] + list(self.to_renormdecorr[1].values())
                          if pair[0] not in a_t or pair[1] not in a_t]
-        if self.missing_torenormlogdecorr:
-            logger.warning('Unexpected missing pairs to renormlogdecorr: %s',
-                           self.missing_torenormlogdecorr)
+        if self.missing_todecorr:
+            logger.warning('Unexpected missing pairs to renorm(log)decorr: %s',
+                           self.missing_todecorr)
         to_renormlogdecorr = ([pair for pair in self.to_renormlogdecorr[0]
                                if pair[0] in a_t and pair[1] in a_t],
                               {key:pair for key,pair in self.to_renormlogdecorr[1].items()
                                if pair[0] in a_t and pair[1] in a_t})
-        a_n_inde = renorm_logdecorrelate(a_n_inde, a_t, 
+        to_renormdecorr = ([pair for pair in self.to_renormdecorr[0]
+                             if pair[0] in a_t and pair[1] in a_t],
+                            {key:pair for key,pair in self.to_renormdecorr[1].items()
+                             if pair[0] in a_t and pair[1] in a_t})
+        # Check if the proposed decorrelation is in line with the transforms.
+        # (subtract for logs, divide for raw/sqrt)
+        def iter_renormlogdecorr():
+            yield from enumerate(to_renormlogdecorr[0])
+            yield from to_renormlogdecorr[1].items()
+        for k, (var, corrvar) in iter_renormlogdecorr():
+            msg = []
+            var_transform = suggested_transform[var].__name__
+            corrvar_transform = suggested_transform[corrvar].__name__
+            if 'log' not in var_transform and 'binary' not in var_transform:
+                msg.append('suggested_transform[%r] = %s' % (var, var_transform))
+            if 'log' not in corrvar_transform and 'binary' not in corrvar_transform:
+                msg.append('/ suggested_transform[%r] = %s' % (corrvar, corrvar_transform))
+            if msg:
+                logger.warning(' '.join(msg) + ': automatic switch from "logdecorr" to "decorr"')
+                if isinstance(k, int):
+                    to_renormlogdecorr[0].remove((var, corrvar))
+                    to_renormdecorr[0].append((var, corrvar))
+                else:
+                    to_renormlogdecorr[1].pop(k)
+                    to_renormdecorr[1][k] = (var, corrvar)
+
+        a_n_inde = renorm_logdecorrelate(a_n_inde, a_t,
                                          *to_renormlogdecorr[0],
                                          **to_renormlogdecorr[1])
+        a_n_inde = renorm_decorrelate(a_n_inde, a_t,
+                                      *to_renormdecorr[0],
+                                      **to_renormdecorr[1])
 
         self.missing_zeros_todecorr = [pair for pair in self.to_subtract#[0]
                                   if pair[0] not in a_t or pair[1] not in a_t]
@@ -1828,10 +1918,13 @@ class full_dating_regression(object):
 
         new_inde_features = set(inde_features) - set(features)
         # Description of the transformation for the user.
-        self.decorr = {'R'+var1: '/ '+var2 for var1, var2 in to_renormlogdecorr[0]}
+        self.decorr = {'R'+var1: '/ '+var2 for var1, var2 
+                        in to_renormlogdecorr[0] + to_renormdecorr[0]}
         self.decorr.update(CpG_odds='ingroup_mean_CpG / ingroup_mean_GC^2',
                            **{key: '%s / %s' % (v1, v2) for key, (v1,v2)
                               in to_renormlogdecorr[1].items()},
+                           **{key: '%s / %s' % (v1, v2) for key, (v1,v2)
+                              in to_renormdecorr[1].items()},
                            **{'R'+var1: '- '+var2 for var1,var2 in zeros_to_decorrelate})
 
         self.a_n_inde = a_n_inde
@@ -1919,7 +2012,7 @@ class full_dating_regression(object):
             vcounts = a_n_inde[badp].value_counts()
             if vcounts.shape[0] > 2:
                 logger.warning('%r not binary.', badp)
-            if (a_n_inde[badp].isin(badval).sum()) > 0.05 * vcounts.count():
+            if (a_n_inde[badp].isin(badval).sum()) > 0.05 * vcounts.sum():
                 logger.warning('Discarding %s.isin(%s) trees will remove >5%% of the subtrees',
                                badp, badval)
             print(vcounts, '\n')
@@ -2002,12 +2095,12 @@ class full_dating_regression(object):
                                            .fit(cov_type='HC1')
 
         param_info = pd.concat((
+                        self.slopes2.coef.rename('Lasso coef'),
                         pd.Series({ft: sm.OLS(a_n_inde2[y],
                                               sm.add_constant(a_n_inde2[ft])
                                               ).fit().params[ft]
                                    for ft in inde_features2
                                   }, name='Simple regression coef'),
-                        self.slopes2.coef.rename('Lasso coef'),
                         pd.Series({ft: func.__name__ for ft,func
                                    in self.suggested_transform.items()},
                                   name='transform'),
