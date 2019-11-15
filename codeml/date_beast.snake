@@ -19,11 +19,12 @@ config.setdefault('genetree', 'ENSGT*')
 config.setdefault('subtreedir', 'subtreesGoodQualO2')
 config.setdefault('ancestor', 'Simiiformes')
 config.setdefault('chainlength', 50000000)
-
+config.setdefault('align', 'genes')
 
 def generate_targets(wildcards):
-    return [f.replace('_genes.fa', '_beast-dated.OK')
-            for f in iglob('{genetree}/{subtreedir}/{ancestor}{genetree}*_genes.fa'.format(**config))]
+    align_suffix = '_' + config['align'] + '.fa'
+    return [f.replace(align_suffix, '_beast-dated.OK')
+            for f in iglob('{genetree}/{subtreedir}/{ancestor}{genetree}*_{align}.fa'.format(**config))]
 
 
 rule all:
@@ -31,7 +32,10 @@ rule all:
 
 
 wildcard_constraints:
-    beastparam='beast[A-Za-z0-9_-]*'
+    #subgenetree=r'(ENSGT[0-9]+)/[^/]+/[A-Z][A-Za-z_.]+\1[A-Za-z.-]*',
+    #subgenetree=r'ENSGT[0-9]+/[^/]+/[A-Z][A-Za-z_.]+ENSGT[0-9]+[A-Za-z.-]*',
+    beastparam='beast[A-Za-z0-9_-]*',
+    align='genes|fsa|fsa_hmm'
 
 
 rule species_branch_lengths:
@@ -48,9 +52,9 @@ rule beastgen:
     input:
         template='ctl/{beastparam}.template',
         tree=rules.species_branch_lengths.output[0],
-        al='{subgenetree}_fsa.fa'  # align_fsa()
+        al='{subgenetree}_{align}.fa'  # align_fsa()
     output:
-        '{subgenetree}_{beastparam}.xml'
+        '{subgenetree}_{align}_{beastparam}.xml'
     params:
         chainlength=config['chainlength']
     shell:
@@ -58,24 +62,27 @@ rule beastgen:
 
 
 rule beast:
-    input: '{subgenetree}_{beastparam}.xml'
+    input: '{subgenetree}_{align}_{beastparam}.xml'
         #al='{subgenetree}_fsa.fa'
     output:
-        trees='{subgenetree}_{beastparam}.trees'
+        trees='{subgenetree}_{align}_{beastparam}.trees'
     log:
-        log='{subgenetree}_{beastparam}.log',
-        stdout='{subgenetree}_{beastparam}.stdout'
-    benchmark: '{subgenetree}_{beastparam}.benchmark.tsv'
+        log='{subgenetree}_{align}_{beastparam}.log',
+        stdout='{subgenetree}_{align}_{beastparam}.stdout'
+    benchmark: '{subgenetree}_{align}_{beastparam}.benchmark.tsv'
     shell:
         'beast -working -overwrite -beagle -seed 1 {input} >{log.stdout}'
+#TODO:
+#add checkpoint to see if beastgen was changed, then 'beast -overwrite', 
+#else 'beast -resume'
 
 
 # Remove the null characters if present
 rule trees_health_check:
     input: rules.beast.output.trees
     output:
-        index='{subgenetree}_{beastparam}.trees-nullchars.txt',
-        trees='{subgenetree}_{beastparam}.trees-cleaned'
+        index='{subgenetree}_{align}_{beastparam}.trees-nullchars.txt',
+        trees='{subgenetree}_{align}_{beastparam}.trees-cleaned'
     shell:
         "sed -n '/\\x0/=' {input} >{output.index};\n"
         "[ -s {output.index} ] && sed '/\\x0/d' {input} >{output.trees} || ln -srf -T {input} {output.trees}"
@@ -83,23 +90,23 @@ rule trees_health_check:
 
 rule loganalyser:
     input: rules.beast.log.log
-    output: '{subgenetree}_{beastparam}-summary.txt'
+    output: '{subgenetree}_{align}_{beastparam}-summary.txt'
     shell:
         'loganalyser {input} > {output}'
 
 rule tree_annotate_times:
     input:
-        trees='{subgenetree}_{beastparam}.trees-cleaned',
+        trees='{subgenetree}_{align}_{beastparam}.trees-cleaned',
         ref='{subgenetree}_codeml.nwk'
-    output: '{subgenetree}_{beastparam}-dated.tree'
+    output: '{subgenetree}_{align}_{beastparam}-dated.tree'
     shell:
         'treeannotator -burnin 5 -heights mean -target {input.ref} {input.trees} {output}'
 
 
 # NOTE: this outputs a nexus tree, without internal node labelling.
 rule nexus2nhx:
-    input: '{subgenetree}_{beastparam}-dated.tree'
-    output: '{subgenetree}_{beastparam}-dated.nwk'
+    input: '{subgenetree}_{align}_{beastparam}-dated.tree'
+    output: '{subgenetree}_{align}_{beastparam}-dated.nwk'
     run:
         from dendro.formats import nexus2nhx
         nexus2nhx(input[0], output[0])
@@ -107,11 +114,100 @@ rule nexus2nhx:
 
 rule final_check:
     input:
-        log_summary=rules.loganalyser.output[0],
-        tree_summary=rules.nexus2nhx.output[0]
+        rules.loganalyser.output[0],
+        rules.nexus2nhx.output[0]
     output:
-        touch('{subgenetree}_{beastparam}-dated.OK')
+        touch('{subgenetree}_{align}_{beastparam}-dated.OK')
     shell:
         # The ESS column is the 9th. Values expected to be >= 150
-        "tail -n +2 {input.log_summary} | awk '{{if($9 < 150){{exit 1}}}}'"
+        "tail -n +2 {input[0]} | awk '{{if($9 < 150){{exit 1}}}}'"
+
+#def beast_or_unarchive_input(wildcards):
+#    if all(op.exists(f.format(**wildcards)) for f in rules.archive.output):
+#        return rules.archive.input
+#    else:
+#        return rules.beast.input
+#
+#checkpoint beast_or_unarchive:
+#    : rules.archive.output
+#    output: rules.beast.output
+#    shell:
+#        'for expected in {param}; do'
+#        '   [ -e "$expected" ] && bunzip2 "$expected"'  # else do what?
+
+def input_existing_archives(unarchived_names):
+    def list_inputs(wildcards):
+        """Return a file that should never exist if there is no archive file.
+        So that the rule 'beast' is triggered instead.
+
+        This artificial 'MissingInput' is basically to avoid that 'unarchive_beast'
+        triggers 'archive', which then triggers the entire pipeline.
+        """
+        archives = []
+        for f in unarchived_names:
+            archive = f.format(**wildcards) + '.bz2'
+            if not os.path.exists(archive): # and not dryrun
+                #subprocess.check_call(['bunzip2'
+                return ['dummy_archive_does_not_exist.bz2']
+            archives.append(archive)
+        return archives
+    return list_inputs
+
+
+def input_if_not_archived(unarchived_names):
+    """'archive' might trigger 'unarchive', which is stupid.
+    So the inputs to archive should be listed only if they aren't already stored."""
+    def list_inputs(wildcards):
+        for f in unarchived_names:
+            archive = f.format(**wildcards) + '.bz2'
+            if os.path.exists(archive): # and not dryrun
+                return ['archive_already_exists']
+        return unarchived_names
+    return list_inputs
+
+
+rule archive:
+    input:
+        #input_if_not_archived(rules.beast.output+rules.beast.log),  #rules.trees_health_check.output.trees
+        ancient(
+        rules.beast.output + rules.beast.log #rules.trees_health_check.output.trees
+        + rules.loganalyser.output  # So that it is only executed at the end.
+        + rules.nexus2nhx.output)    # So that it is only executed at the end.
+    output:
+        [inputf + '.bz2' for inputf in rules.beast.output + rules.beast.log]
+        #trees=input.trees+'.bz2',
+        #log=input.log+'.bz2'
+    shell:
+        'bzip2 {input[0]} {input[1]} {input[2]}'
+    # Try to apply it to symlinks
+        #'[ -L "{input.trees}" ] && islink_trees=1 || islink_trees=0;'
+        #'[ -L "{input.log}" ] && islink_log=1 || islink_log=0;'
+        #'inputtrees=$(readlink -nf "{input.trees})";'
+        #'inputlog=$(readlink -nf "{input.log})";'
+        #'bzip2 "$inputtrees" "$inputlog";'
+        #'[ $islink_trees -eq 1 ] && ln -s "$inputtrees.bz2" {output.trees};'
+        #'[ $islink_log -eq 1 ] && ln -s "$inputlog.bz2" {output.log};'
+
+rule unarchive_beast:
+    input: #ancient([f + '.bz2' for f in rules.beast.output + rules.beast.log])
+        ancient(input_existing_archives(rules.beast.output + rules.beast.log))
+    output: rules.beast.output + rules.beast.log  # == nexus2nhx+loganalyser+beast
+    shell:
+        'bunzip2 {input}'  #{input[0]} {input[1]} {input[2]}'
+
+ruleorder:
+    unarchive_beast > beast
+#ruleorder:
+#    > archive
+
+## This creates 2 ways of creating the input for rule trees_health_check and loganalyser
+# So never call 'unarchive' first, unless the pipeline target is explicitly .bz2
+#ruleorder: nexus2nhx > loganalyser > archive > unarchive > beast
+
+#ruleorder:
+#    unarchive > loganalyser
+#
+#ruleorder:
+#    unarchive > nexus2nhx
+
 
