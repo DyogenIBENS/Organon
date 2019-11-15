@@ -66,14 +66,17 @@ def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
         genetree = line.rstrip()
         files_pattern = op.join(rootdir, genetree, subtreesdir,
                                   ancestor + genetree + '*' + filesuffix)
-        files_reg = re.compile(re.escape(files_pattern).replace('\\*', '(.*)'))
+        files_reg = re.compile(re.escape(files_pattern).replace('\\*', '([A-Za-z.]*)'))
         exclude_reg = exclude if exclude is None else re.compile(exclude)
 
         logger.info("pattern: '%s' '%s'", files_pattern, files_reg.pattern)
         for subtreefile in glob(files_pattern):
             if exclude is None or not exclude_reg.search(subtreefile):
                 countfiles += 1
-                subtreesuffix = files_reg.search(subtreefile).group(1)
+                try:
+                    subtreesuffix = files_reg.search(subtreefile).group(1)
+                except AttributeError:
+                    continue
                 subtree = ancestor + genetree + subtreesuffix
                 logger.debug('next file: %s', subtreefile)
                 yield subtreefile, subtree, genetree
@@ -469,7 +472,7 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                               '.nwk',
                                                               rootdir,
                                                               subtreesdir,
-                                                              exclude='_codeml\.nwk$'):
+                                                              exclude=None):#'_codeml\.nwk$'):
         try:
             tree = ete3.Tree(subtreefile, format=1)
             root_taxon, _ = split_species_gene(tree.name, ancgene2sp)
@@ -561,9 +564,9 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                              tuple(str(x) for x in output)))
         except BaseException as err:
             if err.args:
-                err.args = (str(err.args[0]) + ". At file %s" % mlcfile,) + err.args[1:]
+                err.args = (str(err.args[0]) + ". At file %s" % subtreefile,) + err.args[1:]
             else:
-                err.args = ("At file %s" % mlcfile,)
+                err.args = ("At file %s" % subtreefile,)
             if ignore_error and not isinstance(err, KeyboardInterrupt):
                 logger.exception('Unknown exception')
             else:
@@ -753,10 +756,10 @@ def get_cleaning_stats(genetreelistfile, ancestor,
     if filesuffix == '_fsa.fa':
         regex = re.compile(r'/' + re.escape(subtreesdir) + '/'
                            + re.escape(ancestor)
-                           + r'(ENSGT[0-9]+[A-Za-z.])'
+                           + r'(ENSGT[0-9]+[A-Za-z.]*)'
                            + re.escape(filesuffix) + r'$')
         hmmc_replacement = r'/{}/realign/{}\1_protfsa_hmm.log'.format(
-                                subtreesdir, ancestor)
+                            re.escape(subtreesdir), re.escape(ancestor))
     for alfile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                              ancestor,
                                                              filesuffix,
@@ -779,7 +782,7 @@ def get_cleaning_stats(genetreelistfile, ancestor,
 
                 al = AlignIO.read(alfile, format='fasta')
                 seqlabels = [record.name for record in al]
-                length, seq_nucls, seq_gaps, seq_N, _ = get_seq_counts(al)
+                length, seq_nucls, seq_gaps, seq_N, *_ = get_seq_counts(al)
 
                 ## stats by sequence:
                 ## - prop cleaned / alignment length
