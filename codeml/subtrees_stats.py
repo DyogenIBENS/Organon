@@ -773,6 +773,11 @@ def get_cleaning_stats(genetreelistfile, ancestor,
                 #TODO: fix those percentages relatively to the ungapped al
                 output = [gb['Nblocks'], gb['positions']['percent']]
             else:
+                msg = 'FileNotFound: %s' % gb_logfile
+                if ignore_error:
+                    logger.info(msg)
+                else:
+                    raise FileNotFoundError(gb_logfile)
                 output = [None, None]
             
             # parse hmmc output
@@ -803,15 +808,21 @@ def get_cleaning_stats(genetreelistfile, ancestor,
                 output += [cleaned_seqs,
                            float(cleaned_seqs)/len(seqlabels),
                            cleaned_props.max(),
-                           cleaned_props[cleaned_props > 0].mean(),
+                           mean(cleaned_props[cleaned_props > 0]),
                            cleaned_props.mean()]
             else:
+                msg = 'FileNotFound: %s' % hmmc_logfile
+                if ignore_error:
+                    logger.info(msg)
+                else:
+                    raise FileNotFoundError(hmmc_logfile)
                 output += [None]*5
             # was the outgroup cleaned?
 
             print('\t'.join([subtree, genetree]
                             + ['' if x is None else ('%g' % x)
                                 for x in output]))
+                            # 'nan' would be more explicit
                 
             #treefiles_pattern = alfiles_pattern.replace(filesuffix, '.nwk')
         except BaseException as err:

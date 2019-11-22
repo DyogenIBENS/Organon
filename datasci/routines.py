@@ -325,7 +325,8 @@ def print_pca_loadings(pca, features):
         print("%-17s:\t%10.6f\t%10.6f" % (ft, coef1, coef2))
 
 
-def detailed_pca(alls_normed, features, FA=False):
+def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
+                 heat_dendro=True, **heat_kwargs):
     """if FA=True, perform factor analysis instead of PCA"""
 
     Analysis = FactorAnalysis if FA else PCA
@@ -390,8 +391,22 @@ def detailed_pca(alls_normed, features, FA=False):
     # ### Feature covariance
     ft_cov = fa.get_covariance()
     print("Covariance dimensions:", ft_cov.shape)
-    plot_cov(ft_cov[ft_order,:][:,ft_order], ordered_ft, cmap='seismic')
+    if abs_cov:
+        ft_cov = np.abs(ft_cov)
+    if make_corr:  # heat_corr
+        ft_cov = cov2cor(ft_cov)
+    if heat_dendro:
+        fig = heatmap_cov(ft_cov, features, make_corr=False, **heat_kwargs)
+    else:
+        plot_cov(ft_cov[ft_order,:][:,ft_order], ordered_ft, cmap='seismic')
+        fig = plt.gcf()
+
+    fig.suptitle('Feature %s%s (%s)' % (
+        'absolute ' if abs_cov else '',
+        'correlation' if make_corr else 'covariance',
+        'Factor Analysis' if FA else 'PCA'))
     plt.show()
+    outputs.append(fig)
 
     # Plot feature vectors in the PC space
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(10, 20),
@@ -399,11 +414,10 @@ def detailed_pca(alls_normed, features, FA=False):
 
     plot_features_radar(components, features, ax=ax0)
     plot_features_radar(components, features, PCs=["PC1", "PC3"], ax=ax1)
-    fig.suptitle("Features in Principal Component space")
+    fig.suptitle("Features in Principal Component space (%s)" % ('Factor Analysis' if FA else 'PCA'))
     plt.show()
     outputs.append(fig)
 
-    print('# Data plotted in component space')
     fig, (ax0, ax1) = plt.subplots(1, 2, sharey=True)
     scatter_density(transformed[:,1], transformed[:,0], alpha=0.5, ax=ax0)
     ax0.set_xlabel('PC2')
@@ -411,6 +425,7 @@ def detailed_pca(alls_normed, features, FA=False):
     scatter_density(transformed[:,2], transformed[:,0], alpha=0.5, ax=ax1)
     ax1.set_xlabel('PC3')
     ax1.set_ylabel('PC1')
+    fig.suptitle('Data plotted in component space (%s)' % ('Factor Analysis' if FA else 'PCA'))
     plt.show()
     outputs.append(fig)
     return fa, outputs
@@ -441,10 +456,20 @@ def display_decorrelate(var, correlated_var, data, logdata=None):
     decor_var[decor_null] = 0
     scatter_density(data[correlated_var], decor_var, s=9, alpha=0.5, ax=ax1)
     
-    print('Pearson R: %.4f -> %.4f' % (stats.pearsonr(data[var], data[correlated_var])[0], 
-          stats.pearsonr(decor_var, data[correlated_var])[0]))
-    print('Spearman R: %.4f -> %.4f' % (stats.spearmanr(data[var], data[correlated_var])[0], 
-          stats.spearmanr(decor_var, data[correlated_var])[0]))
+    raw_na = np.isnan(data[var]) | np.isnan(data[correlated_var])
+    decorr_na = np.isnan(decor_var) | np.isnan(data[correlated_var])
+
+    print('%d NAs in original data; %d in decorrelated.' % (raw_na.sum(), decorr_na.sum()))
+    print('Pearson R: %.4f -> %.4f' % (
+          stats.pearsonr(data[var][~raw_na],
+              data[correlated_var][~raw_na])[0], 
+          stats.pearsonr(decor_var[~decorr_na],
+              data[correlated_var][~decorr_na])[0]))
+    print('Spearman R: %.4f -> %.4f' % (
+          stats.spearmanr(data[var][~raw_na],
+               data[correlated_var][~raw_na])[0], 
+          stats.spearmanr(decor_var[~decorr_na],
+               data[correlated_var][~decorr_na])[0]))
     ax0.set_title("Original scale")
     ax0.set_ylabel("Original %s" % var)
     ax1.set_ylabel("Decorrelated %s" % var)
@@ -452,7 +477,7 @@ def display_decorrelate(var, correlated_var, data, logdata=None):
     
     if logdata is not None:
         # Plot the log of decorrelated variables
-        logdecor_var = logdata[var] - logdata[correlated_var]
+        logdecor_var = logdata[var] / logdata[correlated_var]
         scatter_density(correlated_var, var, s=9, alpha=0.5, data=logdata, ax=ax2)
         scatter_density(logdata[correlated_var], logdecor_var, s=9, alpha=0.5, ax=ax3)
         #ax2.set_xlabel("log(%s)" % correlated_var)
@@ -461,75 +486,6 @@ def display_decorrelate(var, correlated_var, data, logdata=None):
         print('Pearson R (log VS log): %.4f -> %.4f' %(
               stats.pearsonr(logdata[var], logdata[correlated_var])[0], 
               stats.pearsonr(logdecor_var, logdata[correlated_var])[0]))
-
-
-# Functions for linear models
-
-def lm_summary(lm, features, response, data):
-    """Display the summary statistics of the sklearn multiple linear regression."""
-    print("R^2       =", lm.score(data[features], data[response]))
-    print("Intercept =", lm.intercept_)
-    print("\nSlopes\n------")
-
-    features_by_coef = sorted(zip(features, lm.coef_), key=lambda x: np.abs(x[1]), reverse=True)
-
-    for ft, coef in features_by_coef:
-        print("%-17s: %10.6f" % (ft, coef))
-
-
-def sm_pretty_slopes(olsfit, join=None, renames=None, bars=['coef']):
-    """Nicer look for a StatsModels OLS fit (sorted features by slope)."""
-    try:
-        summary = olsfit.summary()
-    except NotImplementedError:
-        summary = None
-    if summary is not None:
-        r_coefs = pd.read_csv(StringIO(summary.tables[1].as_csv()),
-                              sep=r'\s*,\s*', index_col=0, engine='python')
-    else:
-        # For example a Lasso fit (OLS().fit_regularized())
-        r_coefs = olsfit.params.to_frame('coef')
-
-    # Sort
-    coef_order = r_coefs.coef.abs().sort_values(ascending=False).index
-    if 'const' in coef_order:
-        coef_order = ['const'] + coef_order.difference(('const',), sort=False).tolist()
-
-    r_coefs = r_coefs.loc[coef_order]
-
-    if join is not None:
-        # Add additional info about the params.
-        r_coefs = r_coefs.join(join,sort=False)
-
-    renames = {} if renames is None else renames
-
-    param_names = [renames.get(n, n) for n in olsfit.model.exog_names
-                   if n not in ('Intercept', 'const')]
-    r_coefs_styled = r_coefs.rename(renames).style.bar(
-                        subset=pd.IndexSlice[param_names, bars],
-                        axis=0,
-                        align="zero")
-    return r_coefs_styled
-
-
-def sm_pretty_summary(fit, join=None, renames=None, bars=['coef']):
-    try:
-        summary = fit.summary()
-    except NotImplementedError:
-        summary = None
-    if summary is not None:
-        display_html(summary.tables[0])
-        for table in summary.tables[2:]:
-            display_html(table)
-    else:
-        print('Warning: R² and adjusted R² not provided for this result.')
-        print('R² =', r_squared(fit.model.endog, fit.fittedvalues),
-              '; Adj. R² =', adj_r_squared(fit.model.endog,
-                                         fit.fittedvalues,
-                                         len(fit.params)))
-    pretty_slopes = sm_pretty_slopes(fit, join, renames, bars)
-    #display_html(pretty_slopes)
-    return pretty_slopes
 
 
 def drop_eval(features, func):
@@ -601,4 +557,73 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
     if not stopped:
         print('WARNING: could not reach the criterion %s' % stop_criterion)
     return dropped_features, outputs
+
+
+# Functions for linear models
+
+def lm_summary(lm, features, response, data):
+    """Display the summary statistics of the sklearn multiple linear regression."""
+    print("R^2       =", lm.score(data[features], data[response]))
+    print("Intercept =", lm.intercept_)
+    print("\nSlopes\n------")
+
+    features_by_coef = sorted(zip(features, lm.coef_), key=lambda x: np.abs(x[1]), reverse=True)
+
+    for ft, coef in features_by_coef:
+        print("%-17s: %10.6f" % (ft, coef))
+
+
+def sm_pretty_slopes(olsfit, join=None, renames=None, bars=['coef']):
+    """Nicer look for a StatsModels OLS fit (sorted features by slope)."""
+    try:
+        summary = olsfit.summary()
+    except NotImplementedError:
+        summary = None
+    if summary is not None:
+        r_coefs = pd.read_csv(StringIO(summary.tables[1].as_csv()),
+                              sep=r'\s*,\s*', index_col=0, engine='python')
+    else:
+        # For example a Lasso fit (OLS().fit_regularized())
+        r_coefs = olsfit.params.to_frame('coef')
+
+    # Sort
+    coef_order = r_coefs.coef.abs().sort_values(ascending=False).index
+    if 'const' in coef_order:
+        coef_order = ['const'] + coef_order.difference(('const',), sort=False).tolist()
+
+    r_coefs = r_coefs.loc[coef_order]
+
+    if join is not None:
+        # Add additional info about the params.
+        r_coefs = r_coefs.join(join,sort=False)
+
+    renames = {} if renames is None else renames
+
+    param_names = [renames.get(n, n) for n in olsfit.model.exog_names
+                   if n not in ('Intercept', 'const')]
+    r_coefs_styled = r_coefs.rename(renames).style.bar(
+                        subset=pd.IndexSlice[param_names, bars],
+                        axis=0,
+                        align="zero")
+    return r_coefs_styled
+
+
+def sm_pretty_summary(fit, join=None, renames=None, bars=['coef']):
+    try:
+        summary = fit.summary()
+    except NotImplementedError:
+        summary = None
+    if summary is not None:
+        display_html(summary.tables[0])
+        for table in summary.tables[2:]:
+            display_html(table)
+    else:
+        print('Warning: R² and adjusted R² not provided for this result.')
+        print('R² =', r_squared(fit.model.endog, fit.fittedvalues),
+              '; Adj. R² =', adj_r_squared(fit.model.endog,
+                                         fit.fittedvalues,
+                                         len(fit.params)))
+    pretty_slopes = sm_pretty_slopes(fit, join, renames, bars)
+    #display_html(pretty_slopes)
+    return pretty_slopes
 

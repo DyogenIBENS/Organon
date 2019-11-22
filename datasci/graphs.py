@@ -18,7 +18,7 @@ import seaborn as sns
 
 from .stats import car2pol, cov2cor
 
-from dendro.bates import rev_dfw_descendants, iter_distleaves
+from dendro.bates import dfw_descendants_generalized, rev_dfw_descendants, iter_distleaves
 import matplotlib.patches as patches
 from matplotlib.path import Path
 MOVETO, CURVE3, LINETO = Path.MOVETO, Path.CURVE3, Path.LINETO
@@ -277,7 +277,6 @@ def plot_cov(ft_cov, features, cmap='seismic', figax=None, cax=None,
     ax.set_xticklabels(features, rotation=90, ha='center', va='top')
     if ylabel:
         ax.set_ylabel(ylabel)
-    ax.set_title("Feature covariance")
     if cb_kw is None: cb_kw = {}
     logger.debug('add heatmap colorbar')
     fig.colorbar(img, ax=None, #(ax if cax is None else None),
@@ -444,8 +443,8 @@ def value2color(values, cmap='afmhot', extend=1):
 def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
              age_from_root=False,
              topology_only=False,
-             label_params=None, edge_colors=None,
-             edge_cmap='afmhot', add_edge_axes=None, style='squared', **kwargs):
+             label_params=None, label_nodes=False, edge_colors=None,
+             edge_cmap='afmhot', add_edge_axes=None, style='squared', yscale=1, **kwargs):
              #edge_norm=None
     """Plot an ete3 tree, from left to right.
     
@@ -479,7 +478,7 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
     #depth = tree.get_farthest_leaf()[1]
     leafdists = sorted(iter_distleaves(tree, get_items, root), key=lambda x: x[1])
     depth = leafdists[-1][1]  # furthest leaf.
-    leafloc, leafstep = (0, 1) if invert is False else (len(leafdists)-1, -1)
+    leafloc, leafstep = (0, yscale) if invert is False else ((len(leafdists)-1)*yscale, -yscale)
     if age_from_root:
         root_age = 0
         leafdists = dict(leafdists)
@@ -560,6 +559,8 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
                         segments.append(
                                  [(child_coords[ch].x, child_coords[ch].y),
                                   (nodecoord.x, nodecoord.y)])
+                    elif style=='U':
+                        raise NotImplementedError('Edges as Bezier curves')
                     if edge_colors is not None:
                         line_edge_values.append(edge_colors[ch])
                     if add_edge_axes:
@@ -604,14 +605,39 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
     lines.set_clip_on(False)
     ax.add_collection(lines)
     #ax.set(**kwargs)
+    #for node, (x, y) in dfw_child_coords.items():
 
     ax.plot(extended_x, extended_y, 'k--',
             alpha=kwargs.pop('alpha', 1)/2.,
             linewidth=kwargs.pop('linewidth', mpl.rcParams['lines.linewidth'])/2.,
             **kwargs)
 
+    if label_nodes:
+        for (node, dist), items in rev_dfw_descendants(tree, get_items,
+                                                   include_leaves=False,
+                                                   queue=[(root, rootdist)]):
+            for child,d in items:
+                # if not a leaf
+                if get_items(tree, (child, d)):
+                    if child_coords[child].y > child_coords[node].y:
+                        offset_y = 1
+                        va = 'bottom'
+                    else:
+                        offset_y = -1
+                        va = 'top'
+                    ax.annotate(get_label(tree, child), child_coords[child],
+                                textcoords='offset points', xytext=(-1, offset_y),
+                                horizontalalignment='right',
+                                verticalalignment=va)
+        if rootdist>0:
+            ax.annotate(get_label(tree, root), child_coords[root],
+                        textcoords='offset points', xytext=(-1, 1),
+                        horizontalalignment='right',
+                        verticalalignment='top')
+
     ax.set_xlim(min(root_age, root_age-rootdist), depth+root_age)
-    ax.set_ylim(-0.5, len(leafdists))
+    #print(ax.get_ylim())
+    ax.set_ylim(-0.5*yscale, len(leafdists)*yscale)
     #ax.autoscale_view()
     
     ax.spines['top'].set_visible(False)
@@ -619,11 +645,10 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
     ax.spines['right'].set_visible(False)
     ax.yaxis.tick_right()
     ax.tick_params('y', which='both', right=False)
-    ax.set_yticks(range(len(ticklabels)))
+    ax.set_yticks(np.linspace(0, (len(ticklabels)-1)*yscale, num=len(ticklabels)))
     if label_params is None: label_params = {}
     if invert: ticklabels.reverse()
     ax.set_yticklabels(ticklabels, **label_params)
-    fig = ax.get_figure()
 
     #if lines.get_array() is not None:
     #    cax,kw = mpl.colorbar.make_axes_gridspec(ax, panchor=(0,1))  # no effect of panchor.
@@ -644,8 +669,7 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
     for ch, rect in axes_to_add:
         xlim = rect[0], rect[0] + rect[2]
         subax = fig.add_axes(rect, xlim=xlim, position=data2fig.transform(rect),
-                             frame_on=False, autoscale_on=False
-                             ) #share_y #clip_on=False, visible=False
+                             frame_on=False, autoscale_on=False) #, sharex=ax, sharey #clip_on=False, visible=False
         subax.set_clip_on(False)
         subax.axis('off')
         subaxes[ch] = subax

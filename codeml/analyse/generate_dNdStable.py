@@ -37,7 +37,7 @@ ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9_.-]+)ENS')
 BEAST_MEASURES = set('%s%s' % (v,s) for v in ('height', 'length', 'rate')
                      for s in ('', '_median', '_95%_HPD', '_range')).union(('posterior',))
 BEAST_DEFAULTS = {'%s%s' % (v,s): np.NaN for v in ('height', 'length', 'rate')
-                  for s in ('', 'median')}
+                  for s in ('', '_median')}
 BEAST_DEFAULTS.update(posterior=np.NaN, dist=np.NaN)
 #TODO? convert string "{0.0..42.42}" into low and up floats.
 CODEML_MEASURES = set(('dN', 'dS', 't', 'N*dN', 'S*dS'))
@@ -53,7 +53,7 @@ def reassign_beast_range(r, name):
 
 BEAST_REASSIGNS = {'%s_%s' % (v,s): reassign_beast_range
                    for v in ('height', 'length', 'rate')
-                   for s in ('_95%_HPD', '_range')}
+                   for s in ('95%_HPD', 'range')}
 
 
 def ls(array):
@@ -1427,6 +1427,7 @@ def tabulate_ages_from_tree(fulltree, todate=true,
                             keeproot=True,
                             node_info=None,
                             node_feature_setter=None):
+
     node_info = [] if node_info is None \
                 else [(getinfo[0], lambda node: getattr(node, attr, None))
                       if len(getinfo)==1 else getinfo
@@ -1441,6 +1442,7 @@ def tabulate_ages_from_tree(fulltree, todate=true,
     subtree = {}
 
     for node in fulltree.traverse('postorder'):
+        debug_msg = "* %s: " % node.name
         if node.is_root() and not keeproot:
             logger.debug(debug_msg + "Root (discard)")
             continue
@@ -1619,8 +1621,18 @@ def process(resultfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_b
     #    return 'leaf' if node.is_leaf() else 'dup' if isdup(node, subtree) else 'spe'
 
     if BEAST_MEASURES.union(('beast:dist',)).intersection(measures):
+        # Handle reassignments into splitted variables
+        assigned_measures = []
+        for m in measures:
+            if m in BEAST_REASSIGNS:
+                assigned_measures.extend((m+'_low', m+'_up'))
+            elif m=='beast:dist':
+                assigned_measures.append('dist')
+            else:
+                assigned_measures.append(m)
+
         ages = tabulate_ages_from_tree(fulltree, todate,
-                                       ['dist' if m=='beast:dist' else m for m in measures],
+                                       assigned_measures,
                                        keeproot=keeproot,
                                        node_info=[('taxon', this_get_taxon),
                                                   ('is_outgroup', is_outgroup)],
@@ -1733,7 +1745,12 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
                                     for s in ('branch', 'age', 'p_clock')
                                       for m in measures]
             elif set(measures) & BEAST_MEASURES.union(('beast:dist',)):
-                measure_outputs = measures
+                measure_outputs = []
+                for m in measures:
+                    if m in BEAST_REASSIGNS:
+                        measure_outputs.extend((m+'_low', m+'up'))
+                    else:
+                        measure_outputs.append(m)
 
             header = ['name'] + measure_outputs + \
                      ['calibrated', 'parent', 'taxon', 'is_outgroup', 'type',

@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
+import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 from IPython.display import display_html
 
@@ -139,7 +140,8 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
 
 
 def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
-                                   float_fmt='%.4f', **style_kwargs):
+                                   float_fmt='%.4f',
+                                   surround=None, cbar=True, sep=True, **style_kwargs):
     #data = styled_data.data.xs('adjR2', axis=1, level=1)  # select from multiIndex
     orig_data = data
     if axis in (0, 1):
@@ -147,7 +149,8 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
         data = data.subtract(data.min(axis=axis), broadcast_axis)\
                    .div(np.ptp(data.values, axis=axis), axis=broadcast_axis)
     #im = plt.imshow(data, cmap=cmap, aspect='auto', interpolation='none'); ax = plt.gca()
-    im = plt.pcolormesh(data, cmap=cmap, edgecolors=''); ax = plt.gca(); ax.invert_yaxis()
+    #pcolor is the most precise on rectangle boundaries
+    im = plt.pcolor(data, cmap=cmap, edgecolors='', snap=True); ax = plt.gca(); ax.invert_yaxis()
     yticks = np.arange(data.shape[0]) + 0.5
     xticks = np.arange(data.shape[1]) + 0.5
     ax.xaxis.tick_top()
@@ -188,8 +191,45 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
                     ax.text(xt, yt, float_fmt % orig_data.iloc[y,x],
                             color=textcolor, va='center', ha='center'))
 
+    if cbar:
+        orient = 'horizontal' if axis==1 else 'vertical'
+        cbar = plt.colorbar(orientation=orient, fraction=0.05, pad=0.03, aspect=40)
+        if axis is not None:
+            cbar.set_ticks([0, 1])
+            cbar.set_ticklabels(['Row minimum', 'Row maximum'] if axis==1 else
+                                ['Column minimum', 'Column maximum'])
+        #if cbar_label is not None:
+            #cbar.set_label('Relative dispersion (%s-wise)')
+    #else:
+    #    cbar = None
+
+    if sep and axis is not None:
+        if axis==1:
+            sep_coords = range(1, orig_data.shape[0])
+            plot_sep = ax.axhline
+        else:
+            sep_coords = range(1, orig_data.shape[1])
+            plot_sep = ax.axvline
+        for coord in sep_coords:
+            plot_sep(coord, color=mpl.rcParams['axes.edgecolor'], linewidth=0.5,
+                     alpha=1)
+
+    if surround in ('min', 'max'):
+        if axis is not None:
+            get_coords = np.argmax if surround=='max' else np.argmin
+            surround_coords = get_coords(orig_data.values, axis=axis)
+            #print('DEBUG: surround_coords =', surround_coords)
+            iter_coords = (zip(surround_coords, np.arange(orig_data.shape[1]))
+                           if axis==0 else
+                           zip(np.arange(orig_data.shape[0]), surround_coords))
+            for i, j in iter_coords:
+                #print('DEBUG: i, j = %s, %s' % (i, j))
+                ax.add_patch(patches.Rectangle((j+0.002, i+0.005), 0.99, 0.95, fill=False,
+                             edgecolor='gold', linestyle='--', linewidth=1, hatch='/'))
+                             #zorder=3)) # edgecolor='khaki'
+
     # Get cell width/height
     #w, h = cell_txts[-1].get_window_extent()  # In display coordinates
     #print(w, h)
-    return ax
+    return ax, cbar
 

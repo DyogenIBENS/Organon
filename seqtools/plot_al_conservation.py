@@ -59,6 +59,7 @@ ext2fmt = {'.fa':    'fasta',
            '.phy':   'phylip-relaxed'}
 
 
+# ~~> arrayal
 CODONS = [''.join(codon) for codon in product(*[nucleotides]*3)]
 NACODON = '---'
 #NCODONS = 
@@ -74,6 +75,7 @@ codonalphabet.letters = [NACODON] + CODONS
 codonalphabet.size = 3
 
 
+# ~~> arrayal
 def make_unif_codon_dist():
     """Return a uniform codon distance matrix:
     each different nucleotide counts as one difference.
@@ -106,6 +108,18 @@ UNIF_CODON_DIST = make_unif_codon_dist()
 #    # ~/install/jprime-extra/arvecodon.txt
 
 
+# ~~> arrayal
+def al2list(align_col):
+    """Convert an alignment object to a list of strings"""
+    return [str(record.seq) for record in align_col]
+
+def iter_strseq(align):
+    """Iterate over an alignment object: yield sequences as strings"""
+    for record in align:
+        yield str(record.seq)
+
+
+# ~~> arrayal
 def al2array(align, nucl=False):
     """"""
     nseq = len(align)
@@ -115,9 +129,10 @@ def al2array(align, nucl=False):
     #alarray = np.array([['']*npos]*len(align))
     
     return np.array([[seq[(j*step):((j+1)*step)] for j in range(npos)]
-                                                 for seq in al2list(align)])
+                                                 for seq in iter_strseq(align)])
 
 
+# ~~> arrayal
 def al2int(align, nucl=False, allow_N=False):
     """Converts a matrix of categorical values to integers"""
     alarray = al2array(align, nucl)
@@ -125,6 +140,7 @@ def al2int(align, nucl=False, allow_N=False):
     return category2int(alarray, converter_dict, allow_N)
 
 
+# ~~> arrayal
 def category2int(array, converter_dict, allow_N=False):
     """Convert an array of categorical values using a dictionary"""
     if not allow_N:
@@ -146,6 +162,7 @@ def category2int(array, converter_dict, allow_N=False):
     return np.vectorize(ufunc)(array)
 
 
+# ~~> arrayal
 def count_matrix(vint, minlength=66):
     """column-wise matrix of counts of integers"""
     assert vint.dtype == int
@@ -155,10 +172,12 @@ def count_matrix(vint, minlength=66):
 #count_matrix = np.vectorize(lambda array_1D: np.bincount(array_1D, minlength=minlength)
 # Nope because this processes columns
 
+# ~~> arrayal
 def freq_matrix(vint, minlength=66):
     """Convert matrix of integers to frequencies (per column)"""
     return count_matrix(vint, minlength).astype(float) / np.alen(vint)
 
+# ~~> arrayal
 def presence_matrix(vint, minlength=66):
     """Convert a sequence of integers into a boolean matrix of presence of each value."""
 
@@ -180,29 +199,27 @@ def filename2format(filename):
     return ext2fmt[ext]
 
 
-def al2list(align_col):
-    """Convert an alignment object to a list of strings"""
-    return [str(record.seq) for record in align_col]
-
-
 def proportions(values):
-    """ Compute proportion of each possible value.
+    """DEPRECATED.
+    Compute proportion of each possible value.
     return dictionary with proportion of each value.
     values: list of elements."""
     value_set = set(values)
     L = len(values)
     return {val: float(values.count()) / L}
 
+def entropy(values, na=None):
+    """DEPRECATED"""
+    value_prop = proportions(values)
+    return -sum(p*np.log2(p) for val, p in value_prop.items() if val != na)
 
+
+# ~~> arrayal/alvector
 def np_proportions(values):
     # Convert values to integers
     vunique, vcounts = np.unique(values, return_counts=True)
     return vunique, vcounts.astype(float) / len(values)
 
-
-def entropy(values, na=None):
-    value_prop = proportions(values)
-    return -sum(p*np.log2(p) for val, p in value_prop.items() if val != na)
 
 # Not used in `main` anymore
 def np_entropy_subfunc(value_unique, value_prop, na=None):
@@ -222,8 +239,8 @@ def np_entropy(values, na=None):
 def freqs2entropy(freqs):
     """Compute the entropy of columns from the frequency matrix.
 
-    Return a vector of entropy of the same length as the number of columns."""
-
+    Return a vector of entropy of the same length as the number of columns.
+    """
     freqs = freqs.copy()
     freqs[freqs == 0] = 1
     return - (freqs * np.log2(freqs)).sum(axis=0)
@@ -244,12 +261,14 @@ def part_sp_score(vint, split, dist_mat=UNIF_CODON_DIST):
     assert len(split) == 2
     return pairs_score(vint, product(*split), dist_mat)
 
+# ~~> datasci.stats?
 def cov(X,Y, axis=0):
     mx = X.mean(axis=axis)
     my = Y.mean(axis=axis)
     return ((X - mx) * (Y - my)).mean(axis=axis)
 
 
+# ~~> datasci.stats?
 def pearson_coeff(X, Y, axis=0):
     """Column-wise pearson coefficient"""
     coeff = cov(X, Y, axis)
@@ -279,6 +298,7 @@ def comp_parts(alint, compare_parts=None):
     return np.stack((manh_dist, split_sc,))
 
 
+# ~~> arrayal/evol
 def parsimony_score(alint, tree, seqlabels, minlength=66, get_children=None):
     """Computes the column-wise parsimony score based on the provided tree."""
 
@@ -338,6 +358,7 @@ def parsimony_score(alint, tree, seqlabels, minlength=66, get_children=None):
     return score.astype(float) / branch_nb
 
 
+# ~~> arrayal
 def get_position_stats(align, nucl=False, allow_N=False):
     """Compute gap proportion and entropy value for each position of the alignment"""
     al_len = align.get_alignment_length()
@@ -373,14 +394,15 @@ def get_position_stats(align, nucl=False, allow_N=False):
     return gap_prop, al_entropy, alint
 
 
+#from dendro.any import biophylo
 def get_items_biophylo(tree, nodedist):
     return [(child, child.branch_length) for child in nodedist[0].clades]
 
-#from dendro.any import biophylo
 def get_label_biophylo(tree, node):
     return node.name
 
 
+# ~~> arrayal
 def reorder_al(align, records=None, record_order=None):
     """
     param: `align`: Bio.Align object
