@@ -36,18 +36,50 @@ import ipywidgets as widgets
 #    plt.show(fig2)
 
 
-def make_tabs(iterator, **kwargs):
-    outputs = []
-    for item in iterator:
-        out = widgets.Output(**kwargs)
-        outputs.append(out)
-        with out:
-            try:
-                yield item
-                # Do stuff with item in your loop.
-            except BaseException as err:
-                display(err)
-                break
-    tab = widgets.Tab(children=outputs)
+def basic_make_tabs(iterator, make_title=repr, **kwargs):
+    if make_title is None:
+        make_title = lambda item: None
+    tab = widgets.Tab()
     display(tab)
+    for i, item in enumerate(iterator):
+        out = widgets.Output(**kwargs)
+        tab.children += (out,)
+        tab.set_title(i, make_title(item))
+        with out:
+            yield item
+            # Do stuff with item in your loop.
+            #except BaseException as err:
+            #    display(err)
+            #    break
+
+
+class make_tabs(object):
+    """Take an iterable, and create a new html tab for displaying the output
+    of each iteration.
+    
+    The instance makes the attributes available:
+        - `tab`: ipywidget.Tab instance;
+        - `current_out`: ipywidget.Output instance of the current iteration;
+        - `current_index`: index of the `current_out` in `tab.children`.
+    """
+    def __init__(self, iterable, make_title=repr, dynamic=False, **output_kw):
+        self.iterable = iterable
+        self.make_title = (lambda item: None) if (make_title is None) else make_title
+        self.dynamic = dynamic
+        self.output_kw = output_kw
+        self.tab = widgets.Tab()
+        display(self.tab)
+        self.current_out = None
+        self.current_index = -1
+
+    def __iter__(self):
+        for item in self.iterable:
+            self.current_out = widgets.Output(**self.output_kw)
+            self.tab.children += (self.current_out,)
+            self.current_index += 1
+            if self.dynamic:
+                self.tab.selected_index = self.current_index
+            self.tab.set_title(self.current_index, self.make_title(item))
+            with self.current_out:
+                yield item
 
