@@ -53,13 +53,13 @@ def basic_make_tabs(iterator, make_title=repr, **kwargs):
             #    break
 
 
-class make_tabs(object):
+class make_folds(object):
     """Take an iterable, and create a new html tab for displaying the output
     of each iteration.
     
     The instance makes the attributes available:
-        - `tab`: ipywidget.Tab instance;
-        - `current_out`: ipywidget.Output instance of the current iteration;
+        - `tab`: ipywidgets.Tab instance;
+        - `current_out`: ipywidgets.Output instance of the current iteration;
         - `current_index`: index of the `current_out` in `tab.children`.
     """
     def __init__(self, iterable, make_title=repr, dynamic=False, **output_kw):
@@ -67,19 +67,40 @@ class make_tabs(object):
         self.make_title = (lambda item: None) if (make_title is None) else make_title
         self.dynamic = dynamic
         self.output_kw = output_kw
-        self.tab = widgets.Tab()
-        display(self.tab)
+        self.fold = self.create_fold()
+        display(self.fold)
         self.current_out = None
         self.current_index = -1
 
     def __iter__(self):
-        for item in self.iterable:
+        #with contextlib.closing(self.iterable) as iterable:
+        iterator = iter(self.iterable)
+        for item in iterator:
             self.current_out = widgets.Output(**self.output_kw)
-            self.tab.children += (self.current_out,)
+            self.fold.children += (self.current_out,)
             self.current_index += 1
             if self.dynamic:
-                self.tab.selected_index = self.current_index
-            self.tab.set_title(self.current_index, self.make_title(item))
+                self.fold.selected_index = self.current_index
+            self.fold.set_title(self.current_index, self.make_title(item))
+            must_exit = False
             with self.current_out:
-                yield item
+                    # Yield inside with keeps the context on until the next iteration
+                try:
+                    yield item
+                except GeneratorExit as err:
+                    source_err = err
+                    must_exit = True
+            if must_exit:
+                #The error is then raised outside the fold widget.
+                raise StopIteration #(source_err)
+
+
+
+class make_tabs(make_folds):
+    def create_fold(self):
+        return widgets.Tab()
+
+class make_accordion(make_folds):
+    def create_fold(self):
+        return widgets.Accordion()
 
