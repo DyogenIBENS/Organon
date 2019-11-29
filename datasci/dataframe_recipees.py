@@ -70,6 +70,12 @@ def tolong(df, x=None, subset=None, varname=None, idname=None):
 
 def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
                         err=None, ticks=False):
+    """Like pandas.DataFrame.style.bar, but with matplotlib.
+    
+    + Also: error bars
+    
+    Return axes (flat).
+    """
     if y is None:
         try:
             y = data.columns.tolist()

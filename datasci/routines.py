@@ -11,6 +11,7 @@ or Pandas dataframe styling.)"""
 
 from io import StringIO
 from functools import partial
+import re
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
@@ -21,6 +22,7 @@ import warnings
 import scipy.stats as stats
 import scipy.cluster.hierarchy as hclust
 
+import statsmodels.api as sm
 from sklearn.decomposition import PCA, FactorAnalysis
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import cross_val_score
@@ -58,8 +60,16 @@ sqrt = np.sqrt
 log = np.log10
 
 def logneg(x):
-    return np.log10(-x)
-logneg.__name__ = "log10(-%s)"
+    return -np.log10(-x)
+logneg.__name__ = "-log10(-%s)"
+
+def sqrtneg(x):
+    return -sqrt(-x)
+
+def make_sqrtpostransform(inc=0):
+    sqrtinc = lambda x: sqrt(x - x.min() + inc)
+    sqrtinc.__name__ = "sqrt(%g-min+%%s)" % inc
+    return sqrtinc
 
 def make_logtransform_inc(inc=0):
     loginc = lambda x: np.log10(x + inc)
@@ -110,6 +120,12 @@ def zscore(x, ddof=1):
     return (x - x.mean()) / x.std(ddof=ddof) # if x.std() else 1) )
 
 
+def unregress(y, x):
+    """Return the residuals of Y from the linear regression (with Intercept)
+    against X"""
+    return sm.OLS(y, sm.add_constant(x)).fit().resid
+
+
 def decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
     """
     *args: tuples of ('y', 'x') of variables in src_data;
@@ -122,10 +138,11 @@ def decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
 
     kwargs.update({'R%s' % v[0]: v for v in args})
 
-    return data.drop([var for var,_ in kwargs.values()],
-                         axis=1, errors='ignore')\
-                    .assign(**{newvar: decorrfunc(src_data[var],src_data[corrvar])
-                               for newvar, (var, corrvar) in kwargs.items()})
+    return data.assign(**{newvar: decorrfunc(src_data[var],src_data[corrvar])
+                          for newvar, (var, corrvar) in kwargs.items()})\
+               .drop([var for newvar, (var,_) in kwargs.items()
+                      if newvar != var],
+                     axis=1, errors='ignore')
 
 
 def check_decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
@@ -152,14 +169,24 @@ renorm_decorrelate = partial(check_decorrelator,
                              lambda v,cv: zscore(np.divide(v,cv)))
 renorm_logdecorrelate = partial(check_decorrelator,
                                 lambda v,cv: zscore(np.subtract(v,cv)))
+renorm_unregress = partial(check_decorrelator,
+                           lambda v,cv: zscore(unregress(v, cv)))
 
 
-def test_transforms(alls, variables, figsize=(14, 5)):
+def test_transforms(alls, variables, figsize=(14, 5), widget=True):
     #fig, axes = plt.subplots(len(variables),3, figsize=(22, 5*len(variables)))
     nbins = 50
 
     suggested_transform = {}
-    for i, ft in enumerate(variables):
+
+    iter_features = enumerate(variables)
+    if widget:
+        try:
+            from UItools.jupytertricks import make_tabs
+            iter_features = make_tabs(iter_features, lambda item: item[1])
+        except ImportError as err:
+            logger.error()
+    for i, ft in iter_features:
         
         var = alls[ft]
         
@@ -195,19 +222,24 @@ def test_transforms(alls, variables, figsize=(14, 5)):
         transform_skews[notransform] = varskew
 
         current_logtransform = None
+        current_signtransform = None  #TODO
+        current_sqrttransform = None
         if (var < 0).any():
             if (var > 0).any():
                 print("Variable %r has negative and positive values. Shifting to positive." % ft)
                 text += "Negative and positive values. Shifting to positive.\n"
                 var -= var.min()
                 current_logtransform = make_logpostransform_inc()
+                current_sqrttransform = make_sqrtpostransform()
             else:
                 print("Variable %r converted to positive values" % ft)
                 text += "Converted to positive values.\n"
                 var = -var
                 current_logtransform = logneg  # What if null values?
+                current_sqrttransform = sqrtneg
         else:
             current_logtransform = log
+            current_sqrttransform = sqrt
         
         # Plot log-transformed distribution
         with warnings.catch_warnings(record=True) as w:
@@ -271,7 +303,7 @@ def test_transforms(alls, variables, figsize=(14, 5)):
         sqrttransformed_varskew = sqrttransformed_var.skew()
         sqrttext = "Skew: %g\nKurtosis: %g\n" % (sqrttransformed_varskew,
                                                  sqrttransformed_var.kurt())
-        transform_skews[sqrt] = sqrttransformed_varskew
+        transform_skews[current_sqrttransform] = sqrttransformed_varskew
 
         axes[2].hist(sqrttransformed_var, bins=nbins, density=True)
         axes[2].plot(*normal_fit(sqrttransformed_var), '-')
@@ -502,7 +534,7 @@ def display_drop_eval(features, func):
 
 
 def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=None,
-                   protected=None, show='matplotlib'):
+                   protected=None, show='matplotlib', widget=True):
     if protected is None:
         protected = []
     if nloops is None:
@@ -529,9 +561,16 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
     elif not callable(show):
         raise ValueError('`show` must be a value in [None, "pandas", "matplotlib"] or a callable')
 
+    make_tabs = lambda iterator, *a, **kw: iterator
+    if widget:
+        try:
+            from UItools.jupytertricks import make_tabs
+        except ImportError as err:
+            logger.error()
+
     dropped_features = []
     next_features = [ft for ft in features]
-    for k in range(nloops):
+    for k in make_tabs(range(nloops)):
         dropped_k = drop_eval(next_features, func)
         show(dropped_k)
 
@@ -573,6 +612,9 @@ def lm_summary(lm, features, response, data):
         print("%-17s: %10.6f" % (ft, coef))
 
 
+PVAL_REGEX = re.compile(r'p>\|z\||p-?val(ue)?', re.I)
+
+
 def sm_pretty_slopes(olsfit, join=None, renames=None, bars=['coef']):
     """Nicer look for a StatsModels OLS fit (sorted features by slope)."""
     try:
@@ -601,10 +643,17 @@ def sm_pretty_slopes(olsfit, join=None, renames=None, bars=['coef']):
 
     param_names = [renames.get(n, n) for n in olsfit.model.exog_names
                    if n not in ('Intercept', 'const')]
-    r_coefs_styled = r_coefs.rename(renames).style.bar(
+    r_coefs_styled = r_coefs.rename(renames)\
+                     .style.bar(
                         subset=pd.IndexSlice[param_names, bars],
                         axis=0,
                         align="zero")
+    pval_columns = [col for col in r_coefs.columns if PVAL_REGEX.search(col)]
+    if pval_columns:
+        r_coefs_styled = r_coefs_styled.applymap(
+                         lambda v: ('background: khaki' if v<0.01 else
+                                    'background: lemonchiffon; alpha: 0.5' if v<=0.05 else ''),
+                                 subset=pval_columns)
     return r_coefs_styled
 
 

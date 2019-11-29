@@ -7,6 +7,9 @@
 
 import sys
 import os.path as op
+import itertools as it
+from itertools import chain
+import textwrap
 
 import warnings
 from copy import copy, deepcopy
@@ -53,6 +56,7 @@ import statsmodels.stats.multitest as smm
 import statsmodels.graphics as smg  # smg.gofplots.qqplot
 
 from IPython.display import display_html
+from IPython.utils.io import capture_output
 import logging
 
 
@@ -76,7 +80,7 @@ if not logger.hasHandlers():
     logger.handlers = []
     logger.addHandler(sh)
     #logging.basicConfig(handlers=[sh])
-    logging.basicConfig()
+    #logging.basicConfig()
 # to reset:
 #logging.shutdown()
 
@@ -1414,7 +1418,7 @@ def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts,
                              control_ages, control_brlen, mean_errors)
 
 
-def lassoselect_and_refit(a, y, features, atol=1e-3, method='elastic_net',
+def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
                           L1_wt=1, cov_type='HC1', **psummary_kw):
     exog = sm.add_constant(a[features])
     if 'const' not in exog:
@@ -1430,13 +1434,14 @@ def lassoselect_and_refit(a, y, features, atol=1e-3, method='elastic_net',
     elif NaN_coefs.any():
         logger.warning("Some coefs estimated as NaN.")
 
+    almost_zero = np.isclose(fitlasso.params.drop('const'), 0, atol=atol)
     print('Non zeros params: %d/%d (from %d input features).\n'
-          'Almost zeros params (<%g): %d.' % (
+          'Almost zeros params (<%g): %d' % (
             (fitlasso.params.drop('const') != 0).sum(),
              fitlasso.params.drop('const').shape[0],
              len(features),
              atol,
-             np.isclose(fitlasso.params.drop('const'), 0, atol=atol).sum()))
+             almost_zero.sum()))
 
     sorted_coefs = fitlasso.params.drop('const').abs().sort_values(ascending=False)
     sorted_features = sorted_coefs.index.tolist()
@@ -1458,18 +1463,23 @@ def lassoselect_and_refit(a, y, features, atol=1e-3, method='elastic_net',
     print('\n#### OLS refit of Lasso-selected variables (%g)' % atol)
     #TODO: delete but make a refit.
     selected_features = sorted_coefs[sorted_coefs > atol].index.tolist()
+    print('Removed variables:', ', '.join(sorted_coefs[sorted_coefs <= atol].index))
     fit = sm.OLS(a[y], exog[['const'] + selected_features]).fit(cov_type='HC1')
 
     bars_to_show = ['coef', 'Lasso coef', 'Simple regression coef']
     bars_to_show += psummary_kw.pop('bars', [])
     info_to_join = psummary_kw.pop('join', None)
+    simple_regressions =  [sm.OLS(a[y], sm.add_constant(a[features])[['const']]).fit()]
+    simple_regressions += [sm.OLS(a[y], sm.add_constant(a[ft])).fit()
+                           for ft in features]
     param_info = pd.concat((
                     pslopes.data.coef.rename('Lasso coef'),
-                    pd.Series({ft: sm.OLS(a[y],
-                                          sm.add_constant(a[ft])
-                                          ).fit().params[ft]
-                               for ft in features
-                              }, name='Simple regression coef'),
+                    pd.DataFrame([(reg.params.loc[ft], reg.pvalues[ft])
+                                   for ft, reg in zip(['const'] + features,
+                                                      simple_regressions)],
+                                 index=['const'] + features,
+                                 columns=['Simple regression coef',
+                                          'Simple regression p-value']),
                     ) + (() if info_to_join is None else (info_to_join,)),
                     axis=1, sort=False)
 
@@ -1487,6 +1497,10 @@ _must_transform = dict(
         #ingroup_nucl_parsimony_median=binarize, #constant
         ingroup_codon_entropy_median=binarize,
         ingroup_codon_parsimony_median=binarize,
+        ingroup_nucl_entropy_mean=sqrt,
+        ingroup_nucl_entropy_std=sqrt,  # Should be the same because of decorrelation.
+        ingroup_nucl_parsimony_mean=log,
+        ingroup_nucl_parsimony_std=log,
         rebuilt_topo=binarize,
         consecutive_zeros=binarize, # - triplet_zeros
         sister_zeros=binarize,      # - triplet_zeros
@@ -1494,6 +1508,7 @@ _must_transform = dict(
         bootstrap_min=notransform,
         prop_splitseq=binarize,
         convergence_warning=binarize,  # notransform
+        codemlMP=notransform,
         consecutive_zeros_dS=binarize,
         sister_zeros_dS=binarize,
         triplet_zeros_dS=binarize,
@@ -1523,13 +1538,16 @@ _must_drop_features = ["ls", "seconds",  # ~ ingroup_glob_len
                        "dS_treelen",       # ~dS_rate
                        "dN_treelen",
                        "treelen",
-                       "ingroup_codon_entropy_mean", # ~ ingroup_codon_parsimony_mean
-                       "ingroup_codon_entropy_std",  # 
-                       "ingroup_nucl_entropy_std",   # ~ ingroup_codon_parsimony_std
-                       "ingroup_nucl_entropy_mean",
-                       "ingroup_nucl_entropy_median",  # ~ ingroup_codon_entropy_median
-                       "ingroup_nucl_parsimony_mean",
-                       "ingroup_nucl_parsimony_std",
+                       "ingroup_nucl_entropy_mean", # ~ ingroup_nucl_parsimony_mean
+                       "ingroup_nucl_entropy_std",  # 
+                       "ingroup_codon_entropy_std",   # ~ ingroup_nucl_parsimony_std
+                       "Ringroup_codon_entropy_std",   # ~ ingroup_nucl_parsimony_std
+                       "ingroup_codon_entropy_mean",
+                       "ingroup_codon_entropy_median",  # ~ ingroup_nucl_entropy_median
+                       "ingroup_codon_parsimony_mean",
+                       "ingroup_codon_parsimony_median"
+                       "ingroup_codon_parsimony_std",
+                       "Ringroup_codon_parsimony_std",
                        "r2t_t_mean", "r2t_dS_mean", "r2t_dN_mean",
                        "r2t_t_std",  "r2t_dS_std",  "r2t_dN_std",
                        "bootstrap_mean",  # ~ bootstrap_min
@@ -1566,12 +1584,18 @@ _must_renormlogdecorr = (
        for m in MEASURES]
     + [('treeL_3_stddev', 'treeL_3_med'),
        ('treeL_12_stddev', 'treeL_12_med')],
-    dict(RsynSites=('NsynSites',     'ls'),
-         sitelnL=('lnL', 'ingroup_glob_len')))
+    dict(RsynSites=('NsynSites',    'ls'),
+         RnonsynSites=('NnonsynSites', 'ls'))  # But this one should be removed.
+    )
 
 _must_renormdecorr = (
-    [('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean')],
-    {})
+    [('ingroup_nucl_parsimony_std', 'ingroup_nucl_parsimony_mean'),
+     ('ingroup_nucl_entropy_std', 'ingroup_nucl_entropy_mean'),  # log-transformed,
+                                                                 #but still better like that.
+     ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean'),
+     ('ingroup_codon_entropy_std', 'ingroup_codon_entropy_mean')],
+    dict(sitelnL=('lnL', 'ingroup_glob_len')))
+#TODO: custom_decorr = dict(newkey=(var,corr,decorrfunc))
 
 _must_logdecorr = (
         #[('%s_zeros%s' %(how, ('' if m=='dist' else '_'+m)),
@@ -1610,7 +1634,7 @@ class full_dating_regression(object):
                  'measures',  # measures of branch lengths and ages.
                  'ref_suggested_transform',
                  'impose_transform',
-                 'to_renormdecorr',
+                 'to_decorr',
                  'to_renormlogdecorr',
                  'to_subtract',
                  'must_drop_features',
@@ -1629,6 +1653,7 @@ class full_dating_regression(object):
     def __init__(self, data, same_alls, dataset_params, responses, features,
                  measures=MEASURES, ref_suggested_transform=None,
                  impose_transform=None, must_drop_features=None,
+                 #to_decorr=None,
                  to_renormdecorr=None, to_renormlogdecorr=None, to_subtract=None,
                  protected_features=None, must_drop_data=None):
         for k,v in locals().items():
@@ -1690,7 +1715,8 @@ class full_dating_regression(object):
 
             suggested_transform = test_transforms(alls,
                                     [ft for ft in responses+features
-                                        if ft not in impose_transform]) #ages_features + rate_features
+                                        if ft not in impose_transform],
+                                    widget=True) #ages_features + rate_features
             #TODO: add to self.displayed
 
             suggested_transform.update(**dict(
@@ -1781,7 +1807,7 @@ class full_dating_regression(object):
                          + str(same_alls.iloc[:5, :5]) + '\n'
                          )
             sys.exit(1)
-        na_amount = alls.isna().sum(axis=0).sort_values(ascending=False)
+        self.na_amount = na_amount = alls.isna().sum(axis=0).sort_values(ascending=False)
         print('Amount of NA:', na_amount.head(10), sep='\n')
         print('Amount of Inf:', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10), sep='\n')
         
@@ -1806,15 +1832,22 @@ class full_dating_regression(object):
         # All binary variables should **NOT** be z-scored!
         bin_features = [ft for ft in features if suggested_transform[ft].__name__ == 'binarize']
 
-        logger.warning('Replace Inf,-Inf by NaN')
+        if alls.isin((-np.Inf, np.Inf)).any(axis=None):
+            logger.warning('Replace Inf,-Inf by NaN')
         alls_transformed = alls.replace([-np.Inf, np.Inf], np.NaN).transform(suggested_transform)
 
         print('transformed -> Any NA:', alls_transformed.isna().sum(axis=0).any())
         print('transformed -> *All* NA:', alls_transformed.columns[alls_transformed.isna().all()])
-
         print('transformed shape:', alls_transformed.shape)
 
         self.a_t = a_t = alls_transformed
+
+        self.na_rows_t = na_rows_t = a_t.isna().any(axis=1)
+        if na_rows_t.any():
+            print('%d NA rows (after transform).' % na_rows_t.sum())
+            print('Columns with NA (after transform):\n',
+                    a_t.isna().sum().sort_values(ascending=False).head())
+            #self.a_t.dropna(inplace=True)
 
     #def do_norm(self):
         logger.debug('Will Z-score: %s', [ft for ft in responses+features if ft not in bin_features])
@@ -1833,9 +1866,9 @@ class full_dating_regression(object):
         print('normed -> Any NA:', a_n.columns.values[a_n.isna().any(axis=0)])
         print('Check a_n.head():')
         display_html(a_n.head())
-        self.na_rows = na_rows = a_n.isna().any(axis=1)
-        if na_rows.any():
-            print('Drop %d NA rows' % na_rows.sum())
+        self.na_rows_n = na_rows_n = a_n.isna().any(axis=1)
+        if na_rows_n.any():
+            print('Drop %d NA rows (after zscoring)' % na_rows_n.sum())
             a_n.dropna(inplace=True)
 
         a_nn = a_n.select_dtypes(np.number)  # Numeric columns only.
@@ -1844,7 +1877,7 @@ class full_dating_regression(object):
             print('Drop %d Inf rows' % inf_rows.sum())
             print('Data with Inf: column %s:\n%s' % (
                         a_nn.columns[np.isinf(a_nn).any()],
-                        alls[~na_rows][inf_rows].head(10)))
+                        alls[~na_rows_n][inf_rows].head(10)))
             a_n = a_n[~inf_rows].copy(deep=False)
         
         constant_vars = a_n.columns[(a_n.agg(np.ptp) == 0)].tolist()
@@ -1902,34 +1935,50 @@ class full_dating_regression(object):
 
         print('\n### Feature decorrelation')
         #must_drop_features
+        ### **TODO**!!! Check that decorrelation is done on the un-zscored data!!
+        
         try:
             a_n_inde = a_n.drop(must_drop_features, axis=1)
+            #a_t.drop(must_drop_features, axis=1, inplace=True)
         except KeyError as err:
             logger.warning("Not in `self.a_n`:" + err.args[0])
             a_n_inde = a_n.drop(must_drop_features, axis=1, errors='ignore')
         print('%d Independent features (%d rows)' % a_n_inde.shape[::-1])
 
         self.missing_todecorr = [pair for pair in
-                         (self.to_renormlogdecorr[0] + list(self.to_renormlogdecorr[1].values())
-                          + self.to_renormdecorr[0] + list(self.to_renormdecorr[1].values()))
+                         chain(self.to_renormlogdecorr[0],
+                               self.to_renormlogdecorr[1].values(),
+                               self.to_renormdecorr[0],
+                               self.to_renormdecorr[1].values())
                          if pair[0] not in a_t or pair[1] not in a_t]
+        self.dropped_todecorr = [pair for pair in
+                         chain(self.to_renormlogdecorr[0],
+                               self.to_renormlogdecorr[1].values(),
+                               self.to_renormdecorr[0],
+                               self.to_renormdecorr[1].values())
+                         if pair[0] in must_drop_features]
         if self.missing_todecorr:
             logger.warning('Unexpected missing pairs to renorm(log)decorr: %s',
                            self.missing_todecorr)
-        to_renormlogdecorr = ([pair for pair in self.to_renormlogdecorr[0]
-                               if pair[0] in a_t and pair[1] in a_t],
-                              {key:pair for key,pair in self.to_renormlogdecorr[1].items()
-                               if pair[0] in a_t and pair[1] in a_t})
-        to_renormdecorr = ([pair for pair in self.to_renormdecorr[0]
-                             if pair[0] in a_t and pair[1] in a_t],
-                            {key:pair for key,pair in self.to_renormdecorr[1].items()
-                             if pair[0] in a_t and pair[1] in a_t})
+        if self.dropped_todecorr:
+            logger.warning('Dropped before renorm(log)decorr: %s',
+                           self.dropped_todecorr)
+        # Filtered
+        valid_pair = lambda pair: (pair[0] in a_t and pair[1] in a_t
+                                        and pair[0] not in must_drop_features)
+        valid_item = lambda item: (item[1][0] in a_t
+                                            and item[1][1] in a_t
+                                            and item[1][0] not in must_drop_features)
+
+        to_renormlogdecorr = (list(filter(valid_pair, self.to_renormlogdecorr[0])),
+                              dict(filter(valid_item, self.to_renormlogdecorr[1].items())))
+        to_renormdecorr = (list(filter(valid_pair, self.to_renormdecorr[0])),
+                           dict(filter(valid_item, self.to_renormdecorr[1].items())))
+
         # Check if the proposed decorrelation is in line with the transforms.
         # (subtract for logs, divide for raw/sqrt)
-        def iter_renormlogdecorr():
-            yield from enumerate(to_renormlogdecorr[0])
-            yield from to_renormlogdecorr[1].items()
-        for k, (var, corrvar) in iter_renormlogdecorr():
+        for k, (var, corrvar) in chain(enumerate(to_renormlogdecorr[0]),
+                                       to_renormlogdecorr[1].items()):
             msg = []
             var_transform = suggested_transform[var].__name__
             corrvar_transform = suggested_transform[corrvar].__name__
@@ -1945,18 +1994,39 @@ class full_dating_regression(object):
                 else:
                     to_renormlogdecorr[1].pop(k)
                     to_renormdecorr[1][k] = (var, corrvar)
+        # Conversely, if dividing is on the log, ask confirmation.
+        # But NO auto-switch, because sometimes dividing by the log-scaled var makes sense.
+        for k, (var, corrvar) in chain(enumerate(to_renormdecorr[0]),
+                                       to_renormdecorr[1].items()):
+            msg = []
+            var_transform = suggested_transform[var].__name__
+            corrvar_transform = suggested_transform[corrvar].__name__
+            if 'log' in var_transform or 'binary' in var_transform:
+                msg.append('suggested_transform[%r] = %s' % (var, var_transform))
+            if 'log' in corrvar_transform or 'binary' in corrvar_transform:
+                msg.append('/ suggested_transform[%r] = %s' % (corrvar, corrvar_transform))
+            if msg:
+                logger.warning(' '.join(msg) + ': are you sure to "decorr" (divide logs/binary)?')
+                #if isinstance(k, int):
+                #    to_renormdecorr[0].remove((var, corrvar))
+                #    to_renormlogdecorr[0].append((var, corrvar))
+                #else:
+                #    to_renormdecorr[1].pop(k)
+                #    to_renormlogdecorr[1][k] = (var, corrvar)
 
         # TODO: verbose change in correlation coef
         if a_n_inde.shape[0] != a_t.shape[0]:
             logger.error('a_n_inde and a_t have incompatible shapes: %s %s (NA rows: %d/%d)',
-                         a_n_inde.shape, a_t.shape, na_rows.sum(), na_rows.shape[0])
+                         a_n_inde.shape, a_t.shape, na_rows_n.sum(), na_rows_n.shape[0])
 
-        a_n_inde = renorm_logdecorrelate(a_n_inde, a_t[~na_rows],
+        #assert 'sitelnL' in set(to_renormlogdecorr[1]).union(to_renormdecorr[1])
+        a_n_inde = renorm_logdecorrelate(a_n_inde, a_t[~na_rows_n],
                                          *to_renormlogdecorr[0],
                                          **to_renormlogdecorr[1])
-        a_n_inde = renorm_decorrelate(a_n_inde, a_t[~na_rows],
+        a_n_inde = renorm_decorrelate(a_n_inde, a_t[~na_rows_n],
                                       *to_renormdecorr[0],
                                       **to_renormdecorr[1])
+        #assert 'sitelnL' in a_n_inde
 
         self.missing_zeros_todecorr = [pair for pair in self.to_subtract#[0]
                                   if pair[0] not in a_t or pair[1] not in a_t]
@@ -1965,11 +2035,11 @@ class full_dating_regression(object):
                            self.missing_zeros_todecorr)
         zeros_to_decorrelate = [pair for pair in self.to_subtract
                                 if pair[0] in a_t and pair[1] in a_t]
-        
-        a_n_inde = logdecorrelate(a_n_inde, a_t[~na_rows], *zeros_to_decorrelate)
+
+        a_n_inde = logdecorrelate(a_n_inde, a_t[~na_rows_n], *zeros_to_decorrelate)
 
         # special_decorr
-        a_n_inde['CpG_odds'] = zscore(log(alls.ingroup_mean_CpG / (alls.ingroup_mean_GC**2)))[~na_rows]
+        a_n_inde['CpG_odds'] = zscore(log(alls.ingroup_mean_CpG / (alls.ingroup_mean_GC**2)))[~na_rows_n]
         print('%d independent features (%d rows)' % a_n_inde.shape[::-1])
 
         inde_features = [ft for ft in features if ft in a_n_inde]
@@ -1978,25 +2048,32 @@ class full_dating_regression(object):
         print('inde_features', len(inde_features))
 
         new_inde_features = set(inde_features) - set(features)
-        # Description of the transformation for the user.
-        self.decorr = {'R'+var1: '- '+var2 for var1, var2 
-                        in to_renormlogdecorr[0] + zeros_to_decorrelate}
-        self.decorr.update(CpG_odds='ingroup_mean_CpG / ingroup_mean_GC^2',
-                **{'R'+var1: '/ '+var2 for var1, var2 in to_renormdecorr[0]},
-                **{key: '%s / %s' % (v1, v2) for key, (v1,v2)
-                              in to_renormlogdecorr[1].items()},
-                           **{key: '%s / %s' % (v1, v2) for key, (v1,v2)
-                              in to_renormdecorr[1].items()})
 
-        self.decorr_suggested_transform = {'R'+var1: self.suggested_transform[var1]
-                for var1,_ in to_renormlogdecorr[0] + to_renormdecorr[0] + zeros_to_decorrelate}
-        self.decorr_suggested_transform.update(**{key: self.suggested_transform[var1]
-            for key, (var1,_) in to_renormlogdecorr[1].items()},
-            **{key: self.suggested_transform[var1]
-            for key, (var1,_) in to_renormdecorr[1].items()})
+        # Description of the transformation for the user.
+        self.decorr = {'R'+var1: ('-', var2) for var1, var2 
+                        in to_renormlogdecorr[0] + zeros_to_decorrelate}
+        self.decorr.update(
+                CpG_odds=('ingroup_mean_CpG', '/', 'ingroup_mean_GC^2'),
+                **{'R'+var1: ('/', var2) for var1, var2 in to_renormdecorr[0]},
+                **{key: (v1, '/', v2) for key, (v1,v2)
+                      in chain(to_renormlogdecorr[1].items(),
+                               to_renormdecorr[1].items())})
+        self.decorr_source = {key: (key[1:] if len(tup)==2 else tup[0])
+                              for key, tup in self.decorr.items()}
+
+        #self.decorr_suggested_transform = {'R'+var1: self.suggested_transform[var1]
+        #        for var1,_ in to_renormlogdecorr[0] + to_renormdecorr[0] + zeros_to_decorrelate}
+        #self.decorr_suggested_transform.update(**{key: self.suggested_transform[var1]
+        #    for key, (var1,_) in to_renormlogdecorr[1].items()},
+        #    **{key: self.suggested_transform[var1]
+        #    for key, (var1,_) in to_renormdecorr[1].items()})
 
         self.a_n_inde = a_n_inde
         self.inde_features = inde_features
+
+        na_rows_decorr = a_n_inde.isna().any(axis=1)
+        if na_rows_decorr.any():
+            print('%d NA rows after decorr!' % na_rows_decorr.sum())
 
         #ft_pca_inde, ft_pca_inde_outputs = detailed_pca(a_n_inde, inde_features)
         self.ft_pca_inde = ft_pca_inde = PCA(n_components=15)
@@ -2029,10 +2106,10 @@ class full_dating_regression(object):
 
 
     #def do_fit(self):
-        print('\n### Fit of less colinear features')
+        print('\n### Fit of less colinear features (after internal decorrelation)')
 
         self.fitlasso, self.fit, pslopes, preslopes = lassoselect_and_refit(
-                                a_n_inde, y, inde_features, atol=1e-3,
+                                a_n_inde, y, inde_features, atol=1e-2,
                                 method='elastic_net', L1_wt=1, cov_type='HC1') #**psummary_kw
         self.slopes = pslopes.data
         self.reslopes = preslopes.data
@@ -2060,9 +2137,25 @@ class full_dating_regression(object):
             self._suggest_multicolin, outputs = loop_drop_eval(self.inde_features,
                                           lambda x: multicol_test(self.a_n_inde[x]),
                                           stop_criterion=20,
-                                          protected=protected_features)
+                                          protected=protected_features, widget=True)
             self.displayed.extend(outputs)
             return self._suggest_multicolin
+
+    @property
+    def suggest_multicolin2(self):
+        try:
+            return self._suggest_multicolin2
+        except AttributeError:
+            print('\n#### Finding the most colinear features (after bad-data removed)')
+            #multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
+            protected_features2 = [ft for ft in self.protected_features
+                                    if ft in self.inde_features2]
+            self._suggest_multicolin2, outputs = loop_drop_eval(self.inde_features2,
+                                          lambda x: multicol_test(self.a_n_inde2[x]),
+                                          stop_criterion=20,
+                                          protected=protected_features2, widget=True)
+            self.displayed.extend(outputs)
+            return self._suggest_multicolin2
 
 
     def do_bestfit(self):
@@ -2076,32 +2169,84 @@ class full_dating_regression(object):
 
         print('\n#### Refit without most colinear features')
         
-        print('Drop trees with bad properties: null_{dS,dN,t,dist}_{after,before}, prop_splitseq')
+        print('Drop trees with bad properties (before removing colinear features)')
         bad_props = {}
+        missing_bad_props = set()
+        bad_props_ttests = {}
+        self.bad_props_counts = {}
         for badp, badval in self.must_drop_data.items():
             if badp not in a_n_inde.columns:
+                missing_bad_props.add(badp)
                 continue
+            print('\n--------\n#', badp)
             vcounts = a_n_inde[badp].value_counts()
             if vcounts.shape[0] > 2:
                 logger.warning('%r not binary.', badp)
-            if (a_n_inde[badp].isin(badval).sum()) > 0.05 * vcounts.sum():
+            print('\n'.join(str(vcounts).split('\n')[:-1]))
+            is_badval = a_n_inde[badp].isin(badval)
+            if (is_badval.sum()) > 0.05 * vcounts.sum():
                 logger.warning('Discarding %s.isin(%s) trees will remove >5%% of the subtrees',
                                badp, badval)
-            print(vcounts, '\n')
+            tt_badp = stats.ttest_ind(
+                        a_n_inde.loc[~is_badval, y],
+                        a_n_inde.loc[is_badval, y],
+                        equal_var=False)
+            print('T-test: Y(goodval) VS Y(badval): t=%g, p=%g' % tt_badp)
             bad_props[badp] = badval
+            bad_props_ttests[badp] = tt_badp
 
+        logger.warning('Hard-coded Bad properties not in the columns: %s',
+                       ' '.join(missing_bad_props))
         #a_n_inde2 = a_n_inde.query(' & '.join('(%s==0)' % p for p in bad_props))\
         #                .drop(bad_props, axis=1, errors='ignore')
-        a_n_inde2 = self.a_n_inde2 = a_n_inde.loc[a_n_inde.isin(bad_props).any(axis=1)]
+
+        self.bad_data_rows = bad_data_rows = a_n_inde.isin(bad_props).any(axis=1)
+        a_n_inde2 = a_n_inde.loc[~bad_data_rows]
+        tt_bad = stats.ttest_ind(
+                    a_n_inde2[y],
+                    a_n_inde.loc[bad_data_rows, y],
+                    equal_var=False)
+        print(("Kept VS removed data: t=%g; p=%g (two-tailed Welch's t-test; "
+               +"sample sizes: %d, %d)") % (*tt_bad,
+                  (~bad_data_rows).sum(), bad_data_rows.sum()))
+        bad_props_ttests = pd.DataFrame(bad_props_ttests, index=['T', 'P']).T
+        bad_props_ttests['Pcorr'] = smm.multipletests(
+                                            bad_props_ttests['P'],
+                                            alpha=0.05,
+                                            method='fdr_bh')[1] # Benjamini/Hochberg
+        self.bad_props_ttests = bad_props_ttests.append(
+                                    pd.Series(tt_bad, index=['T', 'P'], name='ANY'))
+        display_html(self.bad_props_ttests)
+
         print("New shape after removing bad data:", a_n_inde2.shape)
-        self.inde_features2 = inde_features2 = [ft for ft in inde_features
-                                                if ft not in list(bad_props)+self.suggest_multicolin]
+        print("New Mean,SD of response: %g; %g" % (
+                a_n_inde2[y].mean(), a_n_inde2[y].std()))
+        inde_features2 = [ft for ft in inde_features
+                                                if ft not in set(bad_props)]
 
         constant_vars = a_n_inde2[inde_features2].agg(np.ptp)
+        
         print('Check for newly introduced constant variables:\n',
               constant_vars.sort_values())
+        self.inde_features2, constant_varnames = [], []
+        for ft in inde_features2:
+            if constant_vars[ft]>0:
+                self.inde_features2.append(ft)
+            else:
+                constant_varnames.append(ft)
+        inde_features2 = self.inde_features2
+
+        # Removing bad data probably shifted Y. We need to re-center and standardize.
+        self.a_n_inde2 = a_n_inde2 = a_n_inde2.assign(
+                            **dict(a_n_inde2[[ft for ft in (self.responses+inde_features2)
+                                    if self.suggested_transform[self.decorr_source.get(ft, ft)] is not binarize]]\
+                                   .transform(zscore)))
+        #TODO: drop some constant features.
+
+        print('Check multi-colinearity post-removal of bad data:')
+        print(self.suggest_multicolin2)
         self.inde_features2 = inde_features2 = [ft for ft in inde_features2
-                                                if constant_vars[ft]>0]
+                                                if ft not in self.suggest_multicolin2]
         #print('\n##### OLS fit (2)')
         #self.fit2 = fit2 = ols.fit()
         #fit2.summary()
@@ -2109,17 +2254,23 @@ class full_dating_regression(object):
         #display_html(fit2.summary())
         
         print('\n##### LASSO fit (2)')
+        inde_features2_source = [self.decorr_source.get(ft, ft) for ft in inde_features2]
         param_info = pd.concat((
-                        pd.Series({ft: func.__name__ for ft,func
-                                   in self.suggested_transform.items()},
+                        pd.Series([self.suggested_transform[sft].__name__
+                                    for sft in inde_features2_source],
+                                  index=inde_features2,
                                   name='transform'),
-                        self.a_t[[ft for ft in inde_features2 if ft not in
-                                  self.decorr]].agg(['mean', 'std'])\
-                                .rename(lambda c: 'transformed '+c).T,
-                        pd.Series({ft: self.decorr.get(ft, '')
-                                    for ft in inde_features2}, name='decorr')
+                        self.a_t[inde_features2_source].agg(['mean', 'std'])\
+                                .rename(lambda c: 'transformed '+c).T\
+                                .set_axis(inde_features2, inplace=False),
+                        pd.Series({ft: ' '.join(self.decorr.get(ft, ()))
+                                   for ft in inde_features2}, name='decorr')
                         ),
                         axis=1, sort=False)
+
+        print('Re-check newly introduced constant features:')
+        print(a_n_inde2[inde_features2].agg(np.ptp).sort_values().head())
+
         fitlasso2, refitlasso2, slopes2_styled, reslopes2_styled = \
                 lassoselect_and_refit(a_n_inde2, y, inde_features2, join=param_info)
         self.displayed.extend((slopes2_styled, reslopes2_styled))
@@ -2153,8 +2304,8 @@ class full_dating_regression(object):
 
         # Residual plot
         ax = axes[1]
-        scatter_density(refitlasso2.fittedvalues,
-                        a_n_inde2[y] - refitlasso2.fittedvalues,
+        scatter_density(a_n_inde2[y] - refitlasso2.fittedvalues,
+                        refitlasso2.fittedvalues,
                         alpha=0.4, ax=ax)
         ax.set_title('Residuals plot')
         ax.set_ylabel('Residual error')
