@@ -165,12 +165,13 @@ def check_decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
 decorrelate = partial(check_decorrelator, np.divide)
 logdecorrelate = partial(check_decorrelator, np.subtract)
 
-renorm_decorrelate = partial(check_decorrelator,
-                             lambda v,cv: zscore(np.divide(v,cv)))
-renorm_logdecorrelate = partial(check_decorrelator,
-                                lambda v,cv: zscore(np.subtract(v,cv)))
-renorm_unregress = partial(check_decorrelator,
-                           lambda v,cv: zscore(unregress(v, cv)))
+def zscore_divide(v, cv): return zscore(np.divide(v,cv))
+def zscore_subtract(v, cv): return zscore(np.subtract(v,cv))
+def zscore_unregress(v, cv): return zscore(unregress(v,cv))
+
+renorm_decorrelate = partial(check_decorrelator, zscore_divide)
+renorm_logdecorrelate = partial(check_decorrelator, zscore_subtract)
+renorm_unregress = partial(check_decorrelator, zscore_unregress)
 
 
 def test_transforms(alls, variables, figsize=(14, 5), widget=True):

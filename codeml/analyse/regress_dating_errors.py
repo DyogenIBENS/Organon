@@ -23,6 +23,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sb
 
+from objectools import Args
 from seqtools.compo_freq import weighted_std
 from dendro.bates import dfw_pairs_generalized, dfw_pairs
 from datasci.graphs import scatter_density, \
@@ -1533,19 +1534,20 @@ _must_transform = dict(
        )
 
 # Example parametrisation (seemed reasonable for most regressions so far)
-_must_drop_features = ["ls", "seconds",  # ~ ingroup_glob_len
+_must_drop_features = {"ls", "seconds",  # ~ ingroup_glob_len
                        "ingroup_std_gaps", # ~ ingroup_std_len
                        "dS_treelen",       # ~dS_rate
                        "dN_treelen",
                        "treelen",
                        "ingroup_nucl_entropy_mean", # ~ ingroup_nucl_parsimony_mean
                        "ingroup_nucl_entropy_std",  # 
+                       "ingroup_nucl_parsimony_median",  # 
                        "ingroup_codon_entropy_std",   # ~ ingroup_nucl_parsimony_std
                        "Ringroup_codon_entropy_std",   # ~ ingroup_nucl_parsimony_std
                        "ingroup_codon_entropy_mean",
                        "ingroup_codon_entropy_median",  # ~ ingroup_nucl_entropy_median
                        "ingroup_codon_parsimony_mean",
-                       "ingroup_codon_parsimony_median"
+                       "ingroup_codon_parsimony_median",
                        "ingroup_codon_parsimony_std",
                        "Ringroup_codon_parsimony_std",
                        "r2t_t_mean", "r2t_dS_mean", "r2t_dN_mean",
@@ -1570,40 +1572,50 @@ _must_drop_features = ["ls", "seconds",  # ~ ingroup_glob_len
                        "TreeHeight_med",
                        "rate_12_mean_med",
                        "gammaShape_med",
-                       "rateAG_med"]
+                       "rateAG_med"}
 
+def renorm_logsqdecorr(y, x):
+    return zscore(y - 2*x)
+
+# if data is log, equivalent to log(ey/(ex)**2)
+
+_must_decorr = {
+    renorm_logdecorrelate: Args(
 # FIXME: only if the variable was log-transformed!
-_must_renormlogdecorr = (
-    [('brOmega_std', 'brOmega_mean')]
-     #('ingroup_std_N', 'ingroup_mean_N')]
-      # Normalise the rate deviations by the rate mean.
-    + [('%s_rate_std%s' %(m, ('_'+setting if setting else '')),
-        '%s_rate%s' %(m, ('_'+setting if setting else '')))
-       for setting in ('', 'global', 'local', 'nonlocal', 'global_approx',
-                       'local_approx', 'global_beastS')#self.rate_settings
-       for m in MEASURES]
-    + [('treeL_3_stddev', 'treeL_3_med'),
-       ('treeL_12_stddev', 'treeL_12_med')],
-    dict(RsynSites=('NsynSites',    'ls'),
-         RnonsynSites=('NnonsynSites', 'ls'))  # But this one should be removed.
-    )
-
-_must_renormdecorr = (
-    [('ingroup_nucl_parsimony_std', 'ingroup_nucl_parsimony_mean'),
-     ('ingroup_nucl_entropy_std', 'ingroup_nucl_entropy_mean'),  # log-transformed,
-                                                                 #but still better like that.
-     ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean'),
-     ('ingroup_codon_entropy_std', 'ingroup_codon_entropy_mean')],
-    dict(sitelnL=('lnL', 'ingroup_glob_len')))
-#TODO: custom_decorr = dict(newkey=(var,corr,decorrfunc))
-
-_must_logdecorr = (
+        ('brOmega_std', 'brOmega_mean'),
+         #('ingroup_std_N', 'ingroup_mean_N')]
+          # Normalise the rate deviations by the rate mean.
+        ('treeL_3_stddev', 'treeL_3_med'),
+        ('treeL_12_stddev', 'treeL_12_med'),
+        *(('%s_rate_std%s' %(m, ('_'+setting if setting else '')),
+            '%s_rate%s' %(m, ('_'+setting if setting else '')))
+          for setting in ('', 'global', 'local', 'nonlocal', 'global_approx',
+                           'local_approx', 'global_beastS')#self.rate_settings
+          for m in MEASURES),
+        RsynSites=('NsynSites',    'ls'),
+        RnonsynSites=('NnonsynSites', 'ls')  # But this one should be removed.
+    ),
+    renorm_decorrelate: Args(
+        sitelnL=('lnL', 'ingroup_glob_len')
+    ),
+    logdecorrelate: Args(
         #[('%s_zeros%s' %(how, ('' if m=='dist' else '_'+m)),
         #  'triplet_zeros'+('' if m=='dist' else '_'+m))
         # for m in MEASURES
         # for how in ('sister', 'consecutive')],
-        [],  # No need anymore since this is now handled in treestats.
-        {})
+        #[],  # No need anymore since this is now handled in treestats.
+        #{}
+    ),
+    renorm_unregress: Args(
+         ('ingroup_nucl_parsimony_std', 'ingroup_nucl_parsimony_mean'),
+         ('ingroup_nucl_entropy_std', 'ingroup_nucl_entropy_mean'),
+         ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean'),
+         ('ingroup_codon_entropy_std', 'ingroup_codon_entropy_mean'),
+        )#,
+    #renorm_logsqdecorr = Args(
+    #     CpG_odds=('ingroup_mean_CpG', 'ingroup_mean_GC')
+    #    )
+    }
 
 # variable name, variable values. Dropped by .isin()
 # Must be the decorr variable name.
@@ -1616,11 +1628,11 @@ _must_drop_data = dict(prop_splitseq=(1,),
                           for what in ('triplet', 'Rsister', 'sister',
                                        'Rconsecutive', 'consecutive')})
 
-_protected_features = ['RdS_rate_std', 'dS_rate_std',
+_protected_features = {'RdS_rate_std', 'dS_rate_std',
                        'RdS_rate_std_local', 'dS_rate_std_local',
                        'RdS_rate_std_nonlocal', 'dS_rate_std_nonlocal',
                        'RbeastS_rate_std', 'beastS_rate_std',
-                       'ingroup_glob_len']
+                       'ingroup_glob_len'}
 # anc = 'Catarrhini'
 # param = 'um1.new'
 # nsCata = age_analyses[anc][param].ns
@@ -1635,26 +1647,21 @@ class full_dating_regression(object):
                  'ref_suggested_transform',
                  'impose_transform',
                  'to_decorr',
-                 'to_renormlogdecorr',
-                 'to_subtract',
                  'must_drop_features',
                  'protected_features',
                  'must_drop_data']
 
     init_defaults = {'ref_suggested_transform': dict,
                      'impose_transform': dict,
-                     'must_drop_features': list,
-                     'to_renormdecorr': lambda: ([], {}),
-                     'to_renormlogdecorr': lambda: ([], {}),
-                     'to_subtract': lambda: ([], {}),
-                     'protected_features': list,
+                     'must_drop_features': set,
+                     'to_decorr': Args,
+                     'protected_features': set,
                      'must_drop_data': dict}
 
     def __init__(self, data, same_alls, dataset_params, responses, features,
                  measures=MEASURES, ref_suggested_transform=None,
                  impose_transform=None, must_drop_features=None,
-                 #to_decorr=None,
-                 to_renormdecorr=None, to_renormlogdecorr=None, to_subtract=None,
+                 to_decorr=None,
                  protected_features=None, must_drop_data=None):
         for k,v in locals().items():
             if k != 'self':
@@ -1933,7 +1940,7 @@ class full_dating_regression(object):
         #transformed0_out = transformed0[:,1] > eq_sep(transformed0[:,0])
         #plt.plot(transformed0[transformed0_out, 0], transformed0[transformed0_out, 1], 'r.')
 
-        print('\n### Feature decorrelation')
+        print('\n### Feature decorrelation: 1. Drop features; 2. decorr.')
         #must_drop_features
         ### **TODO**!!! Check that decorrelation is done on the un-zscored data!!
         
@@ -1943,20 +1950,16 @@ class full_dating_regression(object):
         except KeyError as err:
             logger.warning("Not in `self.a_n`:" + err.args[0])
             a_n_inde = a_n.drop(must_drop_features, axis=1, errors='ignore')
+        logger.info('Dropped : %s', ' '.join(a_n.columns.intersection(must_drop_features)))
         print('%d Independent features (%d rows)' % a_n_inde.shape[::-1])
 
+        #self.missing_todecorr = Args.fromitems()
         self.missing_todecorr = [pair for pair in
-                         chain(self.to_renormlogdecorr[0],
-                               self.to_renormlogdecorr[1].values(),
-                               self.to_renormdecorr[0],
-                               self.to_renormdecorr[1].values())
-                         if pair[0] not in a_t or pair[1] not in a_t]
+                     chain(*(decorr_args.values() for decorr_args in self.to_decorr.values()))
+                     if pair[0] not in a_t or pair[1] not in a_t]
         self.dropped_todecorr = [pair for pair in
-                         chain(self.to_renormlogdecorr[0],
-                               self.to_renormlogdecorr[1].values(),
-                               self.to_renormdecorr[0],
-                               self.to_renormdecorr[1].values())
-                         if pair[0] in must_drop_features]
+                     chain(*(decorr_args.values() for decorr_args in self.to_decorr.values()))
+                     if pair[0] in must_drop_features]
         if self.missing_todecorr:
             logger.warning('Unexpected missing pairs to renorm(log)decorr: %s',
                            self.missing_todecorr)
@@ -1964,21 +1967,24 @@ class full_dating_regression(object):
             logger.warning('Dropped before renorm(log)decorr: %s',
                            self.dropped_todecorr)
         # Filtered
-        valid_pair = lambda pair: (pair[0] in a_t and pair[1] in a_t
-                                        and pair[0] not in must_drop_features)
+        #valid_pair = lambda pair: (pair[0] in a_t and pair[1] in a_t
+        #                                and pair[0] not in must_drop_features)
         valid_item = lambda item: (item[1][0] in a_t
                                             and item[1][1] in a_t
                                             and item[1][0] not in must_drop_features)
 
-        to_renormlogdecorr = (list(filter(valid_pair, self.to_renormlogdecorr[0])),
-                              dict(filter(valid_item, self.to_renormlogdecorr[1].items())))
-        to_renormdecorr = (list(filter(valid_pair, self.to_renormdecorr[0])),
-                           dict(filter(valid_item, self.to_renormdecorr[1].items())))
+        #to_renormlogdecorr = (list(filter(valid_pair, self.to_renormlogdecorr[0])),
+        #                      dict(filter(valid_item, self.to_renormlogdecorr[1].items())))
+        #to_renormdecorr = (list(filter(valid_pair, self.to_renormdecorr[0])),
+        #                   dict(filter(valid_item, self.to_renormdecorr[1].items())))
+        to_decorr = {decorr_func: Args.fromitems( #*filter(valid_pair, decorr_args.args),
+                                       *filter(valid_item, decorr_args.items()))
+                    for decorr_func, decorr_args in self.to_decorr.items()}
 
         # Check if the proposed decorrelation is in line with the transforms.
         # (subtract for logs, divide for raw/sqrt)
-        for k, (var, corrvar) in chain(enumerate(to_renormlogdecorr[0]),
-                                       to_renormlogdecorr[1].items()):
+        to_renormdecorr_items = list(to_decorr[renorm_decorrelate].items())
+        for k, (var, corrvar) in list(to_decorr[renorm_logdecorrelate].items()):
             msg = []
             var_transform = suggested_transform[var].__name__
             corrvar_transform = suggested_transform[corrvar].__name__
@@ -1988,16 +1994,11 @@ class full_dating_regression(object):
                 msg.append('/ suggested_transform[%r] = %s' % (corrvar, corrvar_transform))
             if msg:
                 logger.warning(' '.join(msg) + ': automatic switch from "logdecorr" to "decorr"')
-                if isinstance(k, int):
-                    to_renormlogdecorr[0].remove((var, corrvar))
-                    to_renormdecorr[0].append((var, corrvar))
-                else:
-                    to_renormlogdecorr[1].pop(k)
-                    to_renormdecorr[1][k] = (var, corrvar)
+                to_decorr[renorm_decorrelate].additem(k, to_decorr[renorm_logdecorrelate].pop(k))
+
         # Conversely, if dividing is on the log, ask confirmation.
         # But NO auto-switch, because sometimes dividing by the log-scaled var makes sense.
-        for k, (var, corrvar) in chain(enumerate(to_renormdecorr[0]),
-                                       to_renormdecorr[1].items()):
+        for k, (var, corrvar) in to_renormdecorr_items:
             msg = []
             var_transform = suggested_transform[var].__name__
             corrvar_transform = suggested_transform[corrvar].__name__
@@ -2007,6 +2008,7 @@ class full_dating_regression(object):
                 msg.append('/ suggested_transform[%r] = %s' % (corrvar, corrvar_transform))
             if msg:
                 logger.warning(' '.join(msg) + ': are you sure to "decorr" (divide logs/binary)?')
+                #to_decorr[renorm_logdecorrelate].additem(k, to_decorr[renorm_decorrelate].pop(k))
                 #if isinstance(k, int):
                 #    to_renormdecorr[0].remove((var, corrvar))
                 #    to_renormlogdecorr[0].append((var, corrvar))
@@ -2019,25 +2021,27 @@ class full_dating_regression(object):
             logger.error('a_n_inde and a_t have incompatible shapes: %s %s (NA rows: %d/%d)',
                          a_n_inde.shape, a_t.shape, na_rows_n.sum(), na_rows_n.shape[0])
 
-        #assert 'sitelnL' in set(to_renormlogdecorr[1]).union(to_renormdecorr[1])
-        a_n_inde = renorm_logdecorrelate(a_n_inde, a_t[~na_rows_n],
-                                         *to_renormlogdecorr[0],
-                                         **to_renormlogdecorr[1])
-        a_n_inde = renorm_decorrelate(a_n_inde, a_t[~na_rows_n],
-                                      *to_renormdecorr[0],
-                                      **to_renormdecorr[1])
-        #assert 'sitelnL' in a_n_inde
+        ##assert 'sitelnL' in set(to_renormlogdecorr[1]).union(to_renormdecorr[1])
+        #a_n_inde = renorm_logdecorrelate(a_n_inde, a_t[~na_rows_n],
+        #                                 *to_renormlogdecorr[0],
+        #                                 **to_renormlogdecorr[1])
+        #a_n_inde = renorm_decorrelate(a_n_inde, a_t[~na_rows_n],
+        #                              *to_renormdecorr[0],
+        #                              **to_renormdecorr[1])
+        ##assert 'sitelnL' in a_n_inde
 
-        self.missing_zeros_todecorr = [pair for pair in self.to_subtract#[0]
-                                  if pair[0] not in a_t or pair[1] not in a_t]
-        if self.missing_zeros_todecorr:
-            logger.warning('Unexpected missing pairs of zero measures to decorr: %s',
-                           self.missing_zeros_todecorr)
-        zeros_to_decorrelate = [pair for pair in self.to_subtract
-                                if pair[0] in a_t and pair[1] in a_t]
+        #self.missing_zeros_todecorr = [pair for pair in self.to_subtract#[0]
+        #                          if pair[0] not in a_t or pair[1] not in a_t]
+        #if self.missing_zeros_todecorr:
+        #    logger.warning('Unexpected missing pairs of zero measures to decorr: %s',
+        #                   self.missing_zeros_todecorr)
+        #zeros_to_decorrelate = [pair for pair in self.to_subtract
+        #                        if pair[0] in a_t and pair[1] in a_t]
 
-        a_n_inde = logdecorrelate(a_n_inde, a_t[~na_rows_n], *zeros_to_decorrelate)
+        #a_n_inde = logdecorrelate(a_n_inde, a_t[~na_rows_n], *zeros_to_decorrelate)
 
+        for decorr_func, decorr_args in to_decorr.items():
+            a_n_inde = decorr_args(decorr_func, a_n_inde, a_t[~na_rows_n])
         # special_decorr
         a_n_inde['CpG_odds'] = zscore(log(alls.ingroup_mean_CpG / (alls.ingroup_mean_GC**2)))[~na_rows_n]
         print('%d independent features (%d rows)' % a_n_inde.shape[::-1])
@@ -2050,23 +2054,28 @@ class full_dating_regression(object):
         new_inde_features = set(inde_features) - set(features)
 
         # Description of the transformation for the user.
-        self.decorr = {'R'+var1: ('-', var2) for var1, var2 
-                        in to_renormlogdecorr[0] + zeros_to_decorrelate}
-        self.decorr.update(
-                CpG_odds=('ingroup_mean_CpG', '/', 'ingroup_mean_GC^2'),
-                **{'R'+var1: ('/', var2) for var1, var2 in to_renormdecorr[0]},
-                **{key: (v1, '/', v2) for key, (v1,v2)
-                      in chain(to_renormlogdecorr[1].items(),
-                               to_renormdecorr[1].items())})
+        #self.decorr = {'R'+var1: ('-', var2) for var1, var2 
+        #                in to_renormlogdecorr[0] + zeros_to_decorrelate}
+        #self.decorr.update(
+        #        CpG_odds=('ingroup_mean_CpG', '/', 'ingroup_mean_GC^2'),
+        #        **{'R'+var1: ('/', var2) for var1, var2 in to_renormdecorr[0]},
+        #        **{key: (v1, '/', v2) for key, (v1,v2)
+        #              in chain(to_renormlogdecorr[1].items(),
+        #                       to_renormdecorr[1].items())})
+        decorr_symbol = {renorm_logdecorrelate: '-',
+                         logdecorrelate: '-',
+                         renorm_decorrelate: '/',
+                         decorrelate: '/',
+                         renorm_unregress: 'unregress'}
+        self.decorred = dict(('R'+var1, (decorr_symbol[decorr_func], var2))
+                                if isinstance(k, int) else
+                                (k, (var1, decorr_symbol[decorr_func], var2))
+                             for decorr_func, decorr_args in to_decorr.items()
+                             for k, (var1, var2) in decorr_args.items())
+        self.decorred.update(
+                CpG_odds=('ingroup_mean_CpG', '/', 'ingroup_mean_GC^2'))
         self.decorr_source = {key: (key[1:] if len(tup)==2 else tup[0])
-                              for key, tup in self.decorr.items()}
-
-        #self.decorr_suggested_transform = {'R'+var1: self.suggested_transform[var1]
-        #        for var1,_ in to_renormlogdecorr[0] + to_renormdecorr[0] + zeros_to_decorrelate}
-        #self.decorr_suggested_transform.update(**{key: self.suggested_transform[var1]
-        #    for key, (var1,_) in to_renormlogdecorr[1].items()},
-        #    **{key: self.suggested_transform[var1]
-        #    for key, (var1,_) in to_renormdecorr[1].items()})
+                              for key, tup in self.decorred.items()}
 
         self.a_n_inde = a_n_inde
         self.inde_features = inde_features
@@ -2148,8 +2157,7 @@ class full_dating_regression(object):
         except AttributeError:
             print('\n#### Finding the most colinear features (after bad-data removed)')
             #multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
-            protected_features2 = [ft for ft in self.protected_features
-                                    if ft in self.inde_features2]
+            protected_features2 = self.protected_features.intersection(self.inde_features2)
             self._suggest_multicolin2, outputs = loop_drop_eval(self.inde_features2,
                                           lambda x: multicol_test(self.a_n_inde2[x]),
                                           stop_criterion=20,
@@ -2263,7 +2271,7 @@ class full_dating_regression(object):
                         self.a_t[inde_features2_source].agg(['mean', 'std'])\
                                 .rename(lambda c: 'transformed '+c).T\
                                 .set_axis(inde_features2, inplace=False),
-                        pd.Series({ft: ' '.join(self.decorr.get(ft, ()))
+                        pd.Series({ft: ' '.join(self.decorred.get(ft, ()))
                                    for ft in inde_features2}, name='decorr')
                         ),
                         axis=1, sort=False)
