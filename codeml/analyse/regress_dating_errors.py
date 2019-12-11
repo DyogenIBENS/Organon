@@ -36,7 +36,7 @@ from datasci.graphs import scatter_density, \
                            dodged_violin
 from datasci.compare import pairwise_intersections, align_sorted
 from datasci.stats import r_squared, adj_r_squared, multicol_test, multi_vartest,\
-                          rescale_groups, iqr, mad, trimstd, trimmean, \
+                          rescale_groups, iqr, iqr90, iqr95, mad, trimstd, trimmean, \
                           mean_absdevmed, f_test
 from datasci.routines import *
 from datasci.dataframe_recipees import *

@@ -60,6 +60,14 @@ def iqr(v):
     q1, q3 = v.quantile([0.25, 0.75])
     return q3 - q1
 
+def iqr90(v):
+    q0, q1 = v.quantile([0.05, 0.95])
+    return q1 - q0
+
+def iqr95(v):
+    q0, q1 = v.quantile([0.025, 0.975])
+    return q1 - q0
+
 
 def mad(v):
     """Median absolute deviation from the median.
@@ -191,6 +199,7 @@ def adj_r_squared(Y, pred, p):
     return 1 - (MSres(Y, pred) / MStot(Y)) * (n - 1)/(n - p -1)
 
 
+#def multicol_condition_number(X):
 def multicol_test(X):
     """Values >20 mean high colinearity."""
     norm_xtx = np.dot(X.T, X)
