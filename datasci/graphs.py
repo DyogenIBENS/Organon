@@ -489,7 +489,7 @@ def value2color(values, cmap='afmhot', extend=1):
     return values.apply(lambda v: colortuple_to_hex(cmap(norm(v))))
 
 
-def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
+def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, invert=True,
              age_from_root=False,
              topology_only=False,
              label_params=None, label_nodes=False, edge_colors=None,
@@ -534,14 +534,15 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
     else:
         root_age = -depth
         leafdists = {l: ld-depth for l, ld in leafdists}
-    try:
-        rootdist = tree.dist  # ete3 instance
-    except AttributeError:
+    if rootdist is None:
         try:
-            rootdist = tree.clade.branch_length  # Bio.Phylo
+            rootdist = tree.dist  # ete3 instance
         except AttributeError:
-            rootdist = getattr(tree, 'rootdist', None)  # myPhylTree
-    if rootdist is None: rootdist = 0
+            try:
+                rootdist = tree.clade.branch_length  # Bio.Phylo
+            except AttributeError:
+                rootdist = getattr(tree, 'rootdist', None)  # myPhylTree
+        if rootdist is None: rootdist = 0
 
     child_coords = {}  # x (node depth), y (leaf number)
     #xy = []  # coords to be unpacked and given to plot: plt.plot(*xy)
