@@ -39,26 +39,41 @@ genetic_code = {
 
 
 
-def read_fasta(alfile):
+def read_seq(alfile):
     """Return a list of (label, sequence)."""
     sequences = []
     current_seq = None
     with open(alfile) as f:
-        for line in f:
-            if line.startswith('>'):
-                if current_seq is not None:
-                    sequences.append((seq_label, current_seq))
-                seq_label = line[1:].strip()
-                current_seq = ''
-            else:
-                try:
-                    current_seq += line.rstrip().replace(' ', '')
-                except TypeError as err:
-                    err.args = ((err.args[0]
-                                 + '. Received sequence before label: wrong file format? (need Fasta)',)
-                                + err.args[1:])
-                    raise
-    sequences.append((seq_label, current_seq))
+        line0 = next(f)
+        if line0.startswith('>'):
+            seq_label = line[1:].strip()
+            current_seq = ''
+            for line in f:
+                if line.startswith('>'):
+                    if current_seq is not None:
+                        sequences.append((seq_label, current_seq))
+                    seq_label = line[1:].strip()
+                    current_seq = ''
+                else:
+                    try:
+                        current_seq += line.rstrip().replace(' ', '')
+                    except TypeError as err:
+                        err.args = ((err.args[0]
+                                     + '. Received sequence before label: wrong file format? (need Phylip/Fasta)',)
+                                    + err.args[1:])
+                        raise
+            sequences.append((seq_label, current_seq))
+        else:
+            try:
+                ns, ls = [int(x) for x in line0.split()]  # try Phylip format (sequential)
+            except ValueError:
+                err.args = ((err.args[0] + '. Unrecognized format (need Phylip/Fasta)',)
+                            + err.args[1:])
+                raise
+            for line in f:
+                sequences.append(line.strip().split(maxsplit=1))
+                assert len(sequences[-1][1]) == ls, "Wrong sequence length"
+            assert len(sequences) == ns, "Wrong number of sequences"
     return sequences
 
 
@@ -143,7 +158,16 @@ def dNdS(L, S1, S2, Nobs, Sobs):
 
 def jukes_cantor(p):
     """Given p observed differences, return the evolutionary distance."""
-    return -3/4 * log(1 - 4/3 * p)
+    try:
+        return -3/4 * log(1 - 4/3 * p)
+    except ValueError as err:
+        if "math domain error" in err.args[0]:
+            err.args += ("p=%g" % p,)
+            print(('WARNING: p=%g > 3/4 in Jukes-Cantor correction '
+                   '(infinite distance)') % p,
+                    file=stderr)
+        else:
+            raise
 
 
 def variance_of_divergence():
@@ -152,7 +176,7 @@ def variance_of_divergence():
 
 def resample(seq):
     """sample with replacement"""
-    return [random.choice(seq) for _ in seq]
+    return [random.choice(seq) for position in seq]
 
 
 # No, I won't be using Numpy
@@ -177,8 +201,9 @@ def bootstrap_dNdS(seq1, seq2):
         newseq1 = ''.join(resample(seq1_codons))
         newseq2 = ''.join(resample(seq2_codons))
         dN, dS = dNdS(*nei_gojobori(newseq1, newseq2))
-        all_dN.append(dN)
-        all_dS.append(dS)
+        if dN is not None and dS is not None:
+            all_dN.append(dN)
+            all_dS.append(dS)
     
     return variance(all_dN), variance(all_dS)
 
@@ -186,9 +211,9 @@ def bootstrap_dNdS(seq1, seq2):
 def main():
     parser = ap.ArgumentParser(description=__doc__)
     parser.add_argument('alfile',
-                        help='Alignment file containing 2 coding sequences of nucleotides (fasta).')
+                        help='Alignment file containing 2 coding sequences of nucleotides (fasta/phylip).')
     args = parser.parse_args()
-    (_, seq1), (_, seq2) = read_fasta(args.alfile)
+    (_, seq1), (_, seq2) = read_seq(args.alfile)
     L, S1, S2, Nobs, Sobs = nei_gojobori(seq1, seq2)
 
     mean_S = (S1+S2)/2
@@ -200,12 +225,12 @@ def main():
         ratio = '%g' % (dN/dS)
     except ZeroDivisionError:
         ratio = None
-    print('dN/dS = %s  (dN=%g, dS=%g)' %(ratio, dN, dS))
+    print('dN=%g, dS=%g;  dN/dS = %s' %(dN, dS, ratio))
 
-    var_dN, var_dS = bootstrap_dNdS(seq1, seq2)
+    #var_dN, var_dS = bootstrap_dNdS(seq1, seq2)
 
-    Z = (dN-dS) / sqrt(var_dN + var_dS)
-    print('Standard score Z(dN - dS) = %g' % Z)
+    #Z = (dN-dS) / sqrt(var_dN + var_dS)
+    #print('Standard score Z(dN - dS) = %g' % Z)
 
 
 def test():
