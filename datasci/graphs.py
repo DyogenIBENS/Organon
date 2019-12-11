@@ -529,11 +529,15 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     depth = leafdists[-1][1]  # furthest leaf.
     leafloc, leafstep = (0, yscale) if invert is False else ((len(leafdists)-1)*yscale, -yscale)
     if age_from_root:
+        time_dir = 1  # increases towards the present and future
         root_age = 0
         leafdists = dict(leafdists)
+        present = depth
     else:
-        root_age = -depth
-        leafdists = {l: ld-depth for l, ld in leafdists}
+        time_dir = -1  # increases towards the past
+        root_age = depth
+        leafdists = {l: depth-ld for l, ld in leafdists}  # all 0 if ultrametric
+        present = 0
     if rootdist is None:
         try:
             rootdist = tree.dist  # ete3 instance
@@ -570,15 +574,16 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             # Is a leaf.
             child_coords[node] = coord(leafdists[node], leafloc)
             ticklabels.append(get_label(tree, node))
-            if child_coords[node].x < depth+root_age:
-                extended_x.extend((depth+root_age, child_coords[node].x, None))
+            # Is this leaf ancient?
+            if abs(child_coords[node].x - present) > 0:
+                extended_x.extend((present, child_coords[node].x, None))
                 extended_y.extend((leafloc, leafloc, None))
             leafloc += leafstep
         else:
             
             if len(items) == 1:
                 (ch, chdist), = items
-                child_coords[node] = nodecoord = coord(child_coords[ch].x - chdist,
+                child_coords[node] = nodecoord = coord(child_coords[ch].x - time_dir*chdist,
                                                        child_coords[ch].y)
                 #xy += [(child_coords[ch].x, nodecoord.x)
                 #       (child_coords[ch].y, nodecoord.y)]
@@ -595,7 +600,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                 ch0, ch0dist = sorted_items[0]
                 ch1, ch1dist = sorted_items[-1]
                 child_coords[node] = nodecoord = coord(
-                        child_coords[ch0].x - ch0dist,
+                        child_coords[ch0].x - time_dir*ch0dist,
                         (child_coords[ch0].y + child_coords[ch1].y)/2.)
                 for ch,chdist in sorted_items:
                     #xy += [(child_coords[ch].x, nodecoord.x, nodecoord.x),
@@ -620,12 +625,12 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                                             [nodecoord.x,
                                              child_coords[ch].y + shift,
                                              chdist,
-                                             1]))
+                                             1]))  # Might break with the new X-axis orientation.
     if rootdist > 0:
         #xy += [(0, -rootdist),
         #       (nodecoord.y, nodecoord.y)]
         segments.append([(root_age,          nodecoord.y),
-                         (root_age-rootdist, nodecoord.y)])
+                         (root_age - time_dir*rootdist, nodecoord.y)])
         if edge_colors is not None:
         #    xy.append(edge_colors.get(root))
             line_edge_values.append(edge_colors.get(root, np.NaN))
@@ -633,7 +638,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             # Assuming drawing tree left->right and bottom->top
             shift = -0.5 if add_edge_axes == 'middle' else 0
             axes_to_add.append((root,
-                                [root_age-rootdist,
+                                [root_age - time_dir*rootdist,
                                  nodecoord.y + shift,
                                  root_age,
                                  nodecoord.y + 1 + shift]))
@@ -685,9 +690,13 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                         horizontalalignment='right',
                         verticalalignment='top')
 
-    ax.set_xlim(min(root_age, root_age-rootdist), depth+root_age)
+    #ax.set_xlim(min(root_age, root_age-rootdist), depth+root_age)
+    #ax.set_xlim(min(root_age, root_age-rootdist), depth+root_age)
+    if not age_from_root: ax.invert_xaxis()
+    ax.set_xlim(left=root_age-time_dir*rootdist, right=present)
+    #ax.set_xbound(
     #print(ax.get_ylim())
-    ax.set_ylim(-0.5*yscale, len(leafdists)*yscale)
+    ax.set_ylim(-0.5*yscale, len(leafdists)*yscale) # - 0.5*yscale
     #ax.autoscale_view()
     
     ax.spines['top'].set_visible(False)
