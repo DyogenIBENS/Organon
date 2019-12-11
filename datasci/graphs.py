@@ -204,6 +204,55 @@ def stackedbar(x, arr, ax=None, zero=0, **kwds):
     return stacked_bars
 
 
+def cathist(x, y, data=None, bins=20, positions=None, scale=1, ax=None,
+            order=None, horizontal=False, rwidth=1, **barkwargs):
+    """Plot histograms at the selected x position, rescaled so that they all
+    have a width of one."""
+    noax = ax is None
+    if noax:
+        fig, ax = plt.subplots()
+
+    if data is not None:
+        vx = data[x]
+        vy = data[y]
+    else:
+        vx, vy = x, y
+
+    if order is None:
+        order = vx.unique()
+    if positions is None:
+        if vx.dtype not in (int, float):
+            positions = range(len(order))
+        else:
+            positions = sorted(order)
+
+    barkwargs = {'edgecolor': 'none', 'align': 'edge', **barkwargs}
+
+    #_, global_bins = np.histogram(vy, bins)
+    ylim = np.nanmin(vy), np.nanmax(vy)
+
+    if horizontal:
+        bar = ax.barh
+        set_positionticks = ax.set_xticks
+        set_positionlabels = ax.set_xticklabels
+    else:
+        bar = ax.bar
+        set_positionticks = ax.set_yticks
+        set_positionlabels = ax.set_yticklabels
+
+    for pos, xval in zip(positions, order):
+        heights, bin_edges = np.histogram(vy[vx == xval], bins=bins, range=ylim)
+        hmax = heights.max()
+        barwidths = rwidth * (bin_edges[1:] - bin_edges[:-1])
+        bar(bin_edges[:-1], heights/hmax*scale, barwidths, pos, **barkwargs)
+
+    if noax:
+        set_positionticks(positions)
+        set_positionlabels(order)
+
+    return ax
+
+
 def scatter_density(x, y, data=None, cmap='viridis', scale=None, ax=None, **kwargs):
     points = data[[x, y]].T.values if data is not None else np.array([x, y]) 
     logger.debug("Shape of points: %s", points.shape)
@@ -681,7 +730,7 @@ def plottree(tree, get_items, get_label, root=None, ax=None, invert=True,
 def splitviolin(x, y, hue, data=None, order=None, hue_order=None, cut=0):
     """Splitted violin with **each** median and quartiles."""
     sb.violinplot(x, y, hue=hue, data=data, split=True, width=1,
-                  order=order, cut=cut)
+                  order=order, cut=cut)#.join_plot
     sb.pointplot(x, y, hue=hue, data=data, order=order, dodge=0.5,
                  palette=['#dddddd'], join=False, estimator=np.nanmedian,
                  si='sd', ax=ax)
@@ -806,6 +855,7 @@ def kde_ridgeplot(x, by, data=None):
     g.despine(bottom=True, left=True)
 
 
+# UNUSED.
 def extract_dfstyle(styled_df):
     cellcols = np.empty(styled_df.data.shape, dtype=tuple)
     celltxts = styled_df.data.applymap(lambda x: '%.3f' % x).values
