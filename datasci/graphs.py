@@ -11,7 +11,6 @@ from scipy.stats import gaussian_kde
 import scipy.cluster.hierarchy as hclust
 import scipy.spatial.distance as spdist
 import pandas as pd
-from collections import namedtuple
 
 import pandas as pd
 import seaborn as sns
@@ -489,11 +488,58 @@ def value2color(values, cmap='afmhot', extend=1):
     return values.apply(lambda v: colortuple_to_hex(cmap(norm(v))))
 
 
+class Coord(object):
+    __slots__ = ['x', 'y']
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def __getitem__(self, position):
+        return [self.x, self.y][position]
+
+    def __repr__(self):
+        return '<Coord(x=%g, y=%g) at 0x%x>' %(self.x, self.y, id(self))
+
+
+class CoordRef(object):
+    # Just a shortcut to an actual Coordinate. Allows to be updated when refs change.
+    def __init__(self, xref, yref=None):
+        self.xref = xref
+        self.yref = xref if yref is None else yref
+    @property
+    def x(self):
+        try:
+            return self.xref.x
+        except:
+            return self.xref[0]
+    @x.setter
+    def x(self, newvalue):
+        try:
+            self.xref.x = newvalue
+        except AttributeError:
+            self.xref[0] = newvalue
+
+    @property
+    def y(self):
+        try:
+            return self.yref.y
+        except:
+            return self.yref[1]
+    @y.setter
+    def y(self, newvalue):
+        try:
+            self.yref.y = newvalue
+        except AttributeError:
+            self.yref[1] = newvalue
+
+
 def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, invert=True,
              age_from_root=False,
              topology_only=False,
              label_params=None, label_nodes=False, edge_colors=None,
-             edge_cmap='afmhot', add_edge_axes=None, style='squared', yscale=1, **kwargs):
+             edge_cmap='afmhot', add_edge_axes=None, style='squared', yscale=1,
+             constant_anc_space=False,
+             **kwargs):
              #edge_norm=None
     """Plot an ete3 tree, from left to right.
     
@@ -501,7 +547,6 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             a scalar value mapped to a color using a cmap.
     param: add_edge_axes can be None, "top", or "middle".
     """
-    coord = namedtuple('coord', 'x y')
 
     if root is None:
         try:
@@ -522,7 +567,6 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
         edge_range = edge_colors.max() - edge_colors.min()
         #edge_norm = mpl.colors.Normalize(edge_colors.max() - extend*edge_range,
         #                            edge_colors.min() + extend*edge_range)
-
 
     #depth = tree.get_farthest_leaf()[1]
     leafdists = sorted(iter_distleaves(tree, get_items, root), key=lambda x: x[1])
@@ -549,11 +593,12 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
         if rootdist is None: rootdist = 0
 
     child_coords = {}  # x (node depth), y (leaf number)
-    #xy = []  # coords to be unpacked and given to plot: plt.plot(*xy)
+
     segments = []
     line_edge_values = []
 
     ticklabels = []
+    tickpositions = []
 
     extended_x = []  # Dashed lines to the right when tree is not ultrametric
     extended_y = []
@@ -567,65 +612,120 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                       # rectangle positions in data coordinates:
                       # [left, bottom, width, height]
 
+    if constant_anc_space:
+        def fill_descendants(node):
+            items = get_items(tree, (node,))
+            if not items:
+                return [node]
+            half = len(items)//2
+            filled = [e for ch, d in items[:half] for e in fill_descendants(ch)]
+            filled.append(node)
+            filled += [e for ch, d in items[half:] for e in fill_descendants(ch)]
+            return filled
+
+        sorted_anc = list(reversed(fill_descendants(root)))
+        anc_loc = {}
+        leaves_interanc = []
+        leaves_loc = {}
+        anc_rank = 0
+        for i, anc in enumerate(sorted_anc):
+            items = get_items(tree, (anc,))
+            if items: 
+                if anc != root:
+                    nspaces = len(leaves_interanc) + 1
+                    for j, leaf in enumerate(leaves_interanc, start=1):
+                        # TODO: identify the boundary anc that is not an ancestor.
+                        leaves_loc[leaf] = leafloc + (anc_rank-1)*leafstep + j/nspaces*leafstep
+                    leaves_interanc = []
+
+                    anc_loc[anc] = leafloc + anc_rank*leafstep
+                    anc_rank += 1
+            else:
+                leaves_interanc.append(anc)
+        nspaces = len(leaves_interanc) + 1
+        for j, leaf in enumerate(leaves_interanc, start=1):
+            leaves_loc[leaf] = leafloc + (anc_rank-1)*leafstep + j/nspaces*leafstep
+        
+        tickpositions = np.linspace(-0.5*yscale, len(anc_loc)-0.5*yscale,
+                                    len(leafdists), endpoint=True)
+        print(len(leafdists), len(tickpositions))
+        leaf_i = 0
+        for node in sorted_anc:
+            if not get_items(tree, (node,)):
+                leaves_loc[node] = tickpositions[leaf_i]
+                leaf_i += 1
+        print('tickpositions:', tickpositions)
+        tickpositions = []
+
     for (node,dist), items in rev_dfw_descendants(tree, get_items,
                                                   include_leaves=True,
                                                   queue=[(root, rootdist)]):
         if not items:
             # Is a leaf.
-            child_coords[node] = coord(leafdists[node], leafloc)
+            if constant_anc_space:
+                child_coords[node] = Coord(leafdists[node], leaves_loc[node])
+                pass
+            else:
+                child_coords[node] = Coord(leafdists[node], leafloc)
+            tickpositions.append(child_coords[node].y)
             ticklabels.append(get_label(tree, node))
             # Is this leaf ancient?
             if abs(child_coords[node].x - present) > 0:
                 extended_x.extend((present, child_coords[node].x, None))
                 extended_y.extend((leafloc, leafloc, None))
             leafloc += leafstep
+        elif len(items) == 1:
+            (ch, chdist), = items
+            child_coords[node] = nodecoord = Coord(child_coords[ch].x - time_dir*chdist,
+                                               anc_loc[node] if constant_anc_space else child_coords[ch].y)
+                                               #(child_coords[ch].y + 1
+                                               # if constant_anc_space
+                                               # child_coords[ch].y))
+            #xy += [(child_coords[ch].x, nodecoord.x)
+            #       (child_coords[ch].y, nodecoord.y)]
+            # segments for LinesCollection
+            segments.append(
+                        [(child_coords[ch].x, child_coords[ch].y),
+                         (nodecoord.x,        nodecoord.y)])
+            if edge_colors is not None:
+            #    xy.append(edge_colors[ch])
+                line_edge_values.append(edge_colors[ch])
         else:
-            
-            if len(items) == 1:
-                (ch, chdist), = items
-                child_coords[node] = nodecoord = coord(child_coords[ch].x - time_dir*chdist,
-                                                       child_coords[ch].y)
-                #xy += [(child_coords[ch].x, nodecoord.x)
-                #       (child_coords[ch].y, nodecoord.y)]
-                # segments for LinesCollection
-                segments.append(
-                            [(child_coords[ch].x, child_coords[ch].y),
-                             (nodecoord.x,        nodecoord.y)])
+            sorted_items = sorted(items,
+                                  key=lambda item: child_coords[item[0]].y)
+            ch0, ch0dist = sorted_items[0]
+            ch1, ch1dist = sorted_items[-1]
+            child_coords[node] = nodecoord = Coord(
+                    child_coords[ch0].x - time_dir*ch0dist,
+                    anc_loc.get(node,
+                     (child_coords[ch0].y + child_coords[ch1].y)/2.))
+            #if constant_anc_space:
+            #    for ch, _ in sorted_items:
+
+            for ch,chdist in sorted_items:
+                #xy += [(child_coords[ch].x, nodecoord.x, nodecoord.x),
+                #       (child_coords[ch].y, child_coords[ch].y, nodecoord.y)]
+                if style=='squared':
+                    segments.append(
+                             [(child_coords[ch].x, child_coords[ch].y),
+                              (nodecoord.x, child_coords[ch].y),
+                              (nodecoord.x, nodecoord.y)])
+                elif style=='V':
+                    segments.append(
+                             [(child_coords[ch].x, child_coords[ch].y),
+                              (nodecoord.x, nodecoord.y)])
+                elif style=='U':
+                    raise NotImplementedError('Edges as Bezier curves')
                 if edge_colors is not None:
-                #    xy.append(edge_colors[ch])
                     line_edge_values.append(edge_colors[ch])
-            else:
-                sorted_items = sorted(items,
-                                      key=lambda item: child_coords[item[0]].y)
-                ch0, ch0dist = sorted_items[0]
-                ch1, ch1dist = sorted_items[-1]
-                child_coords[node] = nodecoord = coord(
-                        child_coords[ch0].x - time_dir*ch0dist,
-                        (child_coords[ch0].y + child_coords[ch1].y)/2.)
-                for ch,chdist in sorted_items:
-                    #xy += [(child_coords[ch].x, nodecoord.x, nodecoord.x),
-                    #       (child_coords[ch].y, child_coords[ch].y, nodecoord.y)]
-                    if style=='squared':
-                        segments.append(
-                                 [(child_coords[ch].x, child_coords[ch].y),
-                                  (nodecoord.x, child_coords[ch].y),
-                                  (nodecoord.x, nodecoord.y)])
-                    elif style=='V':
-                        segments.append(
-                                 [(child_coords[ch].x, child_coords[ch].y),
-                                  (nodecoord.x, nodecoord.y)])
-                    elif style=='U':
-                        raise NotImplementedError('Edges as Bezier curves')
-                    if edge_colors is not None:
-                        line_edge_values.append(edge_colors[ch])
-                    if add_edge_axes:
-                        # Assuming drawing tree left->right and bottom->top
-                        shift = -0.5 if add_edge_axes == 'middle' else 0
-                        axes_to_add.append((ch,
-                                            [nodecoord.x,
-                                             child_coords[ch].y + shift,
-                                             chdist,
-                                             1]))  # Might break with the new X-axis orientation.
+                if add_edge_axes:
+                    # Assuming drawing tree left->right and bottom->top
+                    shift = -0.5 if add_edge_axes == 'middle' else 0
+                    axes_to_add.append((ch,
+                                        [nodecoord.x,
+                                         child_coords[ch].y + shift,
+                                         chdist,
+                                         1]))  # Might break with the new X-axis orientation.
     if rootdist > 0:
         #xy += [(0, -rootdist),
         #       (nodecoord.y, nodecoord.y)]
@@ -696,7 +796,10 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     ax.set_xlim(left=root_age-time_dir*rootdist, right=present)
     #ax.set_xbound(
     #print(ax.get_ylim())
-    ax.set_ylim(-0.5*yscale, len(leafdists)*yscale) # - 0.5*yscale
+    if constant_anc_space:
+        ax.set_ylim(-yscale, len(anc_loc)*yscale)
+    else:
+        ax.set_ylim(-0.5*yscale, len(leafdists)*yscale - 0.5*yscale)
     #ax.autoscale_view()
     
     ax.spines['top'].set_visible(False)
@@ -704,7 +807,9 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     ax.spines['right'].set_visible(False)
     ax.yaxis.tick_right()
     ax.tick_params('y', which='both', right=False)
-    ax.set_yticks(np.linspace(0, (len(ticklabels)-1)*yscale, num=len(ticklabels)))
+    print('new tickpositions:', tickpositions)
+    ax.set_yticks(tickpositions)
+    #ax.set_yticks(np.linspace(0, (len(ticklabels)-1)*yscale, num=len(ticklabels)))
     if label_params is None: label_params = {}
     if invert: ticklabels.reverse()
     ax.set_yticklabels(ticklabels, **label_params)
