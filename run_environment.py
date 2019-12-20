@@ -75,9 +75,12 @@ def get_unstaged_changed(moduledir, timeout=10):
     out, err = run_git_command(['diff', '--name-status'], moduledir, timeout)
     if err:
         print(err, file=sys.stderr)
-    outlines = [(line, op.getmtime(op.join(moduledir, line.split('\t')[1])))
-                for line in out.rstrip().split('\n')]
-    outlines.sort(key=lambda v: v[1])
+    if out:
+        outlines = [(line, op.getmtime(op.join(moduledir, line.split('\t')[1])))
+                    for line in out.rstrip().split('\n')]
+        outlines.sort(key=lambda v: v[1])
+    else:
+        outlines = []
     return [line + '\t' + time.strftime(DATE_FORMAT, time.localtime(t))
             for line,t in outlines]
 
@@ -87,7 +90,7 @@ def get_staged_changed(moduledir, timeout=10):
                                moduledir, timeout)
     if err:
         print(err, file=sys.stderr)
-    return out.rstrip().split('\n')
+    return out.rstrip().split('\n') if out else []
 
 
 def print_git_state(module=None, modulepath=None, sep='\n', timeout=10):
