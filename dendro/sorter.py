@@ -5,7 +5,7 @@
 """Module containing some algorithms to reorder branches of rooted tree topologies"""
 
 
-from dendro.bates import dfw_descendants_generalized, rev_dfw_descendants
+from dendro.bates import dfw_descendants_generalized, rev_dfw_descendants, iter_leaves
 
 
 def children_sort(tree, get_children=None, attribute='name'):
@@ -67,7 +67,7 @@ def ladderize_bylevels(tree, root, get_children=None, short_on_top=True):
         tree[parent] = children
 
 
-def ladderize(tree, root, get_children=None, light_on_top=True, 
+def ladderize(tree, root, get_children=None, heavy_on_top=False, 
               assign=None):
     """Pivot nodes to reorder the branches in a visually nice manner (nodes
     with the most numerous leaves at the bottom).
@@ -90,8 +90,42 @@ def ladderize(tree, root, get_children=None, light_on_top=True,
     key_ladder = lambda child: cumul_mass.setdefault(child, 1)
 
     for parent, children in reversed(list(dfw)):
-        #print parent, children
-        #children.sort(key=key_ladder, reverse=light_on_top)
-        assign(tree, parent, sorted(children, key=key_ladder, reverse=light_on_top))
+        #print(parent, children)
+        #children.sort(key=key_ladder, reverse=heavy_on_top)
+        assign(tree, parent, sorted(children, key=key_ladder, reverse=heavy_on_top))
         cumul_mass[parent] = sum(cumul_mass[ch] for ch in children)
+
+
+def pyramid(tree, root, get_children=None, assign=None):
+    """Spread internal nodes outwards as they are more recent.
+    Convenient for pretty plotting the tree with older ancestral nodes
+    towards the center.
+    """
+    if not get_children:
+        get_children = lambda tree, node: tree.get(node, [])
+
+    basal_nodes = get_children(tree, root)
+    while len(basal_nodes)==1:
+        basal_nodes = get_children(tree, basal_nodes[0])
+
+    sizes = {node: len(list(iter_leaves(tree, get_children, [node]))) for node in basal_nodes}
+    
+    sorted_base = []
+    
+    # Put outward by alternating insert and append:
+    for node,_ in sorted(sizes.items(), key=lambda item: item[1]):
+        sorted_base.reverse()  # So that the heaviest is always down.
+        sorted_base.append(node)
+
+    n_base = len(sorted_base)
+
+    for n in sorted_base[:n_base//2]:
+        ladderize(tree, n, get_children, heavy_on_top=True, assign=assign)
+
+    for n in sorted_base[n_base//2:]:
+        size = ladderize(tree, n, get_children, assign=assign)
+
+    assign(tree, root, sorted_base)
+
+
 

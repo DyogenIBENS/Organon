@@ -69,6 +69,8 @@ class ete3(nodebased):
 
     @staticmethod
     def set_children(tree, node, new_children):
+        for child in node.get_children:
+            child.detach()
         for child in new_children:
             node.add_child(child)
 
