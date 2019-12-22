@@ -2218,10 +2218,17 @@ class full_dating_regression(object):
                +"sample sizes: %d, %d)") % (*tt_bad,
                   (~bad_data_rows).sum(), bad_data_rows.sum()))
         bad_props_ttests = pd.DataFrame(bad_props_ttests, index=['T', 'P']).T
+        na_ttests = bad_props_ttests.isna()
+        
         bad_props_ttests['Pcorr'] = smm.multipletests(
                                             bad_props_ttests['P'],
                                             alpha=0.05,
                                             method='fdr_bh')[1] # Benjamini/Hochberg
+        # Even with *some* NaN p-values, the added column should not be all NaN:
+        if bad_props_ttests.Pcorr.isna().all():
+            logger.error('Pcorr are all NaNs. There were %d input NaN pvalues (%s)',
+                         na_ttests.sum(), bad_props_ttests.index[na_ttests])
+        # Add last row being the pooled features T-test.
         self.bad_props_ttests = bad_props_ttests.append(
                                     pd.Series(tt_bad, index=['T', 'P'], name='ANY'))
         display_html(self.bad_props_ttests)
