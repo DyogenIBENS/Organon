@@ -1,0 +1,23 @@
+Dependency       Licence
+------------     ----------
+NumPy            BSD
+pandas           BSD
+scipy            BSD-3
+matplotlib       PSF-based (BSD compatible)
+seaborn          BSD-3
+Biopython        Biopython Licence Agreement (+BSD-3 on some files)
+Ete3             GPL-v3.0
+APE              GPL-v2+
+LibsDyogen       GPL & CeCILL
+LibsDyogen_py3   GPL & CeCILL
+ToolsDyogen_py3  ?
+IPython          BSD
+scikit-learn     BSD
+statsmodels      BSD-3
+scikit-bio       BSD
+BeautifulSoup4   MIT
+requests         Apache2
+IPywidgets       BSD-3
+evosite3D        GPL-v3
+#urllib2
+#MySQLdb
