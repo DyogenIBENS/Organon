@@ -1,0 +1,8 @@
+Scipy
+Biopython
+scikit-bio
+Ete3	interactree cladeplot flatten_polyphylies meandist2age newick_SortLeaves reconciledtree2paralogytree rename_nodes numbernodes time_fromspeciestree validate_monophylies cladecollapsum cladematch treebest2genomicus treed list_genesplit_ancgenes fitrate showtreeal
+Ete3 (optional)	parsers converters drawer
+LibsDyogen_py3	 ProtTree_* genomicus2* add_branch imbalance genetree_prune_species phyltree_prune_badqualspecies reconciledtree2paralogytree time_fromspeciestree check_forest_duplicate_ids.py annotate_phyltree_synonyms_qualitiesdollocorr
+LibsDyogen_py3 (optional)
+utils.showfile ??	showtreeal
