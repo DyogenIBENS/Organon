@@ -203,8 +203,8 @@ def stackedbar(x, arr, ax=None, zero=0, **kwds):
     return stacked_bars
 
 
-def cathist(x, y, data=None, bins=20, positions=None, scale=1, ax=None,
-            order=None, horizontal=False, rwidth=1, **barkwargs):
+def cathist(x, y, data=None, bins=20, positions=None, scale=1, range=None,
+            order=None, horizontal=False, rwidth=1, ax=None, **barkwargs):
     """Plot histograms at the selected x position, rescaled so that they all
     have a width of one."""
     noax = ax is None
@@ -228,7 +228,10 @@ def cathist(x, y, data=None, bins=20, positions=None, scale=1, ax=None,
     barkwargs = {'edgecolor': 'none', 'align': 'edge', **barkwargs}
 
     #_, global_bins = np.histogram(vy, bins)
-    ylim = np.nanmin(vy), np.nanmax(vy)
+    if range is None:
+        ylim = np.nanmin(vy[np.isfinite(vy)]), np.nanmax(vy[np.isfinite(vy)])
+    else:
+        ylim = range
 
     if horizontal:
         bar = ax.barh
@@ -538,7 +541,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
              topology_only=False,
              label_params=None, label_nodes=False, edge_colors=None,
              edge_cmap='afmhot', add_edge_axes=None, style='squared', yscale=1,
-             constant_anc_space=False,
+             constant_anc_space=False, leftleaves=False,
              **kwargs):
              #edge_norm=None
     """Plot an ete3 tree, from left to right.
@@ -591,6 +594,13 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             except AttributeError:
                 rootdist = getattr(tree, 'rootdist', None)  # myPhylTree
         if rootdist is None: rootdist = 0
+    if leftleaves:
+        annot_ha = 'left'
+        offset_x = -time_dir
+    else:
+        annot_ha = 'right'
+        offset_x = time_dir
+    logger.debug('depth = %g; leafstep = %g; present = %g', depth, leafstep, present)
 
     child_coords = {}  # x (node depth), y (leaf number)
 
@@ -614,6 +624,8 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
 
     if constant_anc_space:
         def fill_descendants(node):
+            """Recursively insert children nodes onto the lateral scale:
+                one half on the left of the parent, one half on the right."""
             items = get_items(tree, (node,))
             if not items:
                 return [node]
@@ -623,39 +635,71 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             filled += [e for ch, d in items[half:] for e in fill_descendants(ch)]
             return filled
 
-        sorted_anc = list(reversed(fill_descendants(root)))
-        anc_loc = {}
-        leaves_interanc = []
+        sorted_nodes = list(reversed(fill_descendants(root)))
+        if invert:
+            leafloc = sum(1 for n in sorted_nodes if get_items(tree, (n,)))
+        anc_loc = {}  #anc: leafloc + i*leafstep for i, anc in enumerate(sorted_anc)}
         leaves_loc = {}
+        sorted_anc = []
         anc_rank = 0
-        for i, anc in enumerate(sorted_anc):
-            items = get_items(tree, (anc,))
-            if items: 
-                if anc != root:
-                    nspaces = len(leaves_interanc) + 1
-                    for j, leaf in enumerate(leaves_interanc, start=1):
-                        # TODO: identify the boundary anc that is not an ancestor.
-                        leaves_loc[leaf] = leafloc + (anc_rank-1)*leafstep + j/nspaces*leafstep
-                    leaves_interanc = []
+        prev_anc = None
+        leaves_in_interval = []
+        #prev_children = set()
+        for i, node in enumerate(sorted_nodes):
+            items = get_items(tree, (node,))
+            if items:
+                logger.debug('* At anc %r', node)
+                #nspaces = len(leaves_interanc[-1]) + 1
+                #for j, leaf in enumerate(leaves_interanc[-1], start=1):
+                #    # TODO: identify the boundary anc that is not an ancestor.
+                #    leaves_loc[leaf] = leafloc + (anc_rank-1)*leafstep + j/nspaces*leafstep
+                #leaves_interanc.append([])
+                
+                #prev_children = set((ch for ch,_ in items))
 
-                    anc_loc[anc] = leafloc + anc_rank*leafstep
+                sorted_anc.append(node)
+
+                if node is root:
+                    anc_loc[node] = leafloc + (anc_rank-0.5)*leafstep
+                else:
+                    anc_loc[node] = leafloc + anc_rank*leafstep
                     anc_rank += 1
+
+                direct_leaves = [item[0] for item in items if not get_items(tree, item)]
+                if direct_leaves:
+                    # This nodes has direct leaves: It is a leaf group boundary.
+                    #if leaves_in_interval[-1] not in [ch for ch,_ in items]:
+                        # The previous leaf is NOT a direct descendant
+                    nspaces = len(leaves_in_interval)
+                    mid_node = items[len(items)//2+1][0] if len(items) % 2 else None
+                    if mid_node in leaves_in_interval:
+                        logger.debug('Mid node at index %d/%d',
+                                     leaves_in_interval.index(mid_node),
+                                     len(leaves_in_interval)-1)
+                    #if mid_node == leaves_in_interval[-1]:
+                        nspaces -= 0.5  # Allow this midnode to be at the same Y than parent.
+                    for j,leaf in enumerate(leaves_in_interval, start=0):
+                        prev_lim = leafloc-leafstep if prev_anc is None else anc_loc[prev_anc]
+                        leaves_loc[leaf] = prev_lim + (anc_loc[node] - prev_lim)*(j+.5)/nspaces
+                        logger.debug('Placing leaf %d %r in [%f, %f]-> %f' % (j, leaf, prev_lim, anc_loc[node], leaves_loc[leaf]))
+                    prev_anc, leaves_in_interval = node, []
+                    # But it should be a "soft" boundary for all its direct leaves.
             else:
-                leaves_interanc.append(anc)
-        nspaces = len(leaves_interanc) + 1
-        for j, leaf in enumerate(leaves_interanc, start=1):
-            leaves_loc[leaf] = leafloc + (anc_rank-1)*leafstep + j/nspaces*leafstep
-        
-        tickpositions = np.linspace(-0.5*yscale, len(anc_loc)-0.5*yscale,
-                                    len(leafdists), endpoint=True)
-        print(len(leafdists), len(tickpositions))
-        leaf_i = 0
-        for node in sorted_anc:
-            if not get_items(tree, (node,)):
-                leaves_loc[node] = tickpositions[leaf_i]
-                leaf_i += 1
-        print('tickpositions:', tickpositions)
-        tickpositions = []
+                leaves_in_interval.append(node)
+        # Placing the last created leaf group:
+        #nspaces = len(leaves_interanc[-1]) + 1
+        #for j, leaf in enumerate(leaves_interanc, start=1):
+        #    leaves_loc[leaf] = leafloc + (anc_rank-1)*leafstep + j/nspaces*leafstep
+        nspaces = len(leaves_in_interval) + 1
+        for j,leaf in enumerate(leaves_in_interval, start=1):
+            prev_lim = anc_loc[prev_anc]
+            leaves_loc[leaf] = prev_lim + (anc_rank*leafstep - prev_lim + leafloc)*j/nspaces
+            logger.debug('Placing leaf %d %r in [%f, %f]-> %f' % (j, leaf, prev_lim, anc_rank*leafstep+leafloc, leaves_loc[leaf]))
+
+        ## List direct leaves per ancestor.
+        #anc_leaves = [[item for item in get_items(tree, (anc,))
+        #               if not get_items(tree, item)]
+        #              for anc in sorted_anc]
 
     for (node,dist), items in rev_dfw_descendants(tree, get_items,
                                                   include_leaves=True,
@@ -663,6 +707,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
         if not items:
             # Is a leaf.
             if constant_anc_space:
+                #logger.debug('%r %s %s (%s)', node, node in leafdists, node in leaves_loc, leaves_loc)
                 child_coords[node] = Coord(leafdists[node], leaves_loc[node])
                 pass
             else:
@@ -781,13 +826,13 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                         offset_y = -1
                         va = 'top'
                     ax.annotate(get_label(tree, child), child_coords[child],
-                                textcoords='offset points', xytext=(-1, offset_y),
-                                horizontalalignment='right',
+                                textcoords='offset points', xytext=(offset_x, offset_y),
+                                horizontalalignment=annot_ha,
                                 verticalalignment=va)
         if rootdist>0:
             ax.annotate(get_label(tree, root), child_coords[root],
-                        textcoords='offset points', xytext=(-1, 1),
-                        horizontalalignment='right',
+                        textcoords='offset points', xytext=(offset_x, -1),
+                        horizontalalignment=annot_ha,
                         verticalalignment='top')
 
     #ax.set_xlim(min(root_age, root_age-rootdist), depth+root_age)
@@ -805,13 +850,17 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     ax.spines['top'].set_visible(False)
     ax.spines['left'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.yaxis.tick_right()
-    ax.tick_params('y', which='both', right=False)
+    if leftleaves:  # *after* set_xlim
+        ax.invert_xaxis()
+        ax.tick_params('y', left=False, labelleft=True, right=False, labelright=False)
+    else:
+        ax.yaxis.tick_right()
+        ax.tick_params('y', which='both', right=False)
     print('new tickpositions:', tickpositions)
     ax.set_yticks(tickpositions)
     #ax.set_yticks(np.linspace(0, (len(ticklabels)-1)*yscale, num=len(ticklabels)))
     if label_params is None: label_params = {}
-    if invert: ticklabels.reverse()
+    #if invert: ticklabels.reverse()
     ax.set_yticklabels(ticklabels, **label_params)
 
     #if lines.get_array() is not None:

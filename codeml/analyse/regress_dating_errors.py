@@ -177,8 +177,8 @@ stat_loaders = {'al':     load_stats_al,
                 'tree':   load_stats_tree,
                 'codeml': load_stats_codeml,
                 'cleaning': load_any_stats,
-                'chronos-runs': load_stats_chronosruns,
-                'chronos-logs': load_stats_chronoslogs}
+                'chronos.runs': load_stats_chronosruns,
+                'chronos.logs': load_stats_chronoslogs}
 
 stat_loaders['treeI'] = stat_loaders['tree']
 stat_loaders['codemlfsahmmc'] = stat_loaders['codemlfsa'] = stat_loaders['codemlI'] = stat_loaders['codeml']

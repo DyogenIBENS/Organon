@@ -295,3 +295,11 @@ def superimpose_gamma_params(mean, ci, shape, loc, conf=0.95, scale=None):
              [mean]*2, y2, '-',
              [ci[1]]*2, y2, '-')
 
+
+def quantiles_from_kde(density, q, start, stop, n=100):
+    x = np.linspace(start, stop, n)
+    pdf = density(x)
+    cdf = pdf.cumsum()
+    cdf /= cdf[-1]
+    return x[np.searchsorted(cdf, q, side='left')]
+

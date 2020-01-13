@@ -147,7 +147,8 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
 
 def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
                                    float_fmt='%.4f',
-                                   surround=None, cbar=True, sep=True, **style_kwargs):
+                                   surround=None, cbar=True, sep=True, ax=None,
+                                   cbar_kw=None, **style_kwargs):
     #data = styled_data.data.xs('adjR2', axis=1, level=1)  # select from multiIndex
     orig_data = data
     if axis in (0, 1):
@@ -156,7 +157,11 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
                    .div(np.ptp(data.values, axis=axis), axis=broadcast_axis)
     #im = plt.imshow(data, cmap=cmap, aspect='auto', interpolation='none'); ax = plt.gca()
     #pcolor is the most precise on rectangle boundaries
-    im = plt.pcolor(data, cmap=cmap, edgecolors='', snap=True); ax = plt.gca(); ax.invert_yaxis()
+    pcolor = plt.pcolor if ax is None else ax.pcolor
+    im = pcolor(data, cmap=cmap, edgecolors='', snap=True)
+    if ax is None:
+        ax = plt.gca()
+    ax.invert_yaxis()
     yticks = np.arange(data.shape[0]) + 0.5
     xticks = np.arange(data.shape[1]) + 0.5
     ax.xaxis.tick_top()
@@ -199,7 +204,9 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
 
     if cbar:
         orient = 'horizontal' if axis==1 else 'vertical'
-        cbar = plt.colorbar(orientation=orient, fraction=0.05, pad=0.03, aspect=40)
+        cbar_kw = {'fraction':0.05, 'pad':0.03, 'aspect':40,
+                    **({} if cbar_kw is None else cbar_kw)}
+        cbar = plt.colorbar(im, orientation=orient, **cbar_kw)
         if axis is not None:
             cbar.set_ticks([0, 1])
             cbar.set_ticklabels(['Row minimum', 'Row maximum'] if axis==1 else
