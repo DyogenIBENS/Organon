@@ -1,6 +1,6 @@
 # FIX Guillaume LOUVEL 2019/07/09
 # Chronos was failing on some trees with very disequilibrated calibration points
-# ex: SimiiformesENSGT00760000118819.D.b.a.c.a.a.a.b.b with Catarrhini unknown
+# ex: SimiiformesENSGT00760000118819.D.b.a.c.a.a.a.b.b with Catarrhini unknown with dS branch lengths.
 
 ## Setting initial dates...
 ## Error in ape::chronos(tree2, lambda = 100, calibration = subcalib2) :
