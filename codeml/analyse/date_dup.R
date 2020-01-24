@@ -16,6 +16,13 @@ display_edges <- function(tree) {
         node.label=c(tree$tip.label, tree$node.label)[tree$edge[,2]],
         edge.length=tree$edge.length)
 }
+display_calibrated_edges <- function(tree, calib) {
+  dedges <- display_edges(tree)
+  # NOTE: this won't show the root node age.
+  cbind(dedges,
+        calib=calib[match(dedges$node.label, row.names(calib)),"age.min"]
+        )
+}
 
 load_calibration <- function(agefile) {
   #ages <- read.delim(agefile, row.names=1)
