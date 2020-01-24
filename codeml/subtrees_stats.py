@@ -581,6 +581,91 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 #            # Can't have the rate value here.
 #
 
+def get_family_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
+                   subtreesdir='subtreesCleanO2',
+                   ensembl_version=ENSEMBL_VERSION,
+                   ignore_outgroups=True, ignore_error=True):
+    """Gene family sizes per species as input for CAFE."""
+
+    phyltree = PhylTree.PhylogeneticTree(phyltreefile)
+    species = phyltree.species[ancestor]
+
+    #ensembl_ids_anc = get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version)
+    print('Desc\tFamily ID\t' + '\t'.join(sorted(species)))
+
+    ancgene2sp = make_ancgene2sp(ancestor, phyltree)
+    all_ancgene2sp = make_ancgene2sp(phyltree.root, phyltree)
+    
+    for subtreefile, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
+                                                              ancestor,
+                                                              '.nwk',
+                                                              rootdir,
+                                                              subtreesdir,
+                                                              exclude='_codeml\.nwk$'):
+        logger.debug('Processing %s: %s', genetree, subtree)
+        try:
+            tree = ete3.Tree(subtreefile, format=1)
+            root_taxon, _ = split_species_gene(tree.name, ancgene2sp)
+            
+            # Determine if root_taxon is inside (I) or outside (O) of the clade.
+            root_location = 'O' if root_taxon is None \
+                            else 'I' if root_taxon != ancestor \
+                            else '='
+
+            # What about paralog outgroups?? Should NOT happen if prune2family WITHOUT `--latest`.
+            #if root_location == 'O':
+            if ignore_outgroups:
+                # Use the `is_outgroup` mark. When available, this is the safest.
+                ingroupmarked, outgroups = find_ingroup_marked(tree, 2)
+                if ingroupmarked == tree:
+                    logger.error('find_ingroup_marked:No outgroup found! %s',
+                                 tree.name)
+
+                # Double-check:
+                ingroup, outgroups = find_ingroup(tree, ancestor, phyltree,
+                                        ensembl_version,
+                                        2,
+                                        any_get_taxon,
+                                        ancgene2sp=all_ancgene2sp)
+                if ingroupmarked != ingroup:
+                    while len(ingroupmarked.children)==1:
+                        ingroupmarked, = ingroupmarked.children
+                        if ingroupmarked == ingroup:
+                            break
+                    else:
+                        logger.warning(
+                                '%s: Found 2 ≠ ingroups with 2 methods: '
+                                'find_ingroup -> %r ≠ find_ingroup_mark: %r',
+                                subtree, ingroup.name, ingroupmarked.name)
+                        # This is ignored.
+
+                tree = ingroupmarked
+                
+            else:
+                root_taxon, _ = split_species_gene(tree.name, all_ancgene2sp)
+
+            #logger.debug('Considered genetree root: %s; root taxon: %s; original: %s'
+            #      tree.name, root_taxon or ancestor, ancestor)
+            logger.debug('Counting gene sets at %s', tree.name)
+            species_counts = {sp: 0 for sp in species}
+            for leaf in tree.iter_leaf_names():
+                species_counts[convert_gene2species(leaf, ensembl_version)] += 1
+
+            print('(null)\t' + subtree + '\t'
+                  + '\t'.join(str(c) for sp,c in sorted(species_counts.items())))
+
+        except BaseException as err:
+            if err.args:
+                err.args = (str(err.args[0]) + ". At file %s" % subtreefile,) + err.args[1:]
+            else:
+                err.args = ("At file %s" % subtreefile,)
+            if ignore_error and not isinstance(err, KeyboardInterrupt):
+                logger.exception('Unknown exception')
+            else:
+                raise
+
+
+
 def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                      subtreesdir='subtreesCleanO2', filesuffix='_m1w04.mlc',
                      ensembl_version=ENSEMBL_VERSION,
@@ -950,6 +1035,8 @@ if __name__ == '__main__':
     beaststats_parser.add_argument('-S', '--filesuffix', default='_beastS-summary.txt',
                              help='file suffix of the globbing pattern [%(default)s]')
     beaststats_parser.set_defaults(func=make_subparser_func(get_beast_stats))
+    familystats_parser = subp.add_parser('family', parents=[parent_parser], aliases=['fam'])
+    familystats_parser.set_defaults(func=make_subparser_func(get_family_stats))
 
     args = parser.parse_args()
     if args.debug:
