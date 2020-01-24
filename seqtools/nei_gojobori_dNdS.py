@@ -13,12 +13,23 @@ from __future__ import print_function, division
 from sys import stderr
 import argparse as ap
 from itertools import permutations
-from math import log, sqrt
+from math import log, sqrt, exp, nan
 import random
+
+# Needed for calling YN00 (PAML)
+import os.path as op
+import tempfile
+from shutil import rmtree
+import subprocess as sp
+import re
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 stop = '*'
 
+# Might have a difference in my genetic code with PAML's genetic codes.
 genetic_code = {
     'TTT': 'Phe', 'TTC': 'Phe', 'TTA': 'Leu', 'TTG': 'Leu',
     'TCT': 'Ser', 'TCC': 'Ser', 'TCA': 'Ser', 'TCG': 'Ser',
@@ -91,7 +102,16 @@ def frac_synonymous(codon, i):
 
 
 def nei_gojobori(seq1, seq2):
-    """Return dN, dS by the unweighted pathway method (Nei & Gojobori, 1986)."""
+    """Return sequence-wise raw values for computing the dN/dS: L, S1, S2, Nobs, Sobs
+    
+    L: length of both sequences (nucleotides)
+    S1: number of synonymous sites from 1st sequence to 2d sequence (computed by NG86)
+    S2: number of synonymous sites from 2d sequence to 1st (computed by NG86)
+    Nobs: number of observed non-synonymous differences
+    Sobs: number of observed synonymous differences.
+
+    Unweighted pathway method (Nei & Gojobori, 1986).
+    """
     assert len(seq1) == len(seq2)
     L = len(seq1)
     assert L % 3 == 0, "Number of nucleotides is not a multiple of 3."
@@ -150,6 +170,10 @@ def nei_gojobori(seq1, seq2):
     #return Nobs / (L - mean_S), Sobs / mean_S
 
 
+def pNpS(L, S1, S2, Nobs, Sobs):
+    mean_S = (S1+S2)/2
+    return Nobs / (L - mean_S), Sobs / mean_S
+
 def dNdS(L, S1, S2, Nobs, Sobs):
     mean_S = (S1+S2)/2
     pN, pS = Nobs / (L - mean_S), Sobs / mean_S
@@ -163,11 +187,16 @@ def jukes_cantor(p):
     except ValueError as err:
         if "math domain error" in err.args[0]:
             err.args += ("p=%g" % p,)
-            print(('WARNING: p=%g > 3/4 in Jukes-Cantor correction '
+            print(('WARNING: p=%g >= 3/4 in Jukes-Cantor correction '
                    '(infinite distance)') % p,
                     file=stderr)
+            #return nan
         else:
             raise
+
+
+def inv_jukes_cantor(d):
+    return (1 - exp(- d*4/3)) * 3/4
 
 
 def variance_of_divergence():
@@ -208,13 +237,10 @@ def bootstrap_dNdS(seq1, seq2):
     return variance(all_dN), variance(all_dS)
 
 
-def main():
-    parser = ap.ArgumentParser(description=__doc__)
-    parser.add_argument('alfile',
-                        help='Alignment file containing 2 coding sequences of nucleotides (fasta/phylip).')
-    args = parser.parse_args()
-    (_, seq1), (_, seq2) = read_seq(args.alfile)
+def detail_nei_gojobori(seq1, seq2):
+    """Print dNdS computations with intermediate values"""
     L, S1, S2, Nobs, Sobs = nei_gojobori(seq1, seq2)
+    print('L=%d S1=%g S2=%g Nobs=%d Sobs=%d' % (L,S1,S2,Nobs,Sobs))
 
     mean_S = (S1+S2)/2
     pN, pS = Nobs / (L - mean_S), Sobs / mean_S
@@ -224,7 +250,7 @@ def main():
     try:
         ratio = '%g' % (dN/dS)
     except ZeroDivisionError:
-        ratio = None
+        ratio = nan
     print('dN=%g, dS=%g;  dN/dS = %s' %(dN, dS, ratio))
 
     #var_dN, var_dS = bootstrap_dNdS(seq1, seq2)
@@ -233,35 +259,88 @@ def main():
     #print('Standard score Z(dN - dS) = %g' % Z)
 
 
-def test():
-    assert round(frac_synonymous('TTT', 2), 2) == 0.33
-    assert round(frac_synonymous('TTT', 1), 2) == 0
-    assert round(frac_synonymous('TTT', 0), 2) == 0
-    assert round(frac_synonymous('TGT', 2), 2) == 0.5
-    assert round(frac_synonymous('TGT', 1), 2) == 0
-    assert round(frac_synonymous('TGT', 0), 2) == 0
-    assert nei_gojobori('TTT', 'GTA') == (3, 1/3, 1, 1.5, 0.5), nei_gojobori('TTT', 'GTA')
-    assert nei_gojobori('TTG', 'AGA') == (3, 2/3, 1/2+1/3, 9/4, 3/4), nei_gojobori('TTG', 'AGA')
+def write_phy(filehandle, *seqs):
+    filehandle.write('\t%d %d\n' % (len(seqs), len(seqs[0].replace('\n', ''))))
+    for i, seq in enumerate(seqs, start=1):
+        filehandle.write('seq%d  %s\n' % (i, seq.replace('\n', '')))
 
-    # Ensembl 93 ENSG00000186260 ENSPANG00000020098
-    seq1 = ("ATGGATCACACAGGGGCGATAGACACCGAGGATGAAGTGGGACCTTTAGCCCATCTTGCTCCAAGTCCTCAGAGTGAAGCTGTGGCTCATGAATTCCAGGAACTCTCCTTGCAGTCCAGTCAAAACTTACCCCCTCTGAACGAAAGGAAAAATGTGCTCCAGCTGAGGCTGCAACAAAGGAGGACGAGAGAACAACTAGTGGACCAGGGCATCATGCCACCTTTGAAGAGCCCAGCGGCATTCCATGAACAGATAAAAAGCTTGGAACGAGCCAGAACTGAAAACTTTTTGAAACACAAGATTCGGAGTCGACCAGATCGTTCTGAACTTGTCAGGATGCACATTTTAGAAGAAACATTTGCAGAGCCATCCCTGCAGGCTACTCAGATGAAGTTGAAAAGAGCTCGACTAGCAGATGATCTGAATGAAAAGATTGCTCAAAGACCTGGTCCTATGGAGCTGGTAGAGAAAAACATCCTTCCTGTGGACTCCAGTGTTAAAGAAGCAATTATAGGCGTTGGGAAGGAGGACTATCCCCACACTCAGGGCGATTTCTCATTTGATGAAGACAGCAGTGACGCTTTGTCTCCGGACCAGCCTGCGAGTCAGGAGTCACAGGGGTCAGCCGCGTCCCCAAGTGAGCCAAAAGTTAGTGAATCGCCATCTCCTGTGACTACAAACACTCCAGCGCAGTTTGCTTCAGTGTCCCCAACAGTTCCTGAATTCTTGAAAACTCCTCCAACTGCAGATCAGCCTCCCCCACGGCCTGCAGCTCCTGTCCTCCCCACAAACACTGTGTCCTCAGCAAAGCCTGGCCCAGCACTGGTGAAGCAAAGCCATCCCAAGAATCCAAATGACAAACACCGTAGCAAAAAGTGCAAAGATCCCAAACCACGGGTAAAGAAGTTAAAGTACCACCAATACATTCCACCAGATCAGAAGGGTGAGAAGAATGAGCCGCAGATGGACTCTAACTACGCCCGCCTGCTCCAGCAGCAGCA"
-            "GCTGTTCCTGCAACTGCAGATCCTGAGTCAGCAGAAGCAGCACTACAACTACCAGACCATCCTGCCTGCACCATTCAAGCCACTCAATGACAAAAATAGTAACAGTGGGAATTCAGCTTTGAACAATGCCACACCTAACACACCAAGACAGAATACATCTACTCCTGTGAGAAAGCCAGGACCTCTGCCTTCTAGCCTGGATGACTTAAAGGTATCAGAACTGAAGACAGAACTGAAGTTAAGGGGTCTGCCAGTGTCAGGCACCAAACCGGACCTCATTGAGCGCCTAAAACCCTACCAGGAAGTGAACAGCAGCGGCCTTGCTGCTGGGGGCATCGTGGCAGTGTCATCATCAGCCATTGTCACCAGTAACCCAGAAGTCACTGTGGCCTTGCCGGTTACAACACTACACAACACTGTGACTAGCTCAGTCTCTACTCTCAAGGCAGAATTGCCACCTACAGGAACCAGCAACGCAACCCGTGTGGAAAATGTTCATTCCCCTCTGCCCATTTCACCATCTCCCTCCGAACAGTCCAGTCTCAGTACTGATGACACAAACATGGCAGACACTTTCACCGAGATTATGACCATGATGTCGCCTTCACAGTTCTTGAGTTCATCTCCTTTGAGAATGACAAATAATGAAGACAGTCTGAGTCCCACCAGCAGCACTCTGTCAAACCTGGAACTGGATGCAGCCGAAAAGGATCGCAAGCTTCAGGAGAAAGAGAAGCAAATCGAAGAGCTGAAGAGGAAACTGGAACAAGAGCAGAAGCTCGTGGAAGTGCTGAAAATGCAACTTGAGGTTGAAAAACGAGGGCAGCAGCAGCGGCCCCTGGAAGCCCAGCCCAGTGCCCCAGGTCATTCTGTC---AAGTCAGATCAGAAGCACGGCAGCCTTGGCTCCTCCATCAAAGATGAGGCCTCACTCCCTGACTGCTCCAGCTCCAGGCAGCCCATCCCAGTAGCCAGCCACGCTGTAGGCCAGCCCGTCTCTA"
-            "CAGGTGGCCAGACCCTTGTTGCCAAAAAGGCTGTAGTTATCAAGCAAGAGGTCCCTGTGGGCCAGGCAGAGCAGCAGAGTGTCGTCTCGCAGTTTTATGTGAGTTCCCAGGGACAGCCACCGCCTGCTGTTGTTGCTCAGCCCCAGGCTTTACTGACCACGCAGACTGCTCAGCTGCTGCTCCCAGTGTCCATCCAGGGCTCGAGTGTCACCTCAGTGCAACTCCCTGTAGGCAGCCTCAAACTCCAGACTTCACCACAAGCAGGAATGCAGACTCAGCCTCAGATAGCAACTGCTGCACAAATACCAACTGCTGCCTTGGCCTCAGGCTTGGCCCCAACTGTACCTCAGACACAAGACACGTTCCCGCAGCATGTGCTCAGTCAGCCTCAACAAGTCAGAAAGGTTTTCACAAACTCAGCATCATCAAATACAGTTCTTCCATATCAGAGACATCCTGCCCCAGCTGTCCAGCAGCCCTTTATCAATAAGGCCTCCAACAGTGTTCTTCAATCCAGAAATGCTCCGCTTCCATCCCTGCAAAATGGACCTAACACACCCAACAAGCCTAGTTCACCCCCGCCACCCCAGCAATTTGTCGTCCAGCACTCTCTATTTGGGAGTCCAGTCGCCAAGACAAAAGATCCCCCCCGCTATGAGGAGGCCATCAAGCAGACACGCAGCACACAGGCCCCTCTGCCAGAGATTTCCAACGCTCACAGTCAGCAGATGGATGACCTCTTTGATATCCTCATTAAGAGTGGAGAGATCTCCCTCCCCATAAAAGAAGAACCTTCTCCTATTTCCAAAATGAGACCAGTGACAGCCAGCATCACCACAATGCCAGTGAATACAGTGGTGTCCCGGCCACCACCCCAAGTCCAAATGGCACCACCTGTATCTTTAGAACCTATGGGCAGTTTATCTGCCAGCTTAGAGAACCAACTAGAAGCTTTCTTGGATGGAACTTTACCCTCAGCCAATGAAATTCCTCCACTACAA"
-            "AGCAGCAGTGAAGACAGAGAGCCCTTCTCTCTGATCGAGGACCTCCAGAATGATCTGCTGAGTCACTCAGGTATGCTGGACCATTCACACTCACCCATGGAGACTTCCGAGACCCAGTTTGCTGCAGGTACTCCCTGTCTGTCTCTCGACCTGTCAGACTCAAACTTGGACAACATGGAGTGGTTGGACATTACCATGCCCAACTCCTCTTCAGGACTCACTCCTCTCAGCACCACCGCGCCGAGCATGTTCTCTGCTGACTTTCTAGACCCACAGGACCTACCGCTGCCATGGGAC")
 
-    seq2 = ("ATGGATCACACAGGGGCGATAGACACCGAGGATGAAGTGGGACCTTTAGCCCATCTTGCTCCGAGTCCTCAGAGTGAAGCTGTGGCTCATGAATTCCAGGAACTCTCCTTGCAGTCCAGTCAGAACTTACCCCCTCTGAACGAAAGGAAAAATGTGCTCCAGCTGAGGCTGCAACAAAGGAGGACGAGAGAACAACTAGTGGACCAGGGCATCATGCCACCTTTGAAGAGCCCAGCGGCATTCCATGAACAGATAAAAAGCTTGGAACGAGCCAGAACCGAAAACTTTTTGAAACACAAGATTCGGAGTCGACCAGATCGTTCTGAACTTGTCAGGATGCACATTTTAGAAGAAACATTTGCAGAGCCATCCCTGCAGGCTACTCAGATGAAGTTGAAAAGAGCTCGACTAGCAGATGATCTGAATGAAAAGATTGCTCAAAGACCTGGCCCTATGGAGCTGGTAGAGAAAAACATCCTTCCTGTGGACTCCAGTGTTAAAGAAGCAATTATAGGCGTTGGGAAGGAGGACTATCCCCACACTCAGGGCGATTTCTCATTTGATGAAGACAGCAGTGACGCTTTGTCTCCGGACCAGCCTGCGAGTCAGGAGTCACAGGGGTCAGCCGCGTCCCCAAGTGAGCCAAAAGTTAGTGAATCGCCATCTCCTGTGACTACAAACACTCCAGCCCAGTTTGCTTCAGTGTCCCCAACAGTTCCTGAATTCTTGAAAACTCCTCCAACTGCAGATCAGCCTCCCCCTCGGCCTGCAGCTCCTGTCCTCCCCACAAACACTGTGTCCTCAGCAAAGTCTGGCCCAGCGCTGGTGAAGCAAAGCCATCCCAAGAATCCAAATGACAAACACCGTAGCAAAAAGTGCAAAGATCCCAAACCACGGGTAAAGAAGTTAAAATACCACCAATACATTCCACCAGATCAGAAGGGTGAGAAGAACGAGCCGCAGATGGACTCCAACTACGCCCGCCTGCTCCAGCAGCAGCA"
-            "GCTGTTCCTACAGCTGCAGATCCTGAGTCAGCAGAAGCAGCACTACAACTACCAGACCATCCTGCCTGCACCATTCAAGCCACTCAATGACAAAACTAGTAACAGTGGGAATTCAGCTTTGAACAATACCACACCTAACACACCAAGACAGAATACATCTGCTCCTGTGAGAAAGCCAGGACCTCTGCCTTCTAGCCTGGATGACTTAAAGGTGTCAGAACTGAAGACAGAACTGAAGTTAAGGGGTCTGCCAGTGTCAGGCACCAAACCAGACCTCATTGAGCGCCTGAAACCCTACCAGGAAGTGAACAGCAGCGGCCTTGCTGCTGGGGGCATCGTGGCAGTGTCATCGTCAGCCATTGTCACCAGTAACCCAGAAGTCACTGTGGCCTTGCCGGTTACAACACTACACAACACTGTGACTAGCCCAGTCTCTACTCTCAAGGCAGAATTGCCATCTACAGGAACCAGCAACGCAGCCCGTGTGGAAAATGTTCATTCCCCTCTGCCCATTTCACCATCTCCCTCTGAACAGTCCAGTCTCAGTACCGATGACACAAATATGGCAGACACTTTCACCGAGATTATGACCATGATGTCTCCTTCACAGTTCTTGAGTTCATCTCCTTTGAGAATGACAAATAATGAAGACAGTCTGAGTCCTACCAGCAGCACTCTGTCGAACCTGGAACTGGATGCAGCCGAGAAGGATCGCAAGCTTCAGGAGAAAGAGAAGCAAATCGAAGAACTGAAGAGGAAACTGGAACAAGAGCAGAAGCTCGTGGAAGTGCTGAAAATGCAACTTGAGGTTGAAAAACGAGGGCAGCAACAGCGGCCCCTGGAACCCCAGCCCAGTGCCCCAAGTCATTCTGTCAACAAGTCAGATCAGAAGCACAGCAGCCTTGGCTCCTCCATCAAAGACGAGGCCTCACTACCCGACTGCTCCAGCTCCAGGCAGCCCATCCCAGTAGCCAGCCACACTGTAGGCCAGCCTGTCTCTA"
-            "CAGTTGGCCAGACCCTTGTTGCCAAAAAGGCTGTAGTTATCAAGCAAGAGGTCCCTGTGGCCCAGGCAGAGCAGCAGAGTGTCGTCTCGCAGTTTTATGTGAGTTCCCAGGGACAGCCACCGCCTGCTGTTGTTGCTCAGCCCCAGGCTTTACTGACCACGCAGACTGCTCAGCTCCTGCTCCCAGTGTCCATCCAGGGCTCGAGTGTCACCTCAGTGCAACTCCCTGTAGGCAGCCTCAAACTCCAGACTTCACCACAAGCAGGAATGCAGACTCAGCCTCAGATAGCAACTGCTGCACAAATACCAACTGCTGCCTTGGCCTCAGGCTTGGCCCCAGCTGTACCTCAGACACAAGACACGTTCCCACAGCATGTGCTCAGTCAGCCTCAACAAGTCAGAAAGGTTTTCACAAACTCAGCA---TCAAATACAGTTCTTCCATATCAGAGACATCCTGCTCCAGCTGTCCAGCAGCCCTTTATCAATAAGGCCTCCAACAGCGTTCTTCAATCCAGAAATGCTCCGCTTCCATCCCTGCAAAATGGACCTAACACACCCAACAAGCCTAGTTCACCCCCGCCACCCCAGCAATTTGTCGTCCAGCACTCTCTATTTGGGAGCCCAGTCGCCAAGACAAAAGATCCCCCCCGCTATGAGGAGGCCATCAAGCAAACACGCAGCACACAGGCCCCCCTGCCAGAGATTTCCAACGCACACAGTCAGCAGATGGATGACCTCTTTGATATACTCATTAAGAGTGGAGAGATCTCCCTCCCCATAAAAGAAGAACCTTCTCCTATTTCCAAAATGAGACCAGTGACAGCCAGCATCACCACAATGCCAGTGAATACAGTGGTGTCCCGGCCACCACCCCAAGTCCAAATGGCACCACCTGTATCTTTAGAACCTATGGGCAGTTTATCTGCCAGCTTAGAGAACCAACTAGAAGCTTTCTTGGATGGAACTTTACCCTCAGCCAATGAAATTGCTCCATTACAA"
-            "AGCAGCAGTGAAGACAGAGAGCCCTTCTCTCTGATCGAGGACCTCCAGAATGACCTGCTGAGTCACTCAGGTATGCTGGACCATTCACACTCACCCATGGAGACTTCCGAGACCCAGTTTGCTGCAGGTACTCCCTGTCTGTCTCTCGACCTGTCAGACTCAAACTTGGATAACATGGAGTGGTTGGACATTACCATGCCCAACTCCTCTTCAGGACTCACTCCTCTCAGCACCACCACCCCAAGCATGTTCTCCGCCGACTTTCTAGACCCACAGGACCTACCACTACCATGGGAC")
+#@contextlib.contextmanager
+def set_tmp_files_yn00(seq1, seq2):
+    # Create the seq files
+    #with tempfile.TemporaryDirectory(prefix='yn00_') as tmploc:
+    tmploc = tempfile.mkdtemp(prefix='yn00_')
+    with tempfile.NamedTemporaryFile('w', suffix='.phy', dir=tmploc,
+                                     delete=False) as tmpalfile:
+        tmpbasename,_ = op.splitext(op.basename(tmpalfile.name))
+        write_phy(tmpalfile, seq1, seq2)
 
-    result = nei_gojobori(seq1, seq2)
-    L, S1, S2, Nobs, Sobs = result
-    mean_S = (S1+S2)/2
-    pN, pS = Nobs / (L - mean_S), Sobs / mean_S
-    dN, dS = dNdS(*result)
-    # Values given by 'codeml'
-    assert round(dN, 4) == 0.0065 and round(dS, 4) == 0.0607, "pN=%g, pS=%g, dN=%g, dS=%g" % (pN, pS, dN, dS)
+    tmproot = op.join(tmploc, tmpbasename)
+    with open(tmproot + '.ctl', 'w') as tmpctlfile:
+        tmpctlfile.write("""
+seqfile = {tmpal}  * sequence data file name
+outfile = {tmproot}.out  * main result file
+verbose = 0     * 1: detailed output (list sequences), 0: concise output
+icode = 0       * 0:universal code; 1:mammalian mt; 2-10:see below
+weighting = 0   * weighting pathways between codons (0/1)?
+commonf3x4 = 0  * use one set of codon freqs for all pairs (0/1)?
+""".format(tmpal=tmpalfile.name, tmproot=tmproot))
+    return tmploc, tmproot+'.ctl', tmproot+'.out'
+
+
+def nei_gojobori_yn00(seq1=None, seq2=None, ctl=None, out=None, cleanup=True):
+    noseq = seq1 is None or seq2 is None
+    nofile = ctl is None or out is None
+    logger.debug('noseq=%s nofile=%s cleanup=%s', noseq, nofile, cleanup)
+    assert (not noseq and nofile) or \
+            (noseq is None and not nofile), \
+            "(seq1, seq2) and (ctl, out) are mutually exclusive"
+    if nofile:
+        tmploc, ctl, out = set_tmp_files_yn00(seq1, seq2)
+
+    dNdS, dN, dS = call_nei_gojobori_yn00(ctl, out)
+
+    if nofile and cleanup:
+        logger.debug('Removing tmp dir %r' % tmploc)
+        rmtree(tmploc)
+    return dNdS, dN, dS
+
+
+def call_nei_gojobori_yn00(ctl, out):
+    """Use the yn00 program from PAML (Z. Yang)"""
+    sp.check_call(['yn00', ctl])
+
+    reg_nsls = re.compile(r'ns\s*=\s*(\d+)\tls\s*=(\d+)')
+    reg_ynmethod = re.compile(re.escape("(B) Yang & Nielsen (2000) method"))
+    reg_ngmethod = re.compile(re.escape("Nei & Gojobori 1986. dN/dS (dN, dS)"))
+    reg_result = re.compile(r'\w+\s+(-?\d+\.\d+)\s*\((-?\d+\.\d+)\s+(-?\d+\.\d+)\)')
+    with open(out) as outfile:
+        for line in outfile:
+            if reg_ynmethod.match(line):
+                break
+            if reg_nsls.match(line):
+                ns, ls = reg_nsls.match(line).groups()
+            if reg_ngmethod.match(line):
+                for i in range(5):
+                    nextline = next(outfile)
+                    if nextline.startswith('seq1'):
+                        seq1_line = nextline.rstrip()
+                    elif nextline.startswith('seq2'):
+                        seq2_line = nextline.rstrip()
+                        break
+    dNdS, dN, dS = [float(x) for x in reg_result.match(seq2_line).groups()]
+    return dNdS, dN, dS
+
+
+def main():
+    parser = ap.ArgumentParser(description=__doc__)
+    parser.add_argument('alfile',
+                        help='Alignment file containing 2 coding sequences of nucleotides (fasta/phylip).')
+    args = parser.parse_args()
+    (_, seq1), (_, seq2) = read_seq(args.alfile)
+    detail_nei_gojobori(seq1, seq2)
 
 
 if __name__ == '__main__':
+    logging.basicConfig()
     main()
