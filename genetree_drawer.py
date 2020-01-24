@@ -38,7 +38,7 @@ import ete3
 import LibsDyogen.myPhylTree as PhylTree
 #import LibsDyogen.myProteinTree as ProteinTree
 
-from dendro.bates import dfw_descendants_generalized
+from dendro.bates import rev_dfw_descendants
 from dendro.sorter import ladderize
 from dendro.reconciled import get_taxon, get_taxon_treebest, infer_gene_event
 
@@ -100,6 +100,7 @@ def walk_phylsubtree(phyltree, taxa):
     Taxa returned by the iterator are space-separated.
     """
     if "root" in taxa:
+        logger.debug('"root" is in taxa')
         root = "root"
         taxa.remove("root")
         oldroot, subtree = phyltree.getSubTree(taxa)
@@ -109,10 +110,9 @@ def walk_phylsubtree(phyltree, taxa):
 
     # reorder branches in a visually nice manner:
     get_children = lambda tree, node: tree.get(node, [])
-    ladderize(subtree, root, get_children, light_on_top=False)
-    dfw = dfw_descendants_generalized(subtree, get_children,
-                                      include_leaves=False, queue=[root])
-    return reversed(list(dfw))
+    ladderize(subtree, root, get_children, heavy_on_top=True)
+    return rev_dfw_descendants(subtree, get_children,
+                              include_leaves=False, queue=[root])
 
 
 def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
@@ -124,6 +124,10 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
         True: use real species ages
         'log': use log10(1 + species age)
         else: just the topology, real branch lengths are ignored.
+
+    X-axis is left-to-right; older nodes on the left;
+    Y-axis is bottom-to-top; leaves encountered first are at the top, 
+        internal nodes encountered first are at the bottom .....
     """
     # Store the graph coords (x,y) of a node, + its weight w (number of leaves)
     coords = {}
@@ -188,12 +192,32 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
                 # child along x.
                 # (because the tree is ladderized, it's the bottom one).
                 parent_y = min(children_ys) + step
-            elif angle_style == 3:
+            elif angle_style == 3 and dy>dx:
                 # branches are all at 45 degrees
-                step = (dy - dx) / 2
+                #step from the x-closest node. dy and dx are positive.
+                step = (dy - dx)/2.
+                #step = dy - np.sqrt(dx*dy) if dx else dy/2.
                 parent_x = min(children_xs) - step
-                parent_y = max(children_ys) - step
-            elif angle_style == 5:
+                closest_x = children_xs.index(min(children_xs))
+                parent_y = children_ys[closest_x]
+                if children_ys[closest_x] < max(children_ys):  # child is lower.
+                    parent_y += step
+                else:  # child is higher.
+                    parent_y -= step
+                    #assert min(parent_x - cx for cx in children_xs) \
+                    #        == min(parent_y - cy for cy in children_ys)
+                stepf = max(children_xs) - parent_x
+                logger.debug(
+                    "%s-%s: dx=%g, dy=%g, step=%g, stepf=%g; Xs=%s, Ys=%s, closest_x=%d, parent_y=%g",
+                    parent, '.'.join(children), dx, dy, step, stepf, children_xs, children_ys, closest_x, parent_y)
+                #logger.debug("closest_x=%d")
+                assert len(children_ys)==1 or (min(children_ys) <= parent_y <= max(children_ys))
+                #assert stepf + step == dy, "%g+%g != %g" % (stepf, step, dy)
+                #assert stepf - step == dx, "%g-%g != %g" % (stepf, step, dx)
+                #assert not dx or step/dy == step/(step+dx), \
+                #        "step=%g, dy=%g, dx=%g (%s-%s) Xs=%s, Ys=%s" % (
+                #        step, dy, dx, parent, child, children_xs, children_ys)
+            elif angle_style == 5 or dy <= dx:
                 # equal angles
                 step = dy / (2+dx)
                 parent_y = max(children_ys) - step
@@ -376,7 +400,7 @@ class GenetreeDrawer(object):
         for parent, (px, py, _), child, (cx, cy, _) in \
               iter_species_coords(self.phyltree, self.taxa, angle_style, ages):
 
-            logger.debug('%-16s %-16s', parent, child)
+            logger.debug('%-16s %-16s (%g, %g) -> (%g, %g)', parent, child, px, py, cy, cy)
             self.species_branches[child] = (parent, cx - px, cy - py)
 
             self.species_coords[child] = (cx, cy)
