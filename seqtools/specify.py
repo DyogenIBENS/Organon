@@ -21,20 +21,27 @@ DEFAULT_IN_FMT = r'(?P<gene>.*)'  # Use the named group feature.
 DEFAULT_OUT_FMT = TREEBEST_OUT_FMT = '{gene}_{sp}'
 ALE_OUT_FMT = '{sp}_{gene}'
 
+#TODO: move to genomicustools.identify
 special_short2long = {
-        'Scere': 'Saccharomyces cerevisiae',
-        'Celeg': 'Caenorhabditis elegans',
-        'Dmela': 'Drosophila melanogaster',
-        'Csav' : 'Ciona savignyi',
-        'Hsa'  : 'Homo sapiens'
-        }
+       'Scere': 'Saccharomyces cerevisiae',
+       'Celeg': 'Caenorhabditis elegans',
+       'Dmela': 'Drosophila melanogaster',
+       'Csav' : 'Ciona savignyi',
+       'Hsa'  : 'Homo sapiens',
+       'Mspre': 'Mus spretus',
+       'Mcaro': 'Mus caroli',
+       'Mpaha': 'Mus pahari'
+       }
 special_long2short = {
        'Saccharomyces cerevisiae': 'Scere',
        'Caenorhabditis elegans'  : 'Celeg',
        'Drosophila melanogaster' : 'Dmela',
        'Ciona savignyi'          : 'Csav',
-       'Homo sapiens'            : 'Hsa'
-        }
+       'Homo sapiens'            : 'Hsa',
+       'Mus spretus': 'Mspre',
+       'Mus caroli' : 'Mcaro',
+       'Mus pahari' : 'Mpaha'
+       }
 
 def identify_sp(infos, ensembl_version=ENSEMBL_VERSION):
     try:
