@@ -84,18 +84,18 @@ def infer_gene_event(node, taxon, children_taxa):
     children_names = [ch.name for ch in node.children]
     treebest_isdup = getattr(node, 'D', None)
 
-    if (treebest_isdup == 'Y') or taxon in children_taxa:
+    if (treebest_isdup == 'Y' or treebest_isdup != '0') or taxon in children_taxa:
        #(len(children_taxa) == 1 and taxon in children_taxa): #\
                     #and len(node.children) > 1 \
        #or \
        #(len(node.children) == 1 and taxon in children_taxa):
         # Should rather check if taxon in children_taxa.
-        if treebest_isdup == 'N':
+        if treebest_isdup == 'N' or treebest_isdup == '0':
             logger.warning("The node %r -> %s "
                   "is marked as a *speciation* but looks like a duplication"
                   " after taxon information.",
                   node.name, children_names)
-        elif treebest_isdup == 'Y' and taxon not in children_taxa:
+        elif (treebest_isdup == 'Y' or treebest_isdup == '0') and taxon not in children_taxa:
             logger.warning("The node %r -> %s "
                     "is marked as a *duplication* but is ambiguous: "
                     "intermediate speciation nodes are missing.",
