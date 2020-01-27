@@ -552,7 +552,7 @@ class GenetreeDrawer(object):
                     # implied deletions.
                     for child_taxon in children_taxa:
 
-                        # It works when child_taxon is *descendant* of expected_taxa.
+                        # It works when child_taxon is **descendant** of expected_taxa.
                         for tmp_taxon, child_taxon in iter_missing_branches(child_taxon,
                                                           expected_children_taxa):
 
@@ -568,7 +568,14 @@ class GenetreeDrawer(object):
                 if len(children_taxa) > 1:
                     for child in node.children:
                         child_taxon = cached_taxa[child]
-                        if child_taxon != taxon:
+                        #is_transfer = (getattr(node, 'T', None) is not None
+                        #            and getattr(child, 'T', None) is not None)
+                        is_transfer = ((getattr(node, 'T', None) in ('1', '0'))
+                                    and (getattr(child, 'T', None) in ('-1', '0')))
+                        logger.info('node.T = %r; child.T = %r => is_transfer = %s',
+                                    getattr(node, 'T', None),
+                                    getattr(child, 'T', None), is_transfer)
+                        if child_taxon != taxon and not is_transfer:
                             logger.warning('Expected (dup): %s ; '
                                            'got: %s (from %s)',
                                            taxon, children_taxa, taxon)
