@@ -740,10 +740,10 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                                   key=lambda item: child_coords[item[0]].y)
             ch0, ch0dist = sorted_items[0]
             ch1, ch1dist = sorted_items[-1]
+            node_y = (child_coords[ch0].y + child_coords[ch1].y)/2.
             child_coords[node] = nodecoord = Coord(
                     child_coords[ch0].x - time_dir*ch0dist,
-                    anc_loc.get(node,
-                     (child_coords[ch0].y + child_coords[ch1].y)/2.))
+                    anc_loc.get(node, node_y) if constant_anc_space else node_y)
             #if constant_anc_space:
             #    for ch, _ in sorted_items:
 
