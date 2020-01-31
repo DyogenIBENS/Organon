@@ -24,7 +24,7 @@ VAR = {'d': 'node.dist',
        'A': 'node.get_ancestors()'}
        #'_': 'node'
 
-ACTIONS = {'w': 'print(node.write(format=outfmt, format_root_node=True)); return',
+ACTIONS = {'w': 'print(node.write(format=outfmt, format_root_node=True))',
            'o': 'node.delete(prevent_nondicotomic=False, preserve_branch_length=True)',
            'p': 'print(node.name)',
            'a': 'node.add_child',

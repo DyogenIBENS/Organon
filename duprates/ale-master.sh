@@ -11,6 +11,7 @@ IFS=$'\t\n'
 
 SCRIPTS=$HOME/scripts
 PBDIR=$HOME/install/phylobayes4.1c/data
+PBMPIDIR=$HOME/install/pbmpi/data
 ALEDIR=$HOME/install/ALE/build/bin
 NCORES=4
 
@@ -48,12 +49,19 @@ $SCRIPTS/seqtools/specify.py -e 93 -f fasta -l '{sp}_{gene}' "$al_input" |\
 # -dgam <n> : Number of categories for discrete gamma.
 # -ratecat : CAT model
 # -lg -wag -jtt -mtrev -mtzoa -mtart : empirical exchangeabilities
-$PBDIR/pb -x 1 2000 -dgam 1 -lg -t "$subtree_species" -d "$al_phy" "${dataroot}1" &
+$PBDIR/pb -x 1 2000 -dgam 4 -lg -t "$subtree_species" -d "$al_phy" "${dataroot}1" &
 mcmc_pid1=$!
-$PBDIR/pb -x 1 2000 -dgam 1 -lg -t "$subtree_species" -d "$al_phy" "${dataroot}2" &
+$PBDIR/pb -x 1 2000 -dgam 4 -lg -t "$subtree_species" -d "$al_phy" "${dataroot}2" &
 mcmc_pid2=$!
 # TODO: Run 2 parallel chains and estimate their discrepancy with bpcomp and tracecomp
 wait $mcmc_pid1 $mcmc_pid2
+
+# NOTE on using pb_mpi instead:
+# 1. It asks to specify the frequency category model, i.e. -ncat 1 is not assumed implicitly!
+# 2. It wants an input tree with root of degree 3 (unrooted), and strictly binary.
+/usr/bin/mpi_run -np 5 $PBMPIDIR/pb_mpi -x 1 5000 -ncat 1 -dgam 4 -lg -t "$subtree_species" -d "$al_phy" "${dataroot}1"
+
+
 
 mcmctrees="${dataroot}.treelist"
 # Check out output: Tracer.
