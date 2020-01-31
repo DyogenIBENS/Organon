@@ -39,15 +39,11 @@ import LibsDyogen.myPhylTree as PhylTree
 #import LibsDyogen.myProteinTree as ProteinTree
 
 from dendro.bates import rev_dfw_descendants
-from dendro.sorter import ladderize
+from dendro.sorter import ladderize, pyramid
 from dendro.reconciled import get_taxon, get_taxon_treebest, infer_gene_event
 
 import logging
-logging.basicConfig(format='%(levelname)s:%(name)s:l.%(lineno)d:%(funcName)s:%(message)s')#, level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-#print(logger.name, file=sys.stderr)
-#logging.basicConfig(format='', level=logging.DEBUG)
 
 
 ENSEMBL_VERSION = 85
@@ -111,6 +107,7 @@ def walk_phylsubtree(phyltree, taxa):
     # reorder branches in a visually nice manner:
     get_children = lambda tree, node: tree.get(node, [])
     ladderize(subtree, root, get_children, heavy_on_top=True)
+    #pyramid(subtree, oldroot, get_children)
     return rev_dfw_descendants(subtree, get_children,
                               include_leaves=False, queue=[root])
 
@@ -129,7 +126,7 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
     Y-axis is bottom-to-top; leaves encountered first are at the top, 
         internal nodes encountered first are at the bottom .....
     """
-    # Store the graph coords (x,y) of a node, + its weight w (number of leaves)
+    # Store the graph coords (x,y) of a node, and its weight w (number of leaves)
     coords = {}
     y0 = 0
     for parent, children in walk_phylsubtree(phyltree, taxa):
@@ -156,9 +153,9 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
             if parent == 'root':
                 parent_x = max(children_xs) * 1.05
             else:
-                parent_x = phyltree.ages[parent]
+                parent_x = - phyltree.ages[parent]
             if ages == 'log':
-                parent_x == np.log10(1 + parent_x)
+                parent_x == - np.log10(1 + parent_x)
         else:
             parent_x = min(children_xs) - 1
 
@@ -240,7 +237,7 @@ class GenetreeDrawer(object):
     
     def __init__(self, phyltreefile=None, ensembl_version=None,
                  colorize_clades=None, commonname=False, latinname=False,
-                 treebest=False, show_cov=False):
+                 treebest=False, show_cov=False, debug=False):
         """Options:
             - colorize_clades: grouping of species names to colorize
             - commonname: display the common english name of the species
@@ -251,6 +248,7 @@ class GenetreeDrawer(object):
             - show_cov: add a grey gradient to distinguish species genomes with
                         good (>6X), medium (6X) or bad (2X) coverage.
         """
+        self.debug = debug
         if ensembl_version: self.ensembl_version = ensembl_version
         if phyltreefile: self.phyltreefile = phyltreefile
         self.get_taxon = get_taxon_treebest if treebest else get_taxon
@@ -386,13 +384,13 @@ class GenetreeDrawer(object):
                       by the branch polygon.
         angle_style: See the parser help."""
         self.species_coords   = {}
-        self.species_branches = {}
+        self.species_branches = {}  # Back link to the parent, and branch length.
 
-        if figsize is None: figsize = (8, 8) # 20x20cm
+        if figsize is None: figsize = (8, 8) # 20x20cm # or mpl.rcParams['figure.figsize']
         self.fig, ax0 = plt.subplots(figsize=figsize) #frameon=False) # set figsize later
         #ax0 = self.fig.add_axes([0.1,0.1,0.9,0.9]) #, adjustable='box-forced')
         #ax0 = self.fig.add_axes([0.1, 0.1, 0.9, 0.9])
-        ax0.axis('off')
+        if not self.debug: ax0.axis('off')
         # TODO: if ages: keep x axis with xlabel "age"
 
         ymin = 0
@@ -400,11 +398,12 @@ class GenetreeDrawer(object):
         for parent, (px, py, _), child, (cx, cy, _) in \
               iter_species_coords(self.phyltree, self.taxa, angle_style, ages):
 
-            logger.debug('%-16s %-16s (%g, %g) -> (%g, %g)', parent, child, px, py, cy, cy)
+            logger.debug('%-16s %-16s (%g, %g) -> (%g, %g)', parent, child,
+                         px, py, cx, cy)
             self.species_branches[child] = (parent, cx - px, cy - py)
 
             self.species_coords[child] = (cx, cy)
-            if cy < ymin:
+            if cy < ymin:  # update ymin.
                 ymin = cy
             coords = np.array([(px, py),
                                (cx, cy),
@@ -415,8 +414,6 @@ class GenetreeDrawer(object):
                                           edgecolor='#e5e5e5'))
             ha = 'center' if cx < 0 else 'left'
             va = 'bottom' if cx < 0 else 'top'
-            if cx == 0:
-                cx += 0.1 # Add some padding
             # data-specific coloring (low-coverage)
             alpha = 1
             if self.show_cov and child in getattr(self.phyltree, "lstEsp6X", ()):
@@ -437,9 +434,11 @@ class GenetreeDrawer(object):
                     elif common_name:
                         child += ', %s' % common_name
 
-            ax0.text(cx, cy, child, ha=ha, va=va, fontsize='x-small',
-                     fontstyle='italic', family='serif', alpha=alpha,
-                     bbox={'facecolor': bgcolor, 'pad':0, 'edgecolor': 'none'})
+            ax0.annotate(child, (cx, cy), (2, 0), textcoords='offset points',
+                         ha=ha, va=va, fontsize='x-small',
+                         fontstyle='italic', family='serif', alpha=alpha,
+                         bbox={'facecolor': bgcolor, 'pad':0, 'edgecolor': 'none'})
+            #logger.debug()
 
         # include root.
         self.species_coords[parent] = (px, py)
@@ -471,8 +470,11 @@ class GenetreeDrawer(object):
                        facecolor='inherit')
             if self.show_cov and any_show_cov: ax0.add_artist(legend_cov)
 
-        ax0.set_xlim(px, 1)
-        ax0.set_ylim(ymin - 1, 1)
+        if self.debug:
+            ax0.autoscale_view()
+        else:
+            ax0.set_xlim(px, 0)
+            ax0.set_ylim(ymin - 1, 1)
         self.ax0 = ax0
 
 
@@ -739,7 +741,8 @@ class GenetreeDrawer(object):
         # Duplicate the species tree axis to separate the plotting
         self.ax1 = self.ax0.twinx()
         self.ax1.set_ylim(self.ax0.get_ylim())
-        self.ax1.axis('off')
+        if not self.debug:
+            self.ax1.axis('off')
         title = self.genetreename
         if extratitle: title += ' -- %s' % extratitle
         self.ax1.set_title(title)
@@ -981,7 +984,7 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
         phyltreefile=None, colorize_clades=None, commonname=False,
         latinname=False, treebest=False, show_cov=False, ages=False,
-        genenames=False, tags="", asymmetric=False):  #, fork_style="curved"
+        genenames=False, tags="", asymmetric=False, debug=False):  #, fork_style="curved"
     #global plt
 
     figsize = None
@@ -991,7 +994,8 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
                         commonname=commonname,
                         latinname=latinname,
                         treebest=treebest,
-                        show_cov=show_cov)
+                        show_cov=show_cov,
+                        debug=debug)
     display = lambda: plt.show() # Display function for shell or notebook usage
     if __name__=='__main__' and outfile == '-':
         try:
@@ -1034,6 +1038,8 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
 
 
 if __name__ == '__main__':
+
+    logging.basicConfig(format='%(levelname)s:%(name)s:l.%(lineno)d:%(funcName)s:%(message)s')
 
     parser = argparse.ArgumentParser(description=__doc__,
                         #formatter_class=CustomHelpFormatter)
@@ -1088,8 +1094,9 @@ if __name__ == '__main__':
     parser.add_argument('-k', '--asymmetric', action='store_true',
                         help='Draw *asymmetric* gene duplications: one branch'\
                              ' stays the main branch, and other are children.')
+    parser.add_argument('-d', '--debug', action='store_true',
+                        help='More verbose output and graphical hints (axes tick values)')
                         
-    
     #parser.add_argument('-m', '--multiple-pdfs', action='store_true',
     #                    help='output one pdf file per genetree. [NOT implemented]')
     args = parser.parse_args()
@@ -1105,6 +1112,8 @@ if __name__ == '__main__':
             
     # TODO: add into run()
     #ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)%s' % ancgene_regex)
+
+    logger.setLevel(logging.DEBUG if args.debug else logging.INFO)
 
     gd = run(**dictargs)
 

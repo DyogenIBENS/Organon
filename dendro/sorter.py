@@ -103,6 +103,8 @@ def pyramid(tree, root, get_children=None, assign=None):
     """
     if not get_children:
         get_children = lambda tree, node: tree.get(node, [])
+    if not assign:
+        assign = lambda tree, node, children: tree.update({node: children})
 
     basal_nodes = get_children(tree, root)
     while len(basal_nodes)==1:
@@ -123,7 +125,7 @@ def pyramid(tree, root, get_children=None, assign=None):
         ladderize(tree, n, get_children, heavy_on_top=True, assign=assign)
 
     for n in sorted_base[n_base//2:]:
-        size = ladderize(tree, n, get_children, assign=assign)
+        ladderize(tree, n, get_children, assign=assign)
 
     assign(tree, root, sorted_base)
 
