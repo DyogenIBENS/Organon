@@ -35,11 +35,13 @@ dataroot="${al_root}_pb"
 # If needed, translate because we will align aa.
 #$SCRIPTS/seqtools/fasta_translate.py "$subtree_phy" "${subtree_prot_phy}"
 
-$SCRIPTS/seqtools/specify.py -e 93 -f nwk -l '{sp}_{gene}' "$subtree_input" "$subtree_species"
+$SCRIPTS/seqtools/specify.py -e 93 -f nwk -l '{shortsp}_{gene}' \
+    -t 'gene=s/^ENS(G|[A-Z]{3}G)0{5}/G/' "$subtree_input" "$subtree_species"
 
 # Prefix the species names + convert the AA alignment to phylip
 # 'phylip-relaxed' works with pb too.
-$SCRIPTS/seqtools/specify.py -e 93 -f fasta -l '{sp}_{gene}' "$al_input" |\
+$SCRIPTS/seqtools/specify.py -e 93 -f fasta -l '{shortsp}_{gene}' \
+     -t 'gene=s/^ENS(G|[A-Z]{3}G)0{5}/G/' "$al_input" |\
     $SCRIPTS/seqtools/seqconv.py -t 'phylip-sequential-relaxed' > "$al_phy"
 
 
@@ -104,3 +106,4 @@ $ALEDIR/ALEml "$species_tree" "$alefile" tau=0 sample=200
 # 1. Test shorter leaf names without dots;
 # 2. test by putting only trees without null branch lengths (`head -3`/`tail -2`)
 # Still fails.
+# Reason: needs strictly binary species tree.
