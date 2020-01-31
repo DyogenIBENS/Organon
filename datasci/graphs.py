@@ -101,7 +101,8 @@ def plotby(df, by, kind='line', ncols=3, sharex=True, sharey=True, order=None,
     return axes
 
 
-def dodger(datasets=None, kind='violinplot', ax=None, **kwargs):
+def dodger(datasets=None, kind='violinplot', order=None, vertical=False,
+           ax=None, **kwargs):
     """Use pyplot interface to plot several datasets at dodged positions.
     
     y: *list* of columns used as `y`.
@@ -109,14 +110,14 @@ def dodger(datasets=None, kind='violinplot', ax=None, **kwargs):
     First, try to convert the dataframe to long form using `.dataframe_recipees.tolong()`
     """
     plot = getattr((plt if ax is None else ax), kind)
-    if data is None:
+    if datasets is None:
         raise NotImplementedError('Expects a DataFrame')
 
     ###TODO
-    X = np.arange(df.shape[0]) if x is None else data[x]
+    X = np.arange(df.shape[0]) if order is None else data[x]
     ncat = len(data[hue].unique())  # len(datasets)
     w = 1./(ncat+1)
-    offsets = np.linspace(-0.5 + w, 0.5 - w, ncat)
+    offsets = np.linspace(-0.5 + w/2., 0.5 - w/2., ncat)
     
     #for Y, offs in zip(,offsets):
     #    plot(x+offs, Y, label=y, **kwargs)
@@ -242,17 +243,23 @@ def cathist(x, y, data=None, bins=20, positions=None, scale=1, range=None,
         set_positionticks = ax.set_yticks
         set_positionlabels = ax.set_yticklabels
 
+    # Colors should not be cycling.
     for pos, xval in zip(positions, order):
         heights, bin_edges = np.histogram(vy[vx == xval], bins=bins, range=ylim)
         hmax = heights.max()
         barwidths = rwidth * (bin_edges[1:] - bin_edges[:-1])
-        bar(bin_edges[:-1], heights/hmax*scale, barwidths, pos, **barkwargs)
+        bars = bar(bin_edges[:-1], heights/hmax*scale, barwidths, pos, **barkwargs)
+    #    all_heights += list(heights/hmax*scale)
+    #bars = bar(list(bin_edges[:-1]) * len(positions),
+    #           all_heights,
+    #           list(barwidths)*len(positions),
+    #           (np.eye(len(positions)).dot(positions), **barkwargs)
 
     if noax:
         set_positionticks(positions)
         set_positionlabels(order)
 
-    return ax
+    return ax, bars
 
 
 def scatter_density(x, y, data=None, cmap='viridis', scale=None, ax=None, **kwargs):
