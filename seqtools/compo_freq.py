@@ -86,7 +86,7 @@ def get_al_compo_summary(length, seq_counts, seq_freqs):
     nucl_count = seq_nucl.sum(axis=1)  # total number of each nucleotide (summed over sequences)
     GC_count   = nucl_count[1] + nucl_count[2]
     nucl_tot   = nucl_count.sum()
-    gap_count  = seq_gap.sum()
+    gap_count  = seq_gap.sum()  # seq_gap.mean() --> / length
     N_count    = seq_N.sum()
     CpG_count  = seq_CpG.sum()
     stop_count = seq_stops.sum()
