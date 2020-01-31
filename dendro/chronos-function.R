@@ -96,6 +96,7 @@ chronos <-
     ROOT <- n + 1L
     m <- phy$Nnode
     el <- phy$edge.length
+    if (is.null(el)) stop("the tree has no branch lengths")
     if (any(el < 0)) stop("some branch lengths are negative")
     e1 <- phy$edge[, 1L]
     e2 <- phy$edge[, 2L]
@@ -140,6 +141,10 @@ chronos <-
     if (!quiet) cat("\nSetting initial dates...\n")
     seq.nod <- .Call("seq_root2tip", phy$edge, n, phy$Nnode, PACKAGE = "ape")
 
+    ## 'fact.root' is used to approximate the age of the root if it is not given;
+    ## it is multiplied by 1.5 every 100 tries of the initiation loop (see below)
+    ## (added 2017-11-21)
+    fact.root <- 3
     ii <- 1L
     repeat {
         ini.time <- age
@@ -153,8 +158,7 @@ chronos <-
 
         ## if no age given for the root, find one approximately:
         if (is.na(ini.time[ROOT]))
-            ini.time[ROOT] <- if (is.null(age.max)) 3 * max(age.min) else 3 * max(age.max)
-
+            ini.time[ROOT] <- fact.root * max(if (is.null(age.max)) age.min else age.max)
 
         # For each path to the leaves, return the calibrations following the last NA.
         calibs.after.NA <- lapply(seq.nod, next.calib, ini.time)
@@ -201,6 +205,7 @@ chronos <-
         if (ii > 1000)
             stop("cannot find reasonable starting dates after 1000 tries:
 maybe you need to adjust the calibration dates")
+        if (!(ii %% 100)) fact.root <- fact.root * 1.5
     }
 ### 'ini.time' set
 
@@ -478,7 +483,9 @@ maybe you need to adjust the calibration dates")
 
         if (!quiet) cat("", current.ploglik, "\n")
 
-        if (new.ploglik - current.ploglik > epsilon && i <= dual.iter.max) {
+        delta.ploglik <- new.ploglik - current.ploglik
+        if (is.na(delta.ploglik)) break # fix by Daniel Lang
+        if (delta.ploglik > epsilon && i <= dual.iter.max) {
             current.ploglik <- new.ploglik
             current.rates <- new.rates
             current.ages <- out.ages$par
