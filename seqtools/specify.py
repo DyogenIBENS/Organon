@@ -189,15 +189,15 @@ if __name__ == '__main__':
     parser.add_argument('inputfile')
     parser.add_argument('outfile', nargs='?', default=stdout)
     parser.add_argument('-i', '--input-fmt', default=DEFAULT_IN_FMT,
-                        help='[%(default)s]')
+                        help='[%(default)r]')
     parser.add_argument('-l', '--label-fmt', default=DEFAULT_OUT_FMT,
-                        help='[%(default)s]')
+                        help='[%(default)r]')
     parser.add_argument('-t', '--transform', action='append',
                         help='[%(default)s]')
     parser.add_argument('-f', '--file-fmt',
                         help='[automatic detection of nwk/fasta/phylip]')
     parser.add_argument('-e', '--ensembl-version', type=int,
-                        default=ENSEMBL_VERSION, help='[%(default)s]')
+                        default=ENSEMBL_VERSION, help='[%(default)r]')
 
     args = parser.parse_args()
     specify(**vars(args))
