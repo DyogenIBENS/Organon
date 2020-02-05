@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 ENSEMBL_VERSION = 85
 PHYLTREEFILE = "/users/ldog/glouvel/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf"
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS') # NOT USED
+FIGSIZE = re.compile(r':(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)$')
 
 ### Matplotlib graphical parameters ###
 grey10 = '#1a1a1a'
@@ -521,8 +522,8 @@ class GenetreeDrawer(object):
                     try:
                         tmp_taxon = self.phyltree.parent[tmp_taxon].name
                     except KeyError as err:
-                        err.args += (child_taxon,)
-                        logger.error('%s:%s', err, phylsubtree)
+                        err.args += ('from child %s' % child_taxon,)
+                        logger.error('%s %s', err, phylsubtree)
                         raise
 
                 yield tmp_taxon, child_taxon
@@ -987,7 +988,13 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
         genenames=False, tags="", asymmetric=False, debug=False):  #, fork_style="curved"
     #global plt
 
-    figsize = None
+    figsize = (8.2, 11.7)  # A4
+    #figsize = (33.1, 46.8)  # A0
+    match_figsize = FIGSIZE.search(outfile)
+    if match_figsize:
+        outfile = outfile[:match_figsize.start()]
+        figsize = [float(x) for x in match_figsize.groups()]
+    logger.debug('Will set output figsize to: %d x %d inches.', *figsize)
     gd = GenetreeDrawer(phyltreefile=phyltreefile,
                         ensembl_version=ensembl_version,
                         colorize_clades=colorize_clades,
@@ -1009,7 +1016,6 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
         #from importlib import reload; reload(plt)
     elif outfile.endswith('.pdf'):
         pdf = PdfPages(outfile)
-        figsize = (8.2, 11.7)
         display = lambda: (pdf.savefig(bbox_inches='tight', papertype='a4'),
                            plt.close())
     else:
@@ -1044,8 +1050,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__,
                         #formatter_class=CustomHelpFormatter)
                         formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('outfile', help=("pdf file, or '-'. If '-', will use "
-                                         "Qt to display the figure."))
+    parser.add_argument('outfile',
+                        help=("pdf file, or '-'. If '-', will use Qt to "
+                              "display the figure. You can control the figsize"
+                              " by suffixing with for example \":6x8\" (width "
+                              "6, height 8 inches)."))
     #input_g = parser.add_argument_group("Input data arguments")
     parser.add_argument('genetrees', nargs='*', default=[],
         help=("must be a genetree (nwk format with internal nodes labelling) "
