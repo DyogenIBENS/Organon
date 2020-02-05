@@ -54,9 +54,19 @@ NEW_ROOTDUP_SUFFIX = re.compile(r'\.[A-Z@]+$')
 ANCGENE_START = 'ENSGT'
 ANCGENE2SP_PATTERN = r'([A-Z][A-Za-z_.-]+)(%s.*)$'
 ANCGENE2SP = re.compile(ANCGENE2SP_PATTERN % ANCGENE_START)
-
+RENAME_ROOT_SUBST = r's/^({descendants})(?=ENSGT|\b)/{ancestor}/'  # used to replace '{descendants}' by `ancestor` in ancestor_regexes. Customise in order to avoid duplicated outnames.
 
 #SPLIT_SPECIES_GENE = re.compile()
+
+def parse_substitution_expr(subst):
+    """Parse sed-like substitution expression: s/old/new/.
+    
+    You can also use another delimiter, for example '%': s%old%new%
+    """
+    assert subst.startswith('s')
+    delim = subst[1]
+    _, pattern, repl, _ = subst.split(delim)
+    return pattern, repl
 
 def print_if_verbose(*args, **kwargs):
     print(*args, **kwargs)
@@ -816,7 +826,7 @@ def reroot_with_outgroup(node, maxsize=0, minsize=-1,
     return root, realsize
 
 
-def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
+def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
         parse_species_genename,
         diclinks, #treebest=False,
         ages=None, fix_suffix=True, force_mrca=False,
@@ -826,7 +836,26 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
         dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
     #print("treebest = %s" % treebest, file=stderr)
+    logger.debug('save_subtrees(\n'
+        '   treenb = %d,\n' % treenb,
+        '   treefile = %r,\n' % (treefile if len(treefile)<100
+                        else (treefile[:45] + ' ... ' + treefile[-45:])) +
+        '   ancestor_descendants = %.60r [...],\n' % ancestor_descendants  +
+        '   ancestor_regexes = %.60r [...],\n' % ancestor_regexes +
+        '   parse_species_genename = %r,\n' % parse_species_genename +
+        '   diclinks = %.60s [...],\n' % diclinks +
+        '   ages = %.60s [...],\n' % ages +
+        '   fix_suffix = %r,\n' % fix_suffix +
+        '   force_mrca = %r,\n' % force_mrca +
+        '   latest_ancestor = %r,\n' % latest_ancestor +
+        '   outdir = %r,\n' % outdir +
+        '   only_dup = %r,\n' % only_dup +
+        '   one_leaf = %r,\n' % one_leaf +
+        '   outgroups = %r,\n' % outgroups +
+        '   allowed_outgroups = %.50r [...],\n' % allowed_outgroups +
+        '   dry_run = %r)' % dry_run)
     outtrees_set = set() # check whether I write twice the same tree
+    #FIXME: should not allow stdin here:
     if treefile == '-': treefile = '/dev/stdin'
     #try:
     tree, *extratrees = iter_from_ete3(treefile, format=1)
@@ -857,7 +886,7 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
                  latest_ancestor, only_dup, one_leaf, outgroups)
     for ancestor, descendants in ancestor_descendants.items():
         print_if_verbose(ancestor)
-        ancestor_regex = ancestor_regexes[ancestor]
+        root_regex, root_repl = ancestor_regexes[ancestor]
         for ancestornodeid, node in enumerate(search_by_ancestorlist(tree,
                                                         parse_species_genename,
                                                         descendants,
@@ -873,7 +902,12 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
                 if not only_dup or with_dup(leafnames):
                     ### TODO: when you *know* there can be duplicated node
                     ###       names, use a custom unique id for each node.
-                    outname = ancestor_regex.sub(ancestor, node.name)
+                    outname = root_regex.sub(root_repl, node.name).format(
+                                    ancestor=ancestor,
+                                    rootname=node.name,
+                                    nodeid=ancestornodeid,
+                                    basename=op.basename(treefile),
+                                    treenb=treenb)
                     if outname == ancestor:
                         outname += "%02d" % ancestornodeid
                     #outname = re.sub('^[A-Za-z_.-]+(?=ENSGT)', node.name, ancestor)
@@ -890,7 +924,6 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
                         #                   % outname)
                         logger.error("Should not output twice the same tree (%s)" % outname)
 
-                    
                     outfile = None if outdir == '-' else op.join(outdir, outname + '.nwk')
                     #elif outfile in outfiles_set:
                         # Not sure this case can happen, but better prevent it.
@@ -932,9 +965,9 @@ def save_subtrees(treefile, ancestor_descendants, ancestor_regexes, #ancgene2sp,
 
 
 def save_subtrees_process(params, catch_stdout=True):
-    logger.info("* Input tree: '%s%s'",
-                '...' if len(params[0])>80 else '',
-                params[0][-60:])
+    logger.info("* Input tree %d: '%s%s'", params[0],
+                '...' if len(params[1])>80 else '',
+                params[1][-60:])
     ignore_errors = params.pop()
     # Setup the stdout replacement for this subprocess
     #global stdout
@@ -948,8 +981,8 @@ def save_subtrees_process(params, catch_stdout=True):
     try:
         outtrees = save_subtrees(*params)
     except BaseException as err:
-        if ignore_errors:
-            logger.info("Ignore %r: %r", params[0], err)
+        if ignore_errors and not isinstance(err, KeyboardInterrupt):
+            logger.info("Ignore %d: %r: %r", params[0], params[1], err)
             return 0, set(), get_stdout()
         else:
             # Allow the loop to finish and compute the summary.
@@ -966,29 +999,28 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                            one_leaf=False, fix_suffix=True, force_mrca=False,
                            latest_ancestor=False, outgroups=0, dry_run=False,
                            ignore_errors=False,
-                           ensembl_version=ENSEMBL_VERSION):
+                           ensembl_version=ENSEMBL_VERSION,
+                           rename_root_subst=RENAME_ROOT_SUBST):
     ### WARNING: uses global variables here, that are changed by command line
     phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ensembl_version))
     # Crucial point: the pattern alternatives must be sorted by age, so that
     # you don't match an ancestor whose name is contained in its descendant name
     # (like theria is contained in eutheria)
-    ancgene2sp = re.compile(r'('
-                            + r'|'.join(list(phyltree.listSpecies) + 
-                                        sorted(phyltree.listAncestr,
-                                               key=lambda a:len(a),
-                                               reverse=True)).replace(' ','\.')
-                            + r')([^a-z].*|)$')
     ancestor_descendants = {}  # Lists of descendants of each given ancestor.
     ancestor_regexes = {}
+    rename_root_pattern, rename_root_repl = parse_substitution_expr(rename_root_subst)
     for anc_lowercase in ancestors:
         ancestor = anc_lowercase.capitalize()
         descendants = sorted(phyltree.allDescendants[ancestor],
                              key=lambda anc: -phyltree.ages[anc])
         # Put oldest descendants first.
         ancestor_descendants[anc_lowercase] = descendants
-        ancestor_regexes[anc_lowercase] = re.compile(r'^(%s)(?=ENSGT|\b)'
-                                            % '|'.join(descendants)\
-                                              .replace(' ', r'.'))
+        #FIXME: should be customized when --treebest is set.
+        ancestor_regexes[anc_lowercase] = (
+            re.compile(rename_root_pattern.format(
+                       descendants=r'|'.join(descendants).replace(' ', r'.'),
+                       ancestor=ancestor)),
+            rename_root_repl)
 
     try:
         diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
@@ -1003,13 +1035,20 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
 
     # ~~> dendro.reconciled
     if treebest:
-        print_if_verbose("  Reading from TreeBest reconciliation format ({gene}_{species})")
+        print_if_verbose("  Reading from TreeBest reconciliation format (S tag and leaf labels '{gene}_{species}')")
+        #FIXME: for other applications (TreeRecs, GeneRax, ALE) it's '{species}_{gene}'
 
         def get_species(node):
             return node.S.replace('.', ' '), node.name.split('_')[0]
         def split_ancestor(node):
             return node.S.replace('.', ' '), node.name
     else:
+        ancgene2sp = re.compile(r'('
+                            + r'|'.join(list(phyltree.listSpecies) + 
+                                        sorted(phyltree.listAncestr,
+                                               key=lambda a:len(a),
+                                               reverse=True)).replace(' ','\.')
+                            + r')([^a-z].*|)$')
 
         def get_species(node):
             return ultimate_seq2sp(node.name, ensembl_version), node.name
@@ -1037,7 +1076,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
 
     # NOTE: each arg should be a *list* (because need the .pop() method),
     #       and `ignore_errors` should be the last arg.
-    generate_args = [[treefile,
+    generate_args = [[i, treefile,
                       ancestor_descendants,
                       ancestor_regexes,
                       this_parse_species_genename,
@@ -1055,7 +1094,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       outgroups,
                       allowed_outgroups,
                       dry_run,
-                      ignore_errors] for treefile in treefiles]
+                      ignore_errors] for i, treefile in enumerate(treefiles)]
 
     n_input = len(treefiles)
     logger.info("To process: %d input trees", n_input)
@@ -1155,6 +1194,17 @@ if __name__ == '__main__':
                              "tree, otherwise it's necessarily in sister "\
                              "species. If specified, DO NOT output trees "
                              "without outgroups.")
+    parser.add_argument('-r', '--rename-root-subst', '--rr',
+                        default=RENAME_ROOT_SUBST,
+                        help="sed substitution expression to build output "\
+                            "filenames from the root node information." \
+                            "ancestor_regexes. Customise in order to avoid " \
+                            "duplicated outnames. [%(default)r].\n"\
+                            "Available fields are: {descendants} {ancestor} "\
+                            "(replaced) {rootname} {basename} {treenb} {nodeid}"\
+                            "(replacement).\n" \
+                            "Example to always prefix with the input tree index: "\
+                            "'s/^/{treenb}/'.")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="only print out the output files it would produce")
     parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
