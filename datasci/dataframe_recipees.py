@@ -5,7 +5,32 @@ import pandas as pd
 import matplotlib as mpl
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+from matplotlib.colors import rgb2hex, to_rgba, Colormap, Normalize
+from matplotlib.cm import get_cmap
 from IPython.display import display_html
+
+# Copied from Pandas.io.formats.style.Styler._background_gradient:
+def relative_luminance(rgba):
+    """
+    Calculate relative luminance of a color.
+
+    The calculation adheres to the W3C standards
+    (https://www.w3.org/WAI/GL/wiki/Relative_luminance)
+
+    Parameters
+    ----------
+    color : rgb or rgba tuple
+
+    Returns
+    -------
+    float
+        The relative luminance as a value from 0 to 1
+    """
+    r, g, b = (
+        x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055 ** 2.4)
+        for x in rgba[:3]
+    )
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
 def centered_background_gradient(s, cmap='PRGn', center=0, extend=0):
@@ -16,13 +41,38 @@ def centered_background_gradient(s, cmap='PRGn', center=0, extend=0):
     most_distant_absval = max(center - smin, smax - center)
     rng = 2 * most_distant_absval
     # extend lower / upper bounds, compresses color range
-    norm = mpl.colors.Normalize(center - most_distant_absval - (rng * extend),
-                                center + most_distant_absval + (rng * extend))
+    norm = Normalize(center - most_distant_absval - (rng * extend),
+                     center + most_distant_absval + (rng * extend))
     # matplotlib modifies inplace?
     # https://github.com/matplotlib/matplotlib/issues/5427
     normed = norm(s.values)
-    c = [mpl.colors.rgb2hex(x) for x in mpl.cm.get_cmap(cmap)(normed)]
-    return ['background-color: {color}'.format(color=color) for color in c]
+    return ['background-color: {0};color: {1};'.format(rgb2hex(x),
+                '#333' if relative_luminance(x)>0.408 else '#ccc')
+            for x in get_cmap(cmap)(normed)]
+
+
+def bounded_background_gradient(s, cmap='PRGn', vmin=None, vmax=None, extend=0,
+                                bad='gray', under='k', over='w'):
+    """Drop NaN and Inf before computing vmin and vmax."""
+    sfinite = np.isfinite(s)
+    if vmin is None:
+        vmin = s[sfinite].min()
+    if vmax is None:
+        vmax = s[sfinite].max()
+    rng = 2 * (vmax-vmin)
+    # extend lower / upper bounds, compresses color range
+    norm = Normalize(vmin - (rng * extend), vmax + (rng * extend))
+    # matplotlib modifies inplace?
+    # https://github.com/matplotlib/matplotlib/issues/5427
+    normed = norm(s.values)
+    if not isinstance(cmap, Colormap):
+        cmap = get_cmap(cmap)
+        cmap.set_bad(bad)
+        cmap.set_under(under)
+        cmap.set_over(over)
+    return ['background-color: {0}; color: {1}'.format(rgb2hex(x),
+                '#333' if relative_luminance(x)>0.408 else '#ccc')
+            for x in cmap(normed)]
 
 
 def magnify():
@@ -194,7 +244,7 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
             attributes = styled_data.ctx[(y, x)]  # if it's not a MultiIndex
             dict_attr = dict(t.split(':') for t in attributes)
             try:
-                textcolor = mpl.colors.to_rgba(dict_attr['color'].strip())
+                textcolor = to_rgba(dict_attr['color'].strip())
             except KeyError as err:
                 err.args += ((y, x), attributes)
                 raise

@@ -1026,6 +1026,87 @@ def kde_ridgeplot(x, by, data=None):
     g.despine(bottom=True, left=True)
 
 
+def call_spreader(*funcs):
+    def call_all(*args, **kwargs):
+        return [func(*args, **kwargs) for func in funcs]
+    return call_all
+
+
+class brokenAxes(object):
+    @staticmethod
+    def setup(ax0, ax1, vertical=True):
+        shared_axis = ax0.get_shared_x_axes() if vertical else ax0.get_shared_y_axes()
+        shared_axis.join(ax1)
+
+        ax0.spines['top' if vertical else 'left'].set_visible(False)
+        ax1.spines['bottom' if vertical else 'right'].set_visible(False)
+        if vertical:
+            ax0.tick_params(labeltop=False, top=False)  # This is like that by default.
+            ax1.tick_params(labelbottom=False, bottom=False)
+        else:
+            ax0.tick_params(labelleft=False, left=False)
+            ax1.tick_params(labelright=False, right=False)  # This is like that by default.
+
+    def __init__(self, ax0, ax1, vertical=True):
+        """ax0 = axis low values (bottom or left); ax1 = axis for high values (top or right)"""
+        # Easier to implement with a ghost enclosing axes in the background?
+        self.ax0 = ax0  # BOTTOM, or LEFT
+        self.ax1 = ax1  # TOP, or RIGHT
+        self.vertical = vertical
+        self.setup(ax0, ax1, vertical)
+
+        for method in ('plot', 'scatter', 'hist', 'bar', 'barh', 'semilogx', 'semilogy',
+                       'stem', 'vlines', 'hlines', 'axvline', 'axhline',
+                       'fill', 'fill_between', 'fill_betweenx',
+                       'annotate', 'text'):
+            setattr(self, method, call_spreader(getattr(ax0, method), getattr(ax1, method)))
+
+    def apply(self, func, *args, **kwargs):
+        if callable(func):
+            #func must accept the 'ax=' keyword
+            # nope nope: if calling e.g. hist, the bins and heights would be duplicated in the
+            # returned list.
+            return [func(*args, ax=ax, **kwargs) for ax in (self.ax0, self.ax1)]
+        else:
+            return [getattr(ax, func)(*args, **kwargs) for ax in (self.ax0, self.ax1)]
+
+    def dobreak(self, breakpoint):
+        """Reset (x/y)lim to display the break."""
+        if self.vertical:
+            lim0, lim1 = self.ax0.get_ylim()
+            self.ax0.set_ylim(lim0, breakpoint)
+            self.ax1.set_ylim(breakpoint, lim1)
+        else:
+            lim0, lim1 = self.ax0.get_xlim()
+            self.ax0.set_xlim(lim0, breakpoint)
+            self.ax1.set_xlim(breakpoint, lim1)
+
+    def get_ylim(self):
+        if self.vertical:
+            return self.ax0.get_ylim()[0], self.ax1.get_ylim()[1]
+        else:
+            return self.ax0.get_ylim()
+
+    def get_xlim(self):
+        if self.vertical:
+            return self.ax0.get_xlim()
+        else:
+            return self.ax0.get_xlim()[0], self.ax1.get_xlim()[1]
+
+    #def invert_xaxis(self):
+    #    if self.vertical:
+    #        self.ax0.invert_xaxis()
+    #    else:
+    #        self.ax0.set_xlim()
+    #def invert_yaxis(self):
+    #TODO:
+    #def set_title(self, title):
+    #def set_ylabel(self, label):
+    #def set_
+
+
+
+
 # UNUSED.
 def extract_dfstyle(styled_df):
     cellcols = np.empty(styled_df.data.shape, dtype=tuple)
