@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from IPython.display import display_html
+from IPython.display import display, display_html
 import warnings
 
 import scipy.stats as stats
@@ -174,8 +174,22 @@ renorm_logdecorrelate = partial(check_decorrelator, zscore_subtract)
 renorm_unregress = partial(check_decorrelator, zscore_unregress)
 
 
-def test_transforms(alls, variables, figsize=(14, 5), widget=True):
+def test_transforms(alls, variables, figsize=(14, 5), widget=False, out=None):
+    """:param: out: file-like object with `.write()` method (given to `print`).
+    If out.output, out.html or out.show exist, they replace
+    display, display_html and plt.show.
+    """
     #fig, axes = plt.subplots(len(variables),3, figsize=(22, 5*len(variables)))
+    if out is not None:
+        # Replace the functions: `print`, `display`, `plt.show`
+        if widget:
+            raise ValueError("arguments `out` and `widget` are incompatible")
+        #FIXME: Implementation could probably be nicer with something like Mock.patch.
+        # From the datasci.savior.*Report classes
+    disp = getattr(out, 'output', display)
+    disp_html = getattr(out, 'html', display_html)
+    show = getattr(out, 'show', plt.show)  # Bad things may happen with unexpected classes.
+
     nbins = 50
 
     suggested_transform = {}
@@ -188,24 +202,24 @@ def test_transforms(alls, variables, figsize=(14, 5), widget=True):
         except ImportError as err:
             logger.error()
     for i, ft in iter_features:
-        
+
         var = alls[ft]
-        
+
         transform_skews = {}
         # Plot original variable distribution 
         if var.dtype != float:
-            print("Variable %r not continuous: %s" % (ft, var.dtype))
+            print("Variable %r not continuous: %s" % (ft, var.dtype), file=out)
             if var.dtype != int:
-                print("Variable %r does not seem to be numeric. Skipping" % ft)
+                print("Variable %r does not seem to be numeric. Skipping" % ft, file=out)
                 continue
         if var.min() == var.max():
-            print("Variable %r is constant. Skipping." % ft)
+            print("Variable %r is constant. Skipping." % ft, file=out)
             # Why does it appear in `suggested_transform`?
             continue
         
         infinite_vals = np.isinf(var)  # Ignore NAs
         if infinite_vals.any():
-            print("%d infinite values in %r (observations ignored)." % (infinite_vals.sum(), ft))
+            print("%d infinite values in %r (observations ignored)." % (infinite_vals.sum(), ft), file=out)
             var = var[~infinite_vals]
 
         fig, axes = plt.subplots(1, 3, figsize=figsize)
@@ -227,13 +241,13 @@ def test_transforms(alls, variables, figsize=(14, 5), widget=True):
         current_sqrttransform = None
         if (var < 0).any():
             if (var > 0).any():
-                print("Variable %r has negative and positive values. Shifting to positive." % ft)
+                print("Variable %r has negative and positive values. Shifting to positive." % ft, file=out)
                 text += "Negative and positive values. Shifting to positive.\n"
                 var -= var.min()
                 current_logtransform = make_logpostransform_inc()
                 current_sqrttransform = make_sqrtpostransform()
             else:
-                print("Variable %r converted to positive values" % ft)
+                print("Variable %r converted to positive values" % ft, file=out)
                 text += "Converted to positive values.\n"
                 var = -var
                 current_logtransform = logneg  # What if null values?
@@ -269,7 +283,8 @@ def test_transforms(alls, variables, figsize=(14, 5), widget=True):
             
             suggested_increment = logtransformed_var.quantile(0.05)
             print("%s: Nb of not finite values: %d. Suggested increment: 10^(%g) = %g"\
-                  % (ft, n_infinite_vals, suggested_increment, 10**suggested_increment))
+                  % (ft, n_infinite_vals, suggested_increment, 10**suggested_increment),
+                  file=out)
             text += "%d not finite values. Suggested increment: 10^(%g)"\
                      % (n_infinite_vals, suggested_increment)
 
@@ -325,7 +340,7 @@ def test_transforms(alls, variables, figsize=(14, 5), widget=True):
         axes[2].text(xmax2, ymax2, sqrttext, va="top", ha="right")
 
         #fig.show(warn=False)
-        plt.show()
+        show()
         suggested_transform[ft] = sorted(transform_skews.items(),
                                          key=lambda x: abs(x[1]))[0][0]
 
@@ -359,8 +374,12 @@ def print_pca_loadings(pca, features):
 
 
 def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
-                 heat_dendro=True, **heat_kwargs):
+                 heat_dendro=True, out=None, **heat_kwargs):
     """if FA=True, perform factor analysis instead of PCA"""
+
+    disp = getattr(out, 'output', display)
+    disp_html = getattr(out, 'html', display_html)
+    show = getattr(out, 'show', plt.show)  # Bad things may happen with unexpected classes.
 
     Analysis = FactorAnalysis if FA else PCA
     fa = Analysis(n_components=15)
@@ -369,26 +388,26 @@ def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
     outputs = []
     # ### PC contribution to variance
 
-    print("transformed data dimensions: %s" % (transformed.shape,))
-    print("components dimensions: %s" % (fa.components_.shape,))
+    print("transformed data dimensions: %s" % (transformed.shape,), file=out)
+    print("components dimensions: %s" % (fa.components_.shape,), file=out)
 
     # Explained variance of each principal component.
     if FA:
-        print('WARNING: Computing feature contribution from FactorAnalysis without the noise variance!')
+        print('WARNING: Computing feature contribution from FactorAnalysis without the noise variance!', file=out)
         #PC_contrib = (fa.components_**2 + fa.noise_variance_).sum(axis=1)
         PC_contrib = (fa.components_**2).sum(axis=1)
         PC_contrib /= PC_contrib.sum()
     else:
         PC_contrib = fa.explained_variance_ratio_
 
-    print("Feature contributions:\n", PC_contrib)
+    print("Feature contributions:\n", PC_contrib, file=out)
     # Plot cumulative contribution of PC
     fig, ax = plt.subplots()
     ax.bar(np.arange(PC_contrib.size), PC_contrib.cumsum())
     ax.set_title("Cumulative ratio of variance explained by the Principal Components")
     ax.set_xlabel("Principal Components")
     ax.set_ylabel("Cumulative ratio of variance explained")
-    plt.show()
+    show()
     outputs.append(fig)
 
     # ### PC loadings
@@ -417,13 +436,13 @@ def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
             set_caption("Principal Components loadings").\
             set_properties(**{'max-width': '60px', 'font-size': '1pt'}).\
             set_table_styles(magnify())
-    #print("Rendered_components:", type(styled_components))
-    display_html(styled_components)
+    #print("Rendered_components:", type(styled_components), file=out)
+    disp_html(styled_components)
     outputs.append(styled_components)
 
     # ### Feature covariance
     ft_cov = fa.get_covariance()
-    print("Covariance dimensions:", ft_cov.shape)
+    print("Covariance dimensions:", ft_cov.shape, file=out)
     if abs_cov:
         ft_cov = np.abs(ft_cov)
     if make_corr:  # heat_corr
@@ -438,7 +457,7 @@ def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
         'absolute ' if abs_cov else '',
         'correlation' if make_corr else 'covariance',
         'Factor Analysis' if FA else 'PCA'))
-    plt.show()
+    show()
     outputs.append(fig)
 
     # Plot feature vectors in the PC space
@@ -448,7 +467,7 @@ def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
     plot_features_radar(components, features, ax=ax0)
     plot_features_radar(components, features, PCs=["PC1", "PC3"], ax=ax1)
     fig.suptitle("Features in Principal Component space (%s)" % ('Factor Analysis' if FA else 'PCA'))
-    plt.show()
+    show()
     outputs.append(fig)
 
     fig, (ax0, ax1) = plt.subplots(1, 2, sharey=True)
@@ -459,7 +478,7 @@ def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
     ax1.set_xlabel('PC3')
     ax1.set_ylabel('PC1')
     fig.suptitle('Data plotted in component space (%s)' % ('Factor Analysis' if FA else 'PCA'))
-    plt.show()
+    show()
     outputs.append(fig)
     return fa, outputs
 
@@ -535,31 +554,40 @@ def display_drop_eval(features, func):
 
 
 def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=None,
-                   protected=None, show='matplotlib', widget=True):
+                   protected=None, format_df='matplotlib', widget=True, out=None):
+    if out is not None:
+        # Replace the functions: `print`, `display`, `plt.show`
+        if widget:
+            raise ValueError("arguments `out` and `widget` are incompatible")
+        #FIXME: Implementation could probably be nicer with something like Mock.patch.
+    disp = getattr(out, 'output', display)
+    disp_html = getattr(out, 'html', display_html)
+    show = getattr(out, 'show', plt.show)  # Bad things may happen with unexpected classes.
+
     if protected is None:
         protected = []
     if nloops is None:
         nloops = len(set(features).difference(protected))
 
     outputs = []
-    if show is None:
-        def show(series):
+    if format_df is None:
+        def format_df(series):
             pass
-    elif show in ('mpl', 'matplotlib'):
+    elif format_df in ('mpl', 'matplotlib'):
         rcwidth, rcheight = mpl.rcParams['figure.figsize']
         bw = max(0.15, rcwidth/len(features))
         bh = min(rcheight, bw*5)
-        def show(series):
+        def format_df(series):
             ax, = matplotlib_stylebar(series, horizontal=False, ticks=True)
             ax.figure.set_size_inches(bw*series.shape[0], bh)
-            plt.show()
+            show()
             outputs.append(ax.figure)
-    elif show in ('pd', 'pandas'):
-        def show(df):
+    elif format_df in ('pd', 'pandas'):
+        def format_df(df):
             styled = series.to_frame().style.bar()
-            display_html(styled)
+            disp_html(styled)
             outputs.append(styled)
-    elif not callable(show):
+    elif not callable(format_df):
         raise ValueError('`show` must be a value in [None, "pandas", "matplotlib"] or a callable')
 
     make_tabs = lambda iterator, *a, **kw: iterator
@@ -573,7 +601,7 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
     next_features = [ft for ft in features]
     for k in make_tabs(range(nloops)):
         dropped_k = drop_eval(next_features, func)
-        show(dropped_k)
+        format_df(dropped_k)
 
         dropped_k[protected] = dropped_k.min() if criterion=='max' else dropped_k.max()
         if criterion == 'min':
@@ -587,7 +615,7 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
         
         if next_features[i] in protected:
             break
-        print('%d. DROP %s' % (k, next_features[i]))
+        print('%d. DROP %s' % (k, next_features[i]), file=out)
         dropped_features.append(next_features[i])
         
         if stopped:
@@ -595,7 +623,8 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
         next_features = next_features[:i] + next_features[(i+1):]
 
     if not stopped:
-        print('WARNING: could not reach the criterion %s' % stop_criterion)
+        print('WARNING: could not reach the criterion %s' % stop_criterion, file=out)
+        logger.warning('could not reach the criterion %s', stop_criterion, file=out)
     return dropped_features, outputs
 
 
@@ -677,3 +706,8 @@ def sm_pretty_summary(fit, join=None, renames=None, bars=['coef']):
     #display_html(pretty_slopes)
     return pretty_slopes
 
+## How to use sm_pretty_summary with HtmlReport:
+#with HtmlReport('outfile.html') as hr:
+#    with contextlib.capture_stdout(hr):
+#        pretty_slopes = sm_pretty_summary()
+#    hr.html(pretty_slopes)

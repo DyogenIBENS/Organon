@@ -8,7 +8,7 @@ from pprint import pprint, pformat
 import base64
 import matplotlib.pyplot as plt
 import pandas as pd
-#from pandas.io.formats.style import Styler
+from pandas.io.formats.style import Styler
 from markdown import markdown
 from IPython.display import display_html
 import logging
@@ -77,13 +77,15 @@ class Report(ABC):
         logger.debug('Exited context: %r %r %r', exc_type, exc_value, traceback)
     
     @abstractmethod
-    def write(self, txt):
+    def raw(self, txt):
         """Write raw string"""
+    # Facing problem here: to be able to pass Report to the file arg of print(),
+    # I'd need the `write` method to behave as `print()`
 
     @abstractmethod
-    def print(self, *args, sep=' ', end='\n'):
-        """Write unformatted text"""
-
+    def write(self, txt):
+        """Write string. Implement it so that it can be used by print calls."""
+    
     @abstractmethod
     def pprint(self, *args):
         """pretty print"""
@@ -102,12 +104,16 @@ class Report(ABC):
     def mkd(self, *strings):
         pass
 
+    def print(self, *args, sep=' ', end='\n'):
+        """Write unformatted text"""
+        self.write(sep.join(str(a) for a in args) + end)
+
     def output(self, *args):
         """Automatically dispatch figures, dataframes and text (as printed)."""
         for arg in args:
             if isinstance(arg, (plt.Figure)):  # TODO: seaborn.axisgrid.FacetGrid
                 self.show(arg)
-            elif isinstance(arg, (pd.DataFrame, pd.io.formats.style.Styler)):
+            elif isinstance(arg, (pd.DataFrame, Styler)):
                 self.html(arg)
             else:
                 self.print(arg)
@@ -117,11 +123,17 @@ class Report(ABC):
         for arg in args:
             if isinstance(arg, (plt.Figure)):  # TODO: seaborn.axisgrid.FacetGrid
                 self.show(arg)
-            elif isinstance(arg, (pd.DataFrame, pd.io.formats.style.Styler)):
+            elif isinstance(arg, (pd.DataFrame, Styler)):
                 self.html(arg)
             else:
                 self.mkd(arg)
 
+
+css_dark_style = '''body {
+background-color: black;
+color: #E5E5E5;
+}
+'''
 
 # For default Jupyter Notebook styles,
 # see /static/style/style.min.css?v=29c09309dd70e7fe93378815e5f022ae
@@ -178,7 +190,7 @@ class HtmlReport(Report):
               border: none;
             }
             .dataframe tbody tr:nth-child(2n+1) {
-              background: #f5f5f5;
+              background: #7f7f7f33;
             }
             .dataframe tbody tr th:only-of-type {
               vertical-align: middle;
@@ -197,6 +209,7 @@ class HtmlReport(Report):
             '<style>\n%s\n</style>' % '\n'.join(styles),
             '</head>',
             '<body>\n'])
+        self.foot = '\n\</br></br></br></br></body>\n'
         self.closed = True
         self.begun = []  # opened html tags inside body.
     
@@ -206,11 +219,14 @@ class HtmlReport(Report):
     
     def close(self):
         logger.debug('Closing </body>, then file handle.')
-        self.handle.write('\n</body>\n')
+        self.handle.write(self.foot)
         if self.filename is None:
             display_html(self.handle.getvalue(), raw=True)
             self.handle.close()
         self.closed = True
+
+    def flush(self):
+        self.handle.flush()
 
     def __enter__(self):
         self.open(self.mode)
@@ -222,16 +238,16 @@ class HtmlReport(Report):
         self.close()
         super().__exit__(exc_type, exc_value, traceback)
     
-    def write(self, txt):
-        """Write raw string to file."""
+    def raw(self, txt):
+        """Write raw string to file (should be valid Html)."""
         self.handle.write(txt)
 
-    def print(self, *args, sep=' ', end='\n'):
+    def write(self, txt):
         """Write unformatted text (<pre> environment)"""
         if not self.printing:
             self.handle.write('<pre>\n')
             self.printing = True
-        self.handle.write(sep.join(str(a) for a in args) + '\n')
+        self.handle.write(txt)
 
     def pprint(self, *args):
         """pretty print (in <pre> environment)"""
@@ -314,11 +330,11 @@ class HtmlReport(Report):
         else:
             begun_class = 'column%2d' % p
         self.end('div', begun_class)
-        self.write('<!-- end %s -->\n' % begun_class)
+        self.handle.write('<!-- end %s -->\n' % begun_class)
     
     def end_columns(self):
         self.end('div', 'columns')
-        self.write('<!-- end columns -->\n<br/>\n')
+        self.handle.write('<!-- end columns -->\n<br/>\n')
 
     # Haven't found elegant way to use `cols` with or without `with ...` using @contextmanager
     @contextmanager
@@ -360,7 +376,10 @@ class CellReport(Report):
             fig.show()  # Not sure this works as expected.
 
     def html(self, obj):
-        display_html(obj.to_html(), raw=True)  # Using the attribute `.to_html()` is necessary for the output method.
+        obj_html = obj._repr_html_()
+        if obj_html is None:
+            raise ValueError('method _repr_html_() returned None.')
+        display_html(obj_html, raw=True)
 
     def mkd(self, *strings):
         display_markdown(*strings)
