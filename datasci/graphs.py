@@ -3,10 +3,13 @@
 
 """Code snippets for matplotlib/pandas plotting."""
 
+from functools import wraps
 import numpy as np
+from math import sin, cos, atan2, pi
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.collections as mc
+from matplotlib.colors import rgb_to_hsv, hsv_to_rgb, rgb2hex, hex2color, to_rgb
 from scipy.stats import gaussian_kde
 import scipy.cluster.hierarchy as hclust
 import scipy.spatial.distance as spdist
@@ -202,6 +205,109 @@ def stackedbar(x, arr, ax=None, zero=0, **kwds):
         if bottom is not None:
             bottom += row
     return stacked_bars
+
+
+def lim_to_bars(low, high):
+    """Return (heights, bottom), as needed by the plt.bar/plt.barh function."""
+    # Needs low and high to be vectorised.
+    low = np.asarray(low)
+    high = np.asarray(high)
+    return high - low, low
+
+
+# ~~> math/combin, geom
+def get_overlap_lims(ranges_ab, ranges_cd):
+    """given 2 arrays of ranges (shape 2xN) [a,b] and [c,d]:
+        [a,
+         b] = [[x0_low, x1_low, ... ],
+               [x0_high, x1_high, ... ]]
+
+    return a new list of 3 new ranges: lims1, lims2, overlap.
+    The first two are the resulting mutual exclusions of ranges_ab and ranges_cd,
+    and the last one is the overlapped part.
+    
+    To get the desired bars drawn with plt.bar, the plotting order (or zorder)
+    should be: lims1, lims2, overlap"""
+    ranges_ab, ranges_cd = (np.asarray(ranges_ab, dtype=np.float32),
+                            np.asarray(ranges_cd, dtype=np.float32))
+    assert ranges_ab.shape[0] == 2 and ranges_cd.shape[0] == 2
+    assert (ranges_ab[0] <= ranges_ab[1]).all() and (ranges_cd[0] <= ranges_cd[1]).all(), "Range coords should be increasing!"
+    # For a pair of ranges, there are 4 coordinates, 
+    # and exactly 6 possible configurations (i.e. ordering of each coordinate)
+    # with range1=(a <= b),range2=(c <= d)
+    # orderings
+    # - a,b,c,d  no overlap
+    # - a,c,b,d  overlap
+    # - a,c,d,b  overlap (contained)
+    # +symetrics when range2 starts before:
+    # - c,d,a,b  no
+    # - c,a,d,b  overlap
+    # - c,a,b,d  overlap (contained)
+    N = ranges_ab.shape[1]
+    assert ranges_cd.shape[1] == N, "both list of ranges should have the same length."
+    x = np.arange(N)[:,None]  # Select each range one by one. It's the range index.
+
+    start_is_a = (ranges_ab[0] < ranges_cd[0])
+    assert start_is_a.shape == (N,), start_is_a.shape
+
+    # order group 1 (first list of ranges) VS group 2 (second list)
+    group_order = np.where(start_is_a[:, np.newaxis],
+                           [[0,1, 2,3]],  # range_ab, then range_cd
+                           [[2,3, 0,1]])  # range_cd, then range_ab
+    sorted_groups = np.where(start_is_a,
+                             np.vstack((ranges_ab, ranges_cd)),
+                             np.vstack((ranges_cd, ranges_ab)))
+    assert sorted_groups.shape == (4, N), "Unexpected sorted_groups.shape = %s" % (sorted_groups.shape,)
+    # Reorder the groups so that the one with lowest start is first:
+    #sorted_groups = np.vstack((ranges_ab, ranges_cd))[group_order, x]
+    contained = sorted_groups[1] > sorted_groups[3]  # or >=
+    #start_is_a, overlapping, contained
+    overlapping = sorted_groups[1] >= sorted_groups[2]
+
+    trunc_range1 = sorted_groups[:2].copy()
+    trunc_range2 = sorted_groups[2:].copy()
+
+    #new_ranges = sorted_groups.copy()
+    ## truncated range1 = [a, MIN(b,c)] so we sort [b,c]:  #NOPE, probably not. FIXME
+    ## Unless containing.
+    #new_ranges[1:3] = np.sort(new_ranges[1:3], axis=0)
+    #trunc_range1 = new_ranges[:2].copy()
+    #
+    ## overlap lower lim = MIN(b,c) too;
+    ## overlap upper lim = MIN(d, max(b,c)) so we sort 3rd and 4th columns:  #NOPE, probably not. FIXME
+    #new_ranges[3:] = np.sort(new_ranges[3:], axis=0)
+    #overlap_lims = new_ranges[1:3].copy()
+    #
+    ## truncated range2 lower = overlap upper lim;
+    ## truncated range2 upper = d
+    #trunc_range2 = np.vstack((overlap_lims[1], sorted_groups[-1]))
+    #assert trunc_range2.shape == (2, N), "unexpected trunc_range.shape = "+str(trunc_range.shape)
+    ## if contained:
+    #overlap_lims[1,contained] == sorted_groups[3,contained]
+    ## and also:
+    #trunc_range1[1,contained] = sorted_groups[1,contained]
+    # trunc_range2 might be contained, then do not draw:
+    #trunc_range2[:,contained] = np.NaN
+    ## When no overlap, set overlap_lims = NaN
+    #overlap_lims[:, sorted_groups[1] < sorted_groups[2]] = np.NaN
+    ## What if overlap is decreasing?
+    ##overlap_lims[:, overlap_lims[0] > overlap_lims[1]] = np.NaN
+    trunc_range1[1, overlapping & ~contained] = sorted_groups[2, overlapping & ~contained]
+    trunc_range2[:, contained] = np.NaN
+    trunc_range2[0, overlapping & ~contained] = sorted_groups[1, overlapping & ~contained]
+    overlap_lims = np.sort(sorted_groups[1:3], axis=0)
+    overlap_lims[:, contained] = sorted_groups[2:, contained]
+    overlap_lims[:, ~overlapping] = np.NaN
+
+    # Revert back to the original group (1,2) order.
+    #new_ranges = np.vstack((trunc_range1, trunc_range2))[group_order, x]
+    new_ranges = np.where(start_is_a,
+                          np.vstack((trunc_range1, trunc_range2)),
+                          np.vstack((trunc_range2, trunc_range1)))
+    assert new_ranges.shape == (4, N), new_ranges.shape
+
+    return new_ranges[:2], new_ranges[2:], overlap_lims
+
 
 
 def cathist(x, y, data=None, bins=20, positions=None, scale=1, range=None,
@@ -494,9 +600,11 @@ def plot_features_radar(components, features, PCs=['PC1', 'PC2'], ax=None):
 ## Create colormaps
 
 def colortuple_to_hex(coltup):
+    """See matplotlib.colors.rgb2hex"""
     return '#' + ('%02x' * len(coltup)) % tuple(int(round(c*255)) for c in coltup)
 
 def value2color(values, cmap='afmhot', extend=1):
+    #WARNING: unused, avoid.
     # Setup the colormap for evolutionary rates
     cmap = plt.get_cmap('afmhot')
     value_range = values.max() - values.min()
@@ -504,6 +612,97 @@ def value2color(values, cmap='afmhot', extend=1):
                                 values.min() + extend*value_range)
 
     return values.apply(lambda v: colortuple_to_hex(cmap(norm(v))))
+
+
+def hexify(func):
+    """Decorator for transforming a function processing RGB colors to process hex."""
+    @wraps(func) #, assigned=('__module__', '__name__', '__doc__', '__annotations__'))
+    def hexed_func(color, *a, **kw):
+        return rgb2hex(func(to_rgb(color), *a, **kw))
+    hexed_func.__qualname__ = 'hexify(%s)' % func.__name__  # Python3, see PEP 3155.
+    hexed_func.__name__ += '_hex'
+    return hexed_func
+
+def fade_color(color, fraction=0.5):
+    """Increase amount of light/white in the color. Fraction is analogous to alpha."""
+    hsv = rgb_to_hsv(color)
+    # White is (*, 0, 1)
+    return hsv_to_rgb((hsv[0], hsv[1]*fraction, hsv[2] + (1 - hsv[2])*(1-fraction)))
+
+def desaturate(color, fraction=0.5):
+    hsv = rgb_to_hsv(color)
+    # White is (*, 0, 1)  # Black is (*, 0, 0)  # Gray is (*, 0, .5)
+    return hsv_to_rgb((hsv[0], min(1., hsv[1]*fraction), hsv[2]))
+
+def darken(color, fraction=0.5):
+    """fraction: the amount of black."""
+    hsv = rgb_to_hsv(color)
+    # White is (*, 0, 1)  # Black is (*, 0, 0)  # Gray is (*, 0, .5)
+    return hsv_to_rgb((hsv[0], hsv[1], hsv[2]*(1 - fraction)))
+    #return hsv_to_rgb((hsv[0], hsv[1]*fraction, hsv[2]*fraction))
+
+def equalize_strength(*colors):
+    """Return colors with the original hue but a common average saturation & value."""
+    all_hsv = [rgb_to_hsv(to_rgb(c)) for c in colors]
+    s = sum(hsv[1] for hsv in all_hsv) / len(all_hsv)
+    v = sum(hsv[2] for hsv in all_hsv) / len(all_hsv)
+    return [hsv_to_rgb((hsv[0], s, v)) for hsv in all_hsv]
+
+#For blending, RGB is prefered
+def blend(color, color2, fraction=0.5):
+    #hsv, hsv2 = rgb_to_hsv(color), rgb_to_hsv(color2)
+    #hsv[1:] *= fraction
+    #hsv2[1:] *= (1 - fraction)
+    (r,g,b), (r2,g2,b2) = to_rgb(color), to_rgb(color2)
+    r,g,b = r*fraction, g*fraction, b*fraction
+    r2,g2,b2 = r2*(1-fraction), g2*(1-fraction), b2*(1-fraction)
+    return to_rgb((r+r2, g+g2, b+b2))
+
+def hsvblend(color, color2, fraction=0.5):
+    hsv, hsv2 = rgb_to_hsv(to_rgb(color)), rgb_to_hsv(to_rgb(color2))
+    hsv[1:] *= fraction
+    hsv2[1:] *= (1 - fraction)
+    #hue angle (percent of cycle): 0:Red 1/6:yellow 1/3:Green 1/2: Cyan 2/3: Blue 5/6: Purple 1:Red
+    # From https://stackoverflow.com/a/6131027:
+    x = cos(2*pi*hsv[0]) + cos(2*pi*hsv2[0])
+    y = sin(2*pi*hsv[0]) + sin(2*pi*hsv2[0])
+    if x != 0.0 or y != 0.0:
+        h = atan2(y, x) / (2*pi)
+    else:
+        h = 0.0
+        #s = 0.0
+    return hsv_to_rgb((h, hsv[1]+hsv2[1], hsv[2]+hsv2[2]))
+
+fade_color_hex = hexify(fade_color)
+desaturate_hex = hexify(desaturate)
+darken_hex = hexify(darken)
+blend_hex = hexify(blend)
+hsvblend_hex = hexify(hsvblend)
+
+def fade_colors(colors, fraction=0.5):
+    return [fade_color(c, fraction) for c in colors]
+
+def fade_colors_hex(colors, fraction=0.5):
+    """This actually *also* works for rgb color tuples, because
+    matplotlib.colors.hex2color works this way (return rgb tuple if given one)."""
+    return [fade_color_hex(c, fraction) for c in colors]
+
+def rotate_cycle(ax, offset=1, prop='color', step=1):
+    """I always forget how to move the matplotlib color cycler forward.
+    Also remember: you can use the named colors 'C0', 'C1', ... CN.
+    """
+    # To specifically access the axes cycle:
+    # `ax._get_lines.prop_cycle` and `ax._get_patches_for_fill`
+    cycler = mpl.rcParams['axes.prop_cycle']
+    props = list(cycler.keys) if prop is None else [prop]
+    for prop in props:
+        cycled = cycler.by_key()[prop]
+        if offset >= len(cycled) or offset < -len(cycled):
+            logger.warning('Offset %d larger than cycle length %d.', offset, len(cycled))
+            offset = offset % len(cycled)
+
+        ax.set_prop_cycle(prop, cycled[offset::step] + cycled[:offset:step])
+
 
 
 class Coord(object):
