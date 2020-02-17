@@ -1419,6 +1419,98 @@ def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts,
                              control_ages, control_brlen, mean_errors)
 
 
+def compare_params(x='taxon', y='age_dS', split=True, order=None, hue_order=None, width=1,
+                   controls=('timetree', 'dosreis'), **datasets):
+    """Splitted violinplot of taxon~age_dS with hue='data'.
+    Use **datasets to name your datasets: ex um1=df1, um2=df2.
+    
+    From Jupyter Notebook `Compare_dating_methods.ipynb`.
+    """
+    stacked = pd.concat([df.assign(data=paramname) for paramname, df in datasets.items()], sort=False,
+                         ignore_index=True)
+    #display_html(stacked.head())
+    # Show one value for x and data.
+    hues = sorted(datasets.keys()) if hue_order is None else hue_order
+    
+    def kurtosis(a): return stats.kurtosis(a, axis=None, fisher=True, nan_policy='omit')
+    
+    scales = [iqr95, iqr90, iqr, mad, mean_absdevmed, 'std', trimstd]
+    centers = ['median', 'median', 'median', 'median', 'median', 'mean', trimmean]
+    
+    subgroup_dispersion = stacked.groupby([x, 'data'])[y].agg(scales + ['skew', kurtosis, 'count']).unstack('data')
+    subgroup_disptest = stacked.groupby(x)[[y, 'data']]\
+        .apply(lambda g: pd.Series(stats.levene(*(g.loc[g.data==h, y].dropna() for h in hues))))\
+        .set_axis(pd.MultiIndex.from_product([['BrownForsythe'], ['stat', 'pvalue']]), axis=1, inplace=False)
+    subgroup_disptest_corr = pd.DataFrame(smm.multipletests(subgroup_disptest[('BrownForsythe', 'pvalue')],
+                                                            alpha=0.01, method='fdr_bh')[:2],
+                                          index=pd.MultiIndex.from_product([['correction'],
+                                                                            ['rejectH0', 'pval_corr']]),
+                                          columns=subgroup_disptest.index).T
+    subgroup_disp = pd.concat((subgroup_dispersion, subgroup_disptest, subgroup_disptest_corr), axis=1, sort=False)
+    
+    #scalename = getattr(scale, '__name__', scale)
+    display_html(
+        subgroup_disp\
+        .style.highlight_min(axis=1, subset=[('mad', d) for d in datasets])\
+        .highlight_min(axis=1, subset=[('mean_absdevmed', d) for d in datasets], color='gold')\
+        .highlight_min(axis=1, subset=[('iqr', d) for d in datasets], color='lemonchiffon')\
+        .highlight_min(axis=1, subset=[('std', d) for d in datasets], color='khaki')\
+        .highlight_min(axis=1, subset=[('trimstd', d) for d in datasets], color='moccasin')\
+        .highlight_max(axis=1, subset=[('skew', d) for d in datasets], color='coral')\
+        .highlight_max(axis=1, subset=[('kurtosis', d) for d in datasets], color='sandybrown'))#\
+        #.apply(lambda values: ['color: red' if v is True else '' for v in values],
+        #       subset=pd.IndexSlice[:, pd.IndexSlice[('correction', 'rejectH0')]]))
+    
+    #assert center in ('median', 'mean')
+    ltests = []
+    for center,scale in zip(centers, scales):
+        ltests.append(multi_vartest(y, 'data', by=x, data=stacked, ref_hue=hues, center=center, scale=scale))
+        print('Multi var test (%s, %s):' %(getattr(center, '__name__', center), getattr(scale, '__name__', scale)),
+              ltests[-1], '\n-----')
+    
+    ax = sb.violinplot(x, y, hue='data', data=stacked, order=order, hue_order=hue_order,
+                       split=split, width=width, cut=0)
+    plt.setp(ax.get_xticklabels(), rotation=45, va='top', ha='right')
+    violin_handles, violin_labels = ax.get_legend_handles_labels()
+    
+    # medians for each hue group.
+    sb.pointplot(x, y, hue='data', data=stacked, order=order, hue_order=hue_order, dodge=width/(len(datasets)+1),
+                 join=False, palette=['#4c4c4c'], estimator=np.nanmedian,
+                 ci='sd', ax=ax)
+    current_handles, current_labels = ax.get_legend_handles_labels()
+    point_handles = [h for h in current_handles if h not in violin_handles]
+
+    # Reference values
+    ylim = ax.get_ylim()
+    #ax.plot('timetree_age', 'r_', data=control_ages.loc[ordered_simii_anc],
+#     ax.plot([phyltree.ages[anc] for anc in ordered_simii_anc], 'r_', label='TimeTree age',
+#             markersize=24, linewidth=24)
+#     ax.plot('timetree_CI_inf', 'y_', data=timetree_ages_CI.loc[ordered_simii_anc],
+#             markersize=18)
+#     ax.plot('timetree_CI_sup', 'y_', data=timetree_ages_CI.loc[ordered_simii_anc],
+#             markersize=18)
+    X = np.arange(len(stacked[x].unique()) if order is None else len(order))
+    xlines = [x for xanc in X for x in [xanc-0.5, xanc+0.5, None]]
+    
+    for ctl in controls:
+        ylines = [y for anc in ordered_simii_anc for y in [calibrations[ctl+'_age'].loc[anc]]*2 + [None]]
+        color = 'y' if ctl == 'timetree' else 'b'
+        lines, = ax.plot(xlines, ylines, color+'--', alpha=0.9, label=ctl+' age')
+        #print(type(lines), lines)
+
+        ax.bar(X, (calibrations[ctl+'_CI95_sup'] - calibrations[ctl+'_CI95_inf']).loc[order].values,
+               bottom=calibrations[ctl+'_CI95_inf'].loc[order],
+               color='y', alpha=0.5, zorder=(-1 if ctl=='timetree' else -2), width=0.95,
+               label=ctl+' 95% interval')
+    
+    handles, labels = ax.get_legend_handles_labels()
+    handles, labels = zip(*sorted([(h,l) for h,l in zip(handles, labels) if h not in point_handles],
+                                  key=lambda hl: hl[0] not in violin_handles))
+    #print(handles)
+    ax.legend(handles, labels)
+    return stacked, subgroup_disp, ltests
+
+
 def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
                           L1_wt=1, cov_type='HC1', **psummary_kw):
     exog = sm.add_constant(a[features])
@@ -2364,6 +2456,7 @@ class full_dating_regression(object):
                 display(out)
             else:
                 print(out)
+
 
 
 from siphon import dependency_func, dependency, auto_internalmethod
