@@ -119,13 +119,15 @@ def tolong(df, x=None, subset=None, varname=None, idname=None):
 
 
 def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
-                        err=None, ticks=False):
+                        err=None, ticks=False, float_fmt='%.5f',
+                        text_above=False, text_kwargs=None):
     """Like pandas.DataFrame.style.bar, but with matplotlib.
     
     + Also: error bars
     
     Return axes (flat).
     """
+
     if y is None:
         try:
             y = data.columns.tolist()
@@ -140,15 +142,18 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
         kind = 'barh'
         sharex, sharey = False, True
         layout = (1, len(y))
-        text = lambda ax, pos, val: ax.text(ax.get_xlim()[1], pos, '%.5f' % val,
-                                            va='center', ha='right')
+        text_kwargs = dict(va=('bottom' if text_above else 'center'), ha='right', **text_kwargs)
+        text = lambda ax, pos, val: ax.text(ax.get_xlim()[1], pos, float_fmt % val,
+                                            **text_kwargs)
         xerr, yerr = err, None
     else:
         kind = 'bar'
         sharex, sharey = True, False
         layout = (len(y), 1)
-        text = lambda ax, pos, val: ax.text(pos, ax.get_ylim()[1], '%.5f' % val, ha='center',
-                                            va='top', rotation=90)
+        text_kwargs = dict(ha='center', va='top', rotation=90, **text_kwargs)  # text_above is not going to work
+        text = lambda ax, pos, val: ax.text(pos-(0.33 if text_above else 0),
+                                            ax.get_ylim()[1], float_fmt % val,
+                                            **text_kwargs)
         xerr, yerr = None, err
 
     axes = data.plot(kind=kind, y=y, color='#d65f5f', width=0.95,
@@ -175,6 +180,7 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
         #elif align=='mid':
         #    datalim = ymin, ymax
 
+        ymax += (ymax - ymin)*0.15
         if horizontal:
             ax.set_xlim(ymin, ymax)
             if not ticks: ax.set_xticklabels([])
@@ -198,7 +204,7 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
 def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
                                    float_fmt='%.4f',
                                    surround=None, cbar=True, sep=True, ax=None,
-                                   cbar_kw=None, **style_kwargs):
+                                   cbar_kw=None, textalpha=0.8, **style_kwargs):
     #data = styled_data.data.xs('adjR2', axis=1, level=1)  # select from multiIndex
     orig_data = data
     if axis in (0, 1):
@@ -250,7 +256,8 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
                 raise
             cell_txts.append(
                     ax.text(xt, yt, float_fmt % orig_data.iloc[y,x],
-                            color=textcolor, va='center', ha='center'))
+                            color=textcolor, va='center', ha='center',
+                            alpha=textalpha))
 
     if cbar:
         orient = 'horizontal' if axis==1 else 'vertical'
