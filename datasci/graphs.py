@@ -228,11 +228,14 @@ def cathist(x, y, data=None, bins=20, positions=None, scale=1, range=None,
 
     barkwargs = {'edgecolor': 'none', 'align': 'edge', **barkwargs}
 
-    #_, global_bins = np.histogram(vy, bins)
     if range is None:
         ylim = np.nanmin(vy[np.isfinite(vy)]), np.nanmax(vy[np.isfinite(vy)])
     else:
         ylim = range
+
+    global_bins = np.histogram_bin_edges(vy, bins, range)
+    barwidth = global_bins[1] - global_bins[0]  # not working if bins is not a scalar value
+    global_barwidths = rwidth * (global_bins[1:] - global_bins[:-1])
 
     if horizontal:
         bar = ax.barh
@@ -244,22 +247,27 @@ def cathist(x, y, data=None, bins=20, positions=None, scale=1, range=None,
         set_positionlabels = ax.set_yticklabels
 
     # Colors should not be cycling.
-    for pos, xval in zip(positions, order):
-        heights, bin_edges = np.histogram(vy[vx == xval], bins=bins, range=ylim)
+    all_heights = []
+    all_positions = []  # np.ones((len(positions),)*2) * np.array(positions)
+    for pos, cat in zip(positions, order):
+        heights, bin_edges = np.histogram(vy[vx == cat], bins=global_bins, range=ylim)
         hmax = heights.max()
         barwidths = rwidth * (bin_edges[1:] - bin_edges[:-1])
-        bars = bar(bin_edges[:-1], heights/hmax*scale, barwidths, pos, **barkwargs)
-    #    all_heights += list(heights/hmax*scale)
-    #bars = bar(list(bin_edges[:-1]) * len(positions),
-    #           all_heights,
-    #           list(barwidths)*len(positions),
-    #           (np.eye(len(positions)).dot(positions), **barkwargs)
+        #bars = bar(bin_edges[:-1], heights/hmax*scale, barwidths, pos, **barkwargs)
+        all_heights += list(heights/hmax*scale)
+        all_positions += [pos]*len(heights)
+    bars = bar(
+               list(global_bins[:-1]) * len(positions),
+               all_heights,
+               barwidth, #list(global_barwidths)*len(positions),
+               all_positions,
+               **barkwargs)
 
     if noax:
         set_positionticks(positions)
         set_positionlabels(order)
 
-    return ax, bars
+    return ax, global_bins, bars
 
 
 def scatter_density(x, y, data=None, cmap='viridis', scale=None, ax=None, **kwargs):
