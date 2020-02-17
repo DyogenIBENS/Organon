@@ -644,64 +644,69 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
 
         sorted_nodes = list(reversed(fill_descendants(root)))
         if invert:
-            leafloc = sum(1 for n in sorted_nodes if get_items(tree, (n,)))
+            leafloc = sum(1 for n in sorted_nodes if get_items(tree, (n,))) - 2
         anc_loc = {}  #anc: leafloc + i*leafstep for i, anc in enumerate(sorted_anc)}
         leaves_loc = {}
-        sorted_anc = []
+        #sorted_anc = []
         anc_rank = 0
         prev_anc = None
         leaves_in_interval = []
         #prev_children = set()
-        for i, node in enumerate(sorted_nodes):
+        for node in sorted_nodes:
             items = get_items(tree, (node,))
-            if items:
-                logger.debug('* At anc %r', node)
-                #nspaces = len(leaves_interanc[-1]) + 1
-                #for j, leaf in enumerate(leaves_interanc[-1], start=1):
-                #    # TODO: identify the boundary anc that is not an ancestor.
-                #    leaves_loc[leaf] = leafloc + (anc_rank-1)*leafstep + j/nspaces*leafstep
-                #leaves_interanc.append([])
-                
-                #prev_children = set((ch for ch,_ in items))
-
-                sorted_anc.append(node)
-
-                if node is root:
-                    anc_loc[node] = leafloc + (anc_rank-0.5)*leafstep
-                else:
-                    anc_loc[node] = leafloc + anc_rank*leafstep
-                    anc_rank += 1
-
-                direct_leaves = [item[0] for item in items if not get_items(tree, item)]
-                if direct_leaves:
-                    # This nodes has direct leaves: It is a leaf group boundary.
-                    #if leaves_in_interval[-1] not in [ch for ch,_ in items]:
-                        # The previous leaf is NOT a direct descendant
-                    nspaces = len(leaves_in_interval)
-                    mid_node = items[len(items)//2+1][0] if len(items) % 2 else None
-                    if mid_node in leaves_in_interval:
-                        logger.debug('Mid node at index %d/%d',
-                                     leaves_in_interval.index(mid_node),
-                                     len(leaves_in_interval)-1)
-                    #if mid_node == leaves_in_interval[-1]:
-                        nspaces -= 0.5  # Allow this midnode to be at the same Y than parent.
-                    for j,leaf in enumerate(leaves_in_interval, start=0):
-                        prev_lim = leafloc-leafstep if prev_anc is None else anc_loc[prev_anc]
-                        leaves_loc[leaf] = prev_lim + (anc_loc[node] - prev_lim)*(j+.5)/nspaces
-                        logger.debug('Placing leaf %d %r in [%f, %f]-> %f' % (j, leaf, prev_lim, anc_loc[node], leaves_loc[leaf]))
-                    prev_anc, leaves_in_interval = node, []
-                    # But it should be a "soft" boundary for all its direct leaves.
-            else:
+            if not items:
                 leaves_in_interval.append(node)
+                continue
+
+            logger.debug('* At anc %r', node)
+            #nspaces = len(leaves_interanc[-1]) + 1
+            #for j, leaf in enumerate(leaves_interanc[-1], start=1):
+            #    # TODO: identify the boundary anc that is not an ancestor.
+            #    leaves_loc[leaf] = leafloc + (anc_rank-1)*leafstep + j/nspaces*leafstep
+            #leaves_interanc.append([])
+            
+            #prev_children = set((ch for ch,_ in items))
+
+            #sorted_anc.append(node)
+
+            if node == root:
+            # Or simply exclude. BUT: then the root may have the same y as another anc.
+                anc_loc[node] = leafloc + (anc_rank-0.5)*leafstep
+            if node != root:  # Or simply exclude.
+                anc_loc[node] = leafloc + anc_rank*leafstep  # The first should therefore be zero.
+                anc_rank += 1
+                logger.debug('anc_loc[%r] = %s', node, anc_loc[node])
+
+            direct_leaves = [item[0] for item in items if not get_items(tree, item)]
+            if direct_leaves:
+                # This nodes has direct leaves: It is a leaf group boundary.
+                #if leaves_in_interval[-1] not in [ch for ch,_ in items]:
+                    # The previous leaf is NOT a direct descendant
+                nspaces = len(leaves_in_interval)
+                mid_node = items[len(items)//2+1][0] if len(items) % 2 else None
+                if mid_node in leaves_in_interval:
+                    logger.debug('Mid node at index %d/%d',
+                                 leaves_in_interval.index(mid_node),
+                                 len(leaves_in_interval)-1)
+                #if mid_node == leaves_in_interval[-1]:
+                    nspaces -= 0.5  # Allow this midnode to be at the same Y than parent.
+                for j,leaf in enumerate(leaves_in_interval, start=0):
+                    prev_lim = leafloc-(leafstep/2.) if prev_anc is None else anc_loc[prev_anc]
+                    leaves_loc[leaf] = prev_lim + (anc_loc[node] - prev_lim)*(j+.5)/nspaces
+                    logger.debug('Placing leaf %d %r in [%f, %f]-> %f', j, leaf,
+                                 prev_lim, anc_loc[node], leaves_loc[leaf])
+                prev_anc, leaves_in_interval = node, []
+                # But it should be a "soft" boundary for all its direct leaves.
         # Placing the last created leaf group:
         #nspaces = len(leaves_interanc[-1]) + 1
         #for j, leaf in enumerate(leaves_interanc, start=1):
         #    leaves_loc[leaf] = leafloc + (anc_rank-1)*leafstep + j/nspaces*leafstep
-        nspaces = len(leaves_in_interval) + 1
-        for j,leaf in enumerate(leaves_in_interval, start=1):
+        nspaces = len(leaves_in_interval)
+        for j,leaf in enumerate(leaves_in_interval, start=0):
             prev_lim = anc_loc[prev_anc]
-            leaves_loc[leaf] = prev_lim + (anc_rank*leafstep - prev_lim + leafloc)*j/nspaces
-            logger.debug('Placing leaf %d %r in [%f, %f]-> %f' % (j, leaf, prev_lim, anc_rank*leafstep+leafloc, leaves_loc[leaf]))
+            leaves_loc[leaf] = prev_lim + ((anc_rank-.5)*leafstep - prev_lim + leafloc)*(j+.5)/nspaces
+            logger.debug('Placing leaf %d %r in [%f, %f]-> %f', j, leaf,
+                         prev_lim, (anc_rank-.5)*leafstep+leafloc, leaves_loc[leaf])
 
         ## List direct leaves per ancestor.
         #anc_leaves = [[item for item in get_items(tree, (anc,))
@@ -725,7 +730,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             if abs(child_coords[node].x - present) > 0:
                 extended_x.extend((present, child_coords[node].x, None))
                 extended_y.extend((leafloc, leafloc, None))
-            leafloc += leafstep
+            leafloc += leafstep  # if not constant_anc_space
         elif len(items) == 1:
             (ch, chdist), = items
             child_coords[node] = nodecoord = Coord(child_coords[ch].x - time_dir*chdist,
@@ -848,10 +853,10 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     ax.set_xlim(left=root_age-time_dir*rootdist, right=present)
     #ax.set_xbound(
     #print(ax.get_ylim())
-    if constant_anc_space:
-        ax.set_ylim(-yscale, len(anc_loc)*yscale)
-    else:
-        ax.set_ylim(-0.5*yscale, len(leafdists)*yscale - 0.5*yscale)
+    ax.set_ylim(-0.5*yscale,
+                ((len(anc_loc) if constant_anc_space
+                  else len(leafdists)) - 0.5)*yscale)
+    logger.debug('Set ylim: %s from yscale=%g', (ax.get_ylim()), yscale)
     #ax.autoscale_view()
     
     ax.spines['top'].set_visible(False)
@@ -895,6 +900,14 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
         subaxes[ch] = subax
 
     return lines, child_coords, subaxes
+
+
+def plottree_set_xlim(lines, xroot, xleaf=None, age_from_root=False):
+    seg = lines.get_segments()
+    seg[-1][1,0] = xroot
+    lines.set_segments(seg)  # Don't know how to hide what's outside of the plotting area. set_clip no effect.
+     # = ax.get_xlim()  # rightmost xlim
+    lines.axes.set_xbound((xroot, xleaf) if age_from_root else (xleaf, xroot))
 
 
 ### Derivates of the violin plot
