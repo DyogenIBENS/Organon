@@ -9,7 +9,7 @@ ete3.Tree, Bio.Phylo.Newick.Tree, LibsDyogen.myPhylTree, LibsDyogen.myProteinTre
 import warnings
 
 
-class default(object):
+class TreeMethod(object):
     # Not meant to be used directly
     
     @staticmethod
@@ -34,13 +34,13 @@ class default(object):
                 for child in cls.get_children(tree, nodedist[0])]
 
 
-class nodebased(default):
+class nodebased(TreeMethod):
     @staticmethod
     def get_label(tree, node):
         return node.name
 
 
-class itembased(default):
+class itembased(TreeMethod):
     """ For trees based on collections of items (child, dist).
     
     Simply overwrite the `get_items` method.
@@ -60,6 +60,7 @@ class ete3(nodebased):
     
     @staticmethod
     def copy_children(tree, node):
+        # This should in general be favored over 'get_children', to avoid unexpected behavior.
         return tree.get_children()
 
     @staticmethod
@@ -69,8 +70,9 @@ class ete3(nodebased):
 
     @staticmethod
     def set_children(tree, node, new_children):
-        for child in node.get_children:
-            child.detach()
+        # If new_children is the same list object than node.children, weird behavior expected.
+        # therefore, just re-init a new list for the children:
+        node.children = []
         for child in new_children:
             node.add_child(child)
 
@@ -121,3 +123,11 @@ class myPhylTree(itembased):
     @staticmethod
     def get_items(tree, nodedist):
         return tree.items.get(nodedist[0], [])
+
+    @staticmethod
+    def set_items(tree, nodedist, items):
+        tree.items[nodedist[0]] = items
+
+
+def skip_set_children(tree, node, children):
+    pass
