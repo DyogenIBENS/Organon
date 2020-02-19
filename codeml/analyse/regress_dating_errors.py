@@ -1717,7 +1717,7 @@ _must_transform = dict(
         consecutive_zeros_dN=binarize,
         sister_zeros_dN=binarize,
         triplet_zeros_dN=binarize,
-        r2t_dN_mean=make_best_logtransform,
+        r2t_dN_mean=make_best_logtransform,  # This one should be called on the data first.
         gb_Nblocks=notransform,
         hmmc_propseqs=notransform,
         freq_null_dS=binarize,
@@ -1951,8 +1951,8 @@ class full_dating_regression(object):
             #TODO: add to self.displayed
 
             suggested_transform.update(**dict(
-                                        (ft, t(alls[ft]))
-                                        if (t is make_best_logtransform and ft in alls)
+                                        ( ft, t(alls[ft]) )
+                                        if (t.__name__ == 'make_best_logtransform' and ft in alls)
                                         else (ft,t)
                                         for ft,t in impose_transform.items())
                                       )
