@@ -29,7 +29,7 @@ LVL_COLNAME = {  # For Html.
     'CRITICAL': 'orange',
     'ERROR':    'red'}
 
-BASIC_FORMAT = '$LVL%(levelname)s$RESET:$BLACK%(name)s$RESET:%(message)s'
+BASIC_FORMAT = '$LVL%(levelname)s$RESET:$BOLD%(name)s$RESET:%(message)s'
 #BASIC_HTML_FORMAT = '<span style="$LVL">%(levelname)s</span>'
 
 
@@ -79,13 +79,13 @@ class ColoredFormatter(logging.Formatter):
 
 class HtmlColoredFormatter(ColoredFormatter):
     RESET_SEQ = '</span>'
-    BOLD_SEQ = '<span style="font-weight: bold">'
+    BOLD_SEQ = '<span style="font-weight:bold">'
     BG_LVLCOLOR = {lvl: '<span style="background: %s">' % col for lvl,col in LVL_COLNAME.items()}
-    LVLCOLOR    = {lvl: '<span style="color: %s">' % col for lvl,col in LVL_COLNAME.items()}
-    LVLCOLOR.update(ERROR='<span style="color: red;font-weight: bold">',
-                    CRITICAL='<span style="background: red">')
-    COLOR = {col.lower(): '<span style="color: %s">' % col.lower() for col in COLOR}
-    COLOR.update({col.upper(): '<span style="color: %s;font-weight: bold">' % col.lower()
+    LVLCOLOR    = {lvl: '<span style="color:%s">' % col for lvl,col in LVL_COLNAME.items()}
+    LVLCOLOR.update(ERROR='<span style="color:red;font-weight:bold">',
+                    CRITICAL='<span style="background:red">')
+    COLOR = {col.lower(): '<span style="color:%s">' % col.lower() for col in COLOR}
+    COLOR.update({col.upper(): '<span style="color:%s;font-weight:bold">' % col.lower()
                   for col in COLOR})
     BG_COLOR = {('BG' if col.isupper() else 'bg')+col: tag.replace('color:', 'background:')
                 for col, tag in COLOR.items()}
