@@ -2010,12 +2010,13 @@ class full_dating_regression(object):
         dataset_params = self.dataset_params
         responses = self.responses
         features = self.features
-        ref_suggested_transform = self.ref_suggested_transform
-        impose_transform = self.impose_transform
         must_drop_features = self.must_drop_features
 
         ages_controled = data.ages_controled
         mean_errors = data.mean_errors
+
+        ft_idx = pd.Index(features)
+        assert (not ft_idx.has_duplicates), ft_idx[ft_idx.duplicated()]
 
         print('\n# Merge features', file=self.out)
         self.alls = alls = pd.concat((mean_errors,
@@ -2068,6 +2069,10 @@ class full_dating_regression(object):
             logger.warning('Replace Inf,-Inf by NaN')
         alls_transformed = alls.replace([-np.Inf, np.Inf], np.NaN).transform(suggested_transform)
 
+        #print('transformed scalar types:', alls_transformed.iloc[0].map(type).tolist(), file=self.out)
+        non_numbool = alls_transformed.select_dtypes(exclude=['number', 'bool'])
+        print('Non numeric/bool dtypes (please validate):', non_numbool.dtypes, file=self.out)
+        print(non_numbool.head(), file=self.out)
         print('transformed -> Any NA:', alls_transformed.isna().sum(axis=0).any(), file=self.out)
         print('transformed -> *All* NA:', alls_transformed.columns[alls_transformed.isna().all()], file=self.out)
         print('transformed shape:', alls_transformed.shape, file=self.out)
@@ -2082,7 +2087,6 @@ class full_dating_regression(object):
             #self.a_t.dropna(inplace=True)
 
     #def do_norm(self):
-        print("type(a_t) = %r." % type(a_t), file=self.out)
         logger.debug('Will Z-score: from %r a_t %s %s', type(a_t), a_t.shape,
                      [ft for ft in responses+features if ft not in bin_features])
             #{ft: zscore for ft in responses+features if ft not in bin_features})
@@ -2095,8 +2099,6 @@ class full_dating_regression(object):
         #if a_t.index.has_duplicates or a_t.columns.has_duplicates:
         n_dup_rows = a_t.index.duplicated().sum()
         dup_cols = a_t.columns[a_t.columns.duplicated()]
-        print('a_t has duplicates in index: %d, columns: %d (%s)' % (
-               n_dup_rows, len(dup_cols), dup_cols.tolist()), file=self.out)
         logger.warning('a_t has duplicates in index: %d, columns: %d (%s)',
                        n_dup_rows, len(dup_cols), dup_cols.tolist())
         def zscore_dataframe(df):
@@ -2106,9 +2108,10 @@ class full_dating_regression(object):
             #    axis=1)
             dfnum = df.select_dtypes(np.number)  #exclude=
             if set(df.columns.difference(dfnum.columns)):
-                logger.error("Non-numeric columns can't be zscored (=>dropped): %s",
-                             df.columns.difference(dfnum.columns))
-            df = dfnum
+                #logger.error(
+                raise ValueError("Non-numeric columns can't be zscored (=>dropped): %s"
+                                 % (df.columns.difference(dfnum.columns)))
+                #df = dfnum
             dfmean = df.mean()
             assert isinstance(dfmean, pd.Series), type(dfmean)
             assert (dfmean.index is df.columns), df.columns.difference(dfmean.index)
