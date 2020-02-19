@@ -1519,6 +1519,101 @@ def compare_params(x='taxon', y='age_dS', split=True, order=None, hue_order=None
     return stacked, subgroup_disp, ltests
 
 
+def display_errors(params, control='timetree', age_col='age_dS',
+                   plotsize=(12, 5), save=False, plot=True):
+    """From notebook `Speciations.ipynb`"""
+    global ordered_simii_anc, phyltree, age_analysis
+    
+    mean_abs_errors            = np.full((len(ordered_simii_anc), len(params)), np.NaN)
+    scaled_mean_abs_errors     = np.full((len(ordered_simii_anc), len(params)), np.NaN)
+    asymscaled_mean_abs_errors = np.full((len(ordered_simii_anc), len(params)), np.NaN)
+    
+    std_abs_errors            = np.full((len(ordered_simii_anc), len(params)), np.NaN)
+    scaled_std_abs_errors     = np.full((len(ordered_simii_anc), len(params)), np.NaN)
+    asymscaled_std_abs_errors = np.full((len(ordered_simii_anc), len(params)), np.NaN)
+    
+    for i,anc in enumerate(ordered_simii_anc):
+        
+        #FIXME
+        real_age = calibrations.loc[anc, "%s_age" % control]  #phyltree.ages[anc]
+        
+        # Asymmetric error measure
+        next_calib = max(phyltree.ages[ch] for ch,_ in phyltree.items[anc])
+        parent_calib = phyltree.ages[phyltree.parent[anc].name]
+
+        # Symmetric error measure
+        calib_scale = parent_calib - next_calib
+
+        #fig, axes = plt.subplots(len(params), figsize=(plotsize, 5*len(params)), sharex=True, sharey=True)
+        if plot:
+            fig = plt.figure(figsize=plotsize)
+            ax = None
+    
+        nax = sum(1 for p in params if p in age_analyses[anc])
+        for j, param in enumerate(params):
+            try:
+                data = age_analyses[anc][param].ages_controled.query('calibrated==0')[age_col]
+            except KeyError as err:
+                logger.warning("! age_analysis[%r][%r] => %r" % (anc, param, err))
+                continue
+            
+            #measure = 'dS'
+            #dev_data = age_analyses[anc][param].mean_errors[('' if control=='median' else control) + 
+            #                                                '_abs_dev_age_' + measure]
+            #dev_data.mean() / calib_scale
+            
+            # Symmetric
+            errs = (real_age - data).abs()
+            err = errs.mean()
+            scaled_err = err / calib_scale
+            print('# %-25s %-8s:\tscaled (sym)  mean_abs_error = %.4f' % (anc, param, scaled_err))
+
+            mean_abs_errors[i, j] = err
+            scaled_mean_abs_errors[i, j] = scaled_err
+            std_abs_errors[i, j] = errs.std()
+            scaled_std_abs_errors[i, j] = std_abs_errors[i, j] / calib_scale
+            # Asymmetric
+
+            #dev_data = age_analyses[anc][param].mean_errors[('' if control=='median' else control) + 
+            #                                                '_signed_dev_age_' + measure]
+            #scaled_errs = np.where(dev_data<0, dev_data/(next_calib-real_age), dev_data/(parent_calib - real_age))
+            
+            errs = (data - real_age)
+            scaled_errs = np.where(errs<0, errs/(next_calib-real_age), errs/(parent_calib - real_age))
+            scaled_err = np.nanmean(scaled_errs)
+            asymscaled_std_abs_errors[i, j] = np.nanstd(scaled_errs, ddof=1)
+            
+            print('# %-25s %-8s:\tscaled (asym) mean_abs_error = %.4f\t[%7.4f ← %7.4f → %7.4f]' % (anc, param,
+                                    scaled_err, next_calib, real_age, parent_calib))
+
+            asymscaled_mean_abs_errors[i, j] = scaled_err
+
+            # Plot distrib
+            if not plot:
+                continue
+            ax = fig.add_subplot(nax, 1, j+1, sharex=ax)
+            data.hist(bins=50, ax=ax)
+            
+            y = ax.get_ylim()
+            ax.plot([real_age]*2, y, label=('%s age' % control))
+            ax.plot([data.median()]*2, y, label='median')
+            ax.plot([data.mean()]*2, y, label='mean')
+            ax.legend()
+            ax.set_title(param)
+            
+        if plot:
+            fig.suptitle(anc)
+            fig.set_size_inches(plotsize[0], nax*plotsize[1])
+            plt.show()
+            if save:
+                fig.savefig('../fig/ages_%s.pdf' % anc, bbox_inches='tight')
+                
+    return (pd.DataFrame(scaled_mean_abs_errors, index=ordered_simii_anc, columns=params),
+            pd.DataFrame(scaled_std_abs_errors, index=ordered_simii_anc, columns=params),
+            pd.DataFrame(asymscaled_mean_abs_errors, index=ordered_simii_anc, columns=params),
+            pd.DataFrame(asymscaled_std_abs_errors, index=ordered_simii_anc, columns=params))
+
+
 def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
                           L1_wt=1, cov_type='HC1', out=None, **psummary_kw):
     exog = sm.add_constant(a[features])
