@@ -2082,12 +2082,56 @@ class full_dating_regression(object):
             #self.a_t.dropna(inplace=True)
 
     #def do_norm(self):
-        logger.debug('Will Z-score: %s', [ft for ft in responses+features if ft not in bin_features])
+        print("type(a_t) = %r." % type(a_t), file=self.out)
+        logger.debug('Will Z-score: from %r a_t %s %s', type(a_t), a_t.shape,
+                     [ft for ft in responses+features if ft not in bin_features])
             #{ft: zscore for ft in responses+features if ft not in bin_features})
         logger.debug('Will join binary features: %s', bin_features)
-        a_n = a_t.transform({ft: zscore for ft in responses+features
-                             if ft not in bin_features})\
+        # This deep shit of .transform() is creating a RecursionError.
+        # Also tried: zscore(df) but specifically fails on a_t.
+        # Also tried .apply(zscore, raw=True, result_type='broadcast')
+        # Back to good ol' numpy:
+        # Ok, the problem was duplicates in index.
+        #if a_t.index.has_duplicates or a_t.columns.has_duplicates:
+        n_dup_rows = a_t.index.duplicated().sum()
+        dup_cols = a_t.columns[a_t.columns.duplicated()]
+        print('a_t has duplicates in index: %d, columns: %d (%s)' % (
+               n_dup_rows, len(dup_cols), dup_cols.tolist()), file=self.out)
+        logger.warning('a_t has duplicates in index: %d, columns: %d (%s)',
+                       n_dup_rows, len(dup_cols), dup_cols.tolist())
+        def zscore_dataframe(df):
+            #a = np.divide(
+            #    np.subtract(df.values, np.nanmean(df.values, axis=0), axis=1),
+            #    np.nanstd(df.values, axis=0),
+            #    axis=1)
+            dfnum = df.select_dtypes(np.number)  #exclude=
+            if set(df.columns.difference(dfnum.columns)):
+                logger.error("Non-numeric columns can't be zscored (=>dropped): %s",
+                             df.columns.difference(dfnum.columns))
+            df = dfnum
+            dfmean = df.mean()
+            assert isinstance(dfmean, pd.Series), type(dfmean)
+            assert (dfmean.index is df.columns), df.columns.difference(dfmean.index)
+            assert (not dfmean.index.has_duplicates), dfmean.index[dfmean.index.duplicated()]
+            dfcentered = df.sub(dfmean, axis=1)
+            assert isinstance(dfcentered, pd.DataFrame), type(dfcentered)
+            assert (dfcentered.shape == df.shape), dfcentered.shape
+            assert (dfcentered.index is df.index), dfcentered.index
+            assert (dfcentered.columns is df.columns), dfcentered.columns
+            assert not dfcentered.index.has_duplicates
+            assert not dfcentered.columns.has_duplicates
+            dfstd = df.std(ddof=1)
+            assert isinstance(dfstd, pd.Series), type(dfstd)
+            assert (dfstd.index is df.columns), dfstd.index
+            assert not dfstd.index.has_duplicates
+
+            return dfcentered.div(dfstd, axis=1)
+
+        a_n = zscore_dataframe(a_t[[ft for ft in responses+features
+                                    if ft not in bin_features]])\
                  .join(alls_transformed[bin_features])
+        #a_n = pd.concat()
+
         print('\nResponse transforms and normalisations:\n'
                 + '\n'.join('%s -> %s : Mean=%.4f Std=%.4f'
                             %(r, suggested_transform[r].__name__,
@@ -2489,9 +2533,12 @@ class full_dating_regression(object):
 
         # Removing bad data probably shifted Y. We need to re-center and standardize.
         self.a_n_inde2 = a_n_inde2 = a_n_inde2.assign(
-                            **dict(a_n_inde2[[ft for ft in (self.responses+inde_features2)
-                                    if self.suggested_transform[self.decorr_source.get(ft, ft)] is not binarize]]\
-                                   .transform(zscore)))
+            **dict(
+            a_n_inde2[
+                      [ft for ft in (self.responses+inde_features2)
+                       if self.suggested_transform[self.decorr_source.get(ft, ft)] is not binarize]
+                     ].transform(zscore)  #.apply(zscore, raw=True, result_type='broadcast')
+                  ))
         #TODO: drop some constant features.
 
         print('Check multi-colinearity post-removal of bad data:', file=self.out)
@@ -2872,7 +2919,7 @@ if __name__ == '__main__':
     forgotten = set(alls.columns) - set(totransform)
     assert not forgotten, forgotten
 
-    alls_normed = alls_transformed.transform({ft: zscore for ft in features})
+    alls_normed = zscore(alls_transformed[features])
     alls_normed[responses] = alls_transformed[responses]
 
     print(alls_normed.shape)
