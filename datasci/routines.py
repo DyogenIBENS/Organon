@@ -547,7 +547,7 @@ def display_decorrelate(var, correlated_var, data, logdata=None):
               stats.pearsonr(logdecor_var, logdata[correlated_var])[0]))
 
 
-def drop_eval(features, func):
+def leave1out_eval(features, func):
     """Example: func=lambda x: multicol_test(df[x])"""
     out = pd.Series(0, index=features, dtype=float)
     for i, ft in enumerate(features):
@@ -556,12 +556,19 @@ def drop_eval(features, func):
     return out
 
 
-def display_drop_eval(features, func):
-    return drop_eval(features, func).to_frame.style.bar()
+def display_leave1out_eval(features, func):
+    return leave1out_eval(features, func).to_frame.style.bar()
 
 
-def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=None,
-                   protected=None, format_df='matplotlib', widget=None, out=None):
+def loop_leave1out(features, func, criterion='min', nloops=None, stop_criterion=None,
+                   protected=None, format_df='matplotlib', widget=None, out=None,
+                   na_equiv='nan'):
+    """NOTE: NaN values returned by `func` never fulfill the stop_criterion.
+    na_equiv = "nan" -> NA values propagate in min and max.
+    na_equiv = "Inf" -> NA values propagate in max only.
+    na_equiv = "-Inf" -> NA values propagate in min only.
+    na_equiv = "ignore" -> NA values are skipped.
+    """
     #if out is not None:
         # Replace the functions: `print`, `display`, `plt.show`
         #FIXME: Implementation could probably be nicer with something like Mock.patch.
@@ -598,24 +605,41 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
 
     if widget is None:
         widget = lambda iterator, *a, **kw: iterator
-        
+    
+    na_equiv = na_equiv.lower()
+    if criterion == 'min':
+        select_drop = np.argmin if na_equiv in ('nan', '-inf') else np.nanargmin
+        def is_stopped(values, i): return values[i] < stop_criterion
+    elif criterion == 'max':
+        select_drop = np.argmax if na_policy in ('nan', 'inf') else np.nanargmax
+        def is_stopped(values, i): return values[i] > stop_criterion
+    else:
+        raise ValueError('Unknown criterion %r (min/max)' % criterion)
+    if stop_criterion is None:
+        def is_stopped(values, i): return False
+
     dropped_features = []
     next_features = [ft for ft in features]
     for k in widget(range(nloops)):
-        dropped_k = drop_eval(next_features, func)
-        format_df(dropped_k)
+        left1out_k = leave1out_eval(next_features, func)
+        if na_equiv == 'nan' and np.isnan(left1out_k[protected].values).any():
+            logger.warning('NaN values in func evaluations (protected features).')
+        format_df(left1out_k)
+        # Also check protected features
+        i = select_drop(left1out_k.values)
+        if next_features[i] in protected:
+            logger.info('Would have dropped protected feature %r',
+                        left1out_k)
+            # "Protect" from criterion by setting a "good" value (min if "max" and conversely)
+            left1out_k[protected] = left1out_k.min() if criterion=='max' else left1out_k.max()
+            i = select_drop(left1out_k.values)
 
-        dropped_k[protected] = dropped_k.min() if criterion=='max' else dropped_k.max()
-        if criterion == 'min':
-            i = dropped_k.values.argmin()  # Numpy argmin -> get an integer index.
-            stopped = False if stop_criterion is None else (dropped_k.values[i] < stop_criterion)
-        elif criterion == 'max':
-            i = dropped_k.values.argmax()  # Numpy argmin -> get an integer index.
-            stopped = False if stop_criterion is None else (dropped_k.values[i] > stop_criterion)
-        else:
-            raise ValueError('Unknown criterion %r (min/max)' % criterion)
+        if na_equiv == 'nan' and np.isnan(left1out_k.drop(protected).values).any():
+            logger.warning('NaN values in func evaluations of (non-protected features).')
+        stopped = is_stopped(left1out_k.values, i)
         
         if next_features[i] in protected:
+            # It means that there are no un-protected features to drop. Must exit.
             break
         print('%d. DROP %s' % (k, next_features[i]), file=out)
         dropped_features.append(next_features[i])
@@ -625,7 +649,6 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
         next_features = next_features[:i] + next_features[(i+1):]
 
     if not stopped:
-        print('WARNING: could not reach the criterion %s' % stop_criterion, file=out)
         logger.warning('could not reach the criterion %s', stop_criterion)
     return dropped_features, outputs
 

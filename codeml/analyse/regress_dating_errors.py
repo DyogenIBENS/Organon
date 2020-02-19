@@ -73,21 +73,37 @@ try:
     #clogfmt = "$LVL%(levelname)-7s:$RESET${white}l.%(lineno)3s:%(funcName)-20s:$RESET%(message)s"
     clogfmt = "$LVL%(levelname)-7s:$RESET${white}l.%(lineno)2s:$RESET%(message)s"
     colorlogf = colorlog.ColoredFormatter(clogfmt)
+    clogfmt2 = "$LVL%(levelname)-7s:$RESET${white}l.%(lineno)2s:$BOLD%(funcName)-20s$RESET:%(message)s"
+    colorlogf2 = colorlog.ColoredFormatter(clogfmt2)
 except ImportError:
-    colorlogf = logf
+    colorlogf = colorlogf2 = logf
 
 # Notebook setup
 logger = logging.getLogger(__name__)
-if not logger.hasHandlers():
-    sh = logging.StreamHandler(sys.stdout)
-    sh.setFormatter(colorlogf)
-    logger.setLevel(logging.INFO)
-    logger.handlers = []
-    logger.addHandler(sh)
+logger.setLevel(logging.INFO)
+# Loggers needed:
+logger_stats = logging.getLogger('datasci.stats')  # == datasci.stats.logger
+logger_graphs = logging.getLogger('datasci.graphs') # == datasci.graphs.logger
+logger_routines = logging.getLogger('datasci.routines')
+logger_dfr = logging.getLogger('datasci.dataframe_recipees')
+loggers = (logger, logger_stats, logger_graphs, logger_routines, logger_dfr)
+
+sh = logging.StreamHandler(sys.stdout)
+sh.setFormatter(colorlogf)
+for hdlr in logger.handlers:
+    hdlr.close()
+logger.handlers = []
+logger.addHandler(sh)
+
+sh2 = logging.StreamHandler(sys.stdout)
+sh2.setFormatter(colorlogf2)
+for logr in loggers[1:]:  # From imported modules
+    for hdlr in logr.handlers:
+        hdlr.close()
+    logr.handlers = []
+    logr.addHandler(sh2)
     #logging.basicConfig(handlers=[sh])
     #logging.basicConfig()
-# to reset:
-#logging.shutdown()
 
 myslideshow_js = op.expanduser('~/mydvpt/atavistic-doc-tools/myslideshow.js')
 myslideshow_css = myslideshow_js.replace('.js', '.css')
@@ -1649,6 +1665,8 @@ def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
     for i, ft in enumerate(sorted_features, start=1):
         multicol_test_cumul.loc[ft] = [multicol_test(exog[['const'] + sorted_features[:i]]),
                                        multicol_test(exog[sorted_features[:i]])]
+        if multicol_test_cumul.loc[ft].isna().any():
+            logger.error("NaN multi-colinearity condition numbers at %s", ft)
 
     pslopes = sm_pretty_summary(fitlasso, multicol_test_cumul, out=out)
     try:
@@ -2096,11 +2114,11 @@ class full_dating_regression(object):
         # Also tried .apply(zscore, raw=True, result_type='broadcast')
         # Back to good ol' numpy:
         # Ok, the problem was duplicates in index.
-        #if a_t.index.has_duplicates or a_t.columns.has_duplicates:
-        n_dup_rows = a_t.index.duplicated().sum()
-        dup_cols = a_t.columns[a_t.columns.duplicated()]
-        logger.warning('a_t has duplicates in index: %d, columns: %d (%s)',
-                       n_dup_rows, len(dup_cols), dup_cols.tolist())
+        if a_t.index.has_duplicates or a_t.columns.has_duplicates:
+            n_dup_rows = a_t.index.duplicated().sum()
+            dup_cols = a_t.columns[a_t.columns.duplicated()]
+            logger.warning('a_t has duplicates in index: %d, columns: %d (%s)',
+                           n_dup_rows, len(dup_cols), dup_cols.tolist())
         def zscore_dataframe(df):
             #a = np.divide(
             #    np.subtract(df.values, np.nanmean(df.values, axis=0), axis=1),
@@ -2420,7 +2438,7 @@ class full_dating_regression(object):
             #multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
             protected_features = [ft for ft in self.protected_features
                                     if ft in self.inde_features]
-            self._suggest_multicolin, outputs = loop_drop_eval(self.inde_features,
+            self._suggest_multicolin, outputs = loop_leave1out(self.inde_features,
                                           lambda x: multicol_test(self.a_n_inde[x]),
                                           stop_criterion=20,
                                           protected=protected_features,
@@ -2436,7 +2454,7 @@ class full_dating_regression(object):
             print('\n#### Finding the most colinear features (after bad-data removed)', file=self.out)
             #multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
             protected_features2 = self.protected_features.intersection(self.inde_features2)
-            self._suggest_multicolin2, outputs = loop_drop_eval(self.inde_features2,
+            self._suggest_multicolin2, outputs = loop_leave1out(self.inde_features2,
                                           lambda x: multicol_test(self.a_n_inde2[x]),
                                           stop_criterion=20,
                                           protected=protected_features2,
@@ -2498,7 +2516,7 @@ class full_dating_regression(object):
                +"sample sizes: %d, %d)") % (*tt_bad,
                   (~bad_data_rows).sum(), bad_data_rows.sum()), file=self.out)
         bad_props_ttests = pd.DataFrame(bad_props_ttests, index=['T', 'P']).T
-        na_ttests = bad_props_ttests.isna()
+        na_ttests = bad_props_ttests['P'].isna()
         
         bad_props_ttests['Pcorr'] = smm.multipletests(
                                             bad_props_ttests['P'],
@@ -2620,6 +2638,9 @@ class full_dating_regression(object):
             fig = heatmap_cov(refitlasso2.cov_HC0, ['const']+self.selected_features2,
                         cmap='seismic', make_corr=True)
             fig.suptitle('cov_HC0')
+            n = refitlasso2.cov_HC0.shape[0]
+            w, h = fig.get_size_inches()
+            fig.set_size_inches(min(w, w/20. * n), min(h, h/20 * n))
             self.displayed.append(fig)
             self.show(); plt.close()
         else:
@@ -2627,9 +2648,12 @@ class full_dating_regression(object):
         if hasattr(refitlasso2, 'cov_HC1'):
             fig = heatmap_cov(refitlasso2.cov_HC1, ['const']+self.selected_features2,
                         cmap='seismic', make_corr=True)
+            n = refitlasso2.cov_HC1.shape[0]
+            w, h = fig.get_size_inches()
+            fig.set_size_inches(min(w, w/20. * n), min(h, h/20. * n))
             fig.suptitle('cov_HC1')
-            self.show(); plt.close()  # Not needed because this is the last figure before return.
             self.displayed.append(fig)
+            self.show(); plt.close()  # Not needed because this is the last figure before return.
         else:
             logger.warning("No attribute 'cov_HC1' in `refitlasso2`.")
 

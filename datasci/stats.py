@@ -9,6 +9,8 @@ from functools import partial
 import numpy as np
 import scipy.stats as stats
 import matplotlib.pyplot as plt
+import logging
+logger = logging.getLogger(__name__)
 
 
 def normal_fit(var):
@@ -204,8 +206,11 @@ def multicol_test(X):
     """Values >20 mean high colinearity."""
     norm_xtx = np.dot(X.T, X)
     eigs = np.linalg.eigvals(norm_xtx)
+    emax, emin = eigs.max(), eigs.min()
+    if not np.isfinite(emax) or not np.isfinite(emin) or emax/emin<0:
+        logger.warning('Invalid max(eigs), min(eigs) = %s, %s', emax, emin)
     #condition_number
-    return np.sqrt(eigs.max() / eigs.min())
+    return np.sqrt(emax / emin)
 
 
 # Gamma distribution utilities

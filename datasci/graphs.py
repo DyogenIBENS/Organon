@@ -515,7 +515,7 @@ def heatmap_cov(ft_cov, features=None, cmap='seismic', make_corr=False,
     ax_cb.set_ylabel('Correlation coefficient' if make_corr else 'Covariance')
     box_cb = ax_cb.get_position()
     w_cb, h_cb = box_cb.size
-    ax_cb.set_position(box_cb.translated(w_cb/2., h_cb/4.).shrunk(0.5,0.5).shrunk_to_aspect(ft_cov.shape[0]))
+    ax_cb.set_position(box_cb.translated(w_cb/2., h_cb/4.).shrunk(0.5,0.5).shrunk_to_aspect(25))
 
     #xmin_ylabel = min(yt.get_window_extent().x0 / fig.dpi for yt in ax.get_yticklabels())
     #logger.debug('xmin_ylabel: %s VS xmin (ax): %s', xmin_label,
