@@ -22,17 +22,29 @@ LVL_I = {
     'DEBUG':    COLORS_I.WHITE,
     'CRITICAL': COLORS_I.YELLOW,
     'ERROR':    COLORS_I.RED}
-
-
-BG_LVLCOLOR = {lvl: COLOR_SEQ % (40+i) for lvl,i in LVL_I.items()}
-LVLCOLOR    = {lvl: COLOR_SEQ % (30+i) for lvl,i in LVL_I.items()}
-
-LVLCOLOR.update(ERROR=COLOR['RED'], CRITICAL=BG_COLOR['bgred'])
+LVL_COLNAME = {  # For Html.
+    'WARNING':  'gold',  # Orange/GoldenRod
+    'INFO':     'green',
+    'DEBUG':    'gray',
+    'CRITICAL': 'orange',
+    'ERROR':    'red'}
 
 BASIC_FORMAT = '$LVL%(levelname)s$RESET:$BLACK%(name)s$RESET:%(message)s'
+#BASIC_HTML_FORMAT = '<span style="$LVL">%(levelname)s</span>'
 
 
 class ColoredFormatter(logging.Formatter):
+    """Colorize logs using terminal color codes.
+    Works in terminal and Jupyter notebook.
+    """
+
+    RESET_SEQ = RESET_SEQ
+    BOLD_SEQ = BOLD_SEQ
+    BG_LVLCOLOR = {lvl: COLOR_SEQ % (40+i) for lvl,i in LVL_I.items()}
+    LVLCOLOR    = {lvl: COLOR_SEQ % (30+i) for lvl,i in LVL_I.items()}
+    LVLCOLOR.update(ERROR=COLOR['RED'], CRITICAL=BG_COLOR['bgred'])
+    COLOR = COLOR
+    BG_COLOR = BG_COLOR
 
     def __init__(self, fmt=None, datefmt=None, style='%'):
         if fmt is not None:
@@ -40,29 +52,43 @@ class ColoredFormatter(logging.Formatter):
             fmt = colored_template.substitute(
                             BGLVL=('%(bglvlcol)s' if style=='%' else '{bglvlcol}'),
                             LVL=('%(lvlcol)s' if style=='%' else '{lvlcol}'),
-                            RESET=RESET_SEQ,
-                            BOLD=BOLD_SEQ,
-                            **COLOR, **BG_COLOR)
+                            RESET=self.RESET_SEQ,
+                            BOLD=self.BOLD_SEQ,
+                            **self.COLOR, **self.BG_COLOR)
         super(ColoredFormatter, self).__init__(fmt, datefmt, style)
 
 
     def format(self, record):
         levelname = record.levelname
-        if levelname in LVLCOLOR:
+        if levelname in self.LVLCOLOR:
             record = copy(record)
-            record.__dict__.update(bglvlcol=BG_LVLCOLOR[levelname],
-                                   lvlcol=LVLCOLOR[levelname])
+            record.__dict__.update(bglvlcol=self.BG_LVLCOLOR[levelname],
+                                   lvlcol=self.LVLCOLOR[levelname])
         return super(ColoredFormatter, self).format(record)
 
+    @classmethod
+    def install(cls, *loggers, stream=sys.stderr, format=BASIC_FORMAT, **formatter_kwargs):
+        sh = logging.StreamHandler(stream)
+        sh.setFormatter(cls(format, **formatter_kwargs))
+        if not loggers:
+            logging.basicConfig(handlers=[sh])
+        else:
+            for logger in loggers:
+                logger.addHandler(sh)
 
-def install(*loggers, stream=sys.stderr, format=BASIC_FORMAT, **formatter_kwargs):
-    sh = logging.StreamHandler(stream)
-    sh.setFormatter(ColoredFormatter(format, **formatter_kwargs))
-    if not loggers:
-        logging.basicConfig(handlers=[sh])
-    else:
-        for logger in loggers:
-            logger.addHandler(sh)
+
+class HtmlColoredFormatter(ColoredFormatter):
+    RESET_SEQ = '</span>'
+    BOLD_SEQ = '<span style="font-weight: bold">'
+    BG_LVLCOLOR = {lvl: '<span style="background: %s">' % col for lvl,col in LVL_COLNAME.items()}
+    LVLCOLOR    = {lvl: '<span style="color: %s">' % col for lvl,col in LVL_COLNAME.items()}
+    LVLCOLOR.update(ERROR='<span style="color: red;font-weight: bold">',
+                    CRITICAL='<span style="background: red">')
+    COLOR = {col.lower(): '<span style="color: %s">' % col.lower() for col in COLOR}
+    COLOR.update({col.upper(): '<span style="color: %s;font-weight: bold">' % col.lower()
+                  for col in COLOR})
+    BG_COLOR = {('BG' if col.isupper() else 'bg')+col: tag.replace('color:', 'background:')
+                for col, tag in COLOR.items()}
 
 
 # Pb: if there were width specifications, they aren't visually respected anymore (because ANSI escape codes consume width internally, but not visibly)...

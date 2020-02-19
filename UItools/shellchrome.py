@@ -21,7 +21,7 @@ BOLD_SEQ = "\033[1m"
 #The background is set with 40 plus the number of the color, and the foreground with 30
 BG_COLOR = {'bg'+colname.lower(): COLOR_SEQ % (40+i)
             for colname,i in COLORS_I._asdict().items()}
-BG_COLOR.update({'bg'+colname: BRIGHT_SEQ % (30+i)
+BG_COLOR.update({'BG'+colname: BRIGHT_SEQ % (30+i)
             for colname,i in COLORS_I._asdict().items()})
 COLOR =    {colname.lower(): COLOR_SEQ % (30+i)
             for colname,i in COLORS_I._asdict().items()}
