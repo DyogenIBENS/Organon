@@ -174,16 +174,16 @@ renorm_logdecorrelate = partial(check_decorrelator, zscore_subtract)
 renorm_unregress = partial(check_decorrelator, zscore_unregress)
 
 
-def test_transforms(alls, variables, figsize=(14, 5), widget=False, out=None):
+def test_transforms(alls, variables, figsize=(14, 5), out=None, widget=None):
     """:param: out: file-like object with `.write()` method (given to `print`).
     If out.output, out.html or out.show exist, they replace
     display, display_html and plt.show.
     """
     #fig, axes = plt.subplots(len(variables),3, figsize=(22, 5*len(variables)))
-    if out is not None:
+    #if out is not None:
         # Replace the functions: `print`, `display`, `plt.show`
-        if widget:
-            raise ValueError("arguments `out` and `widget` are incompatible")
+        #if widget:
+        #    raise ValueError("arguments `out` and `widget` are incompatible")
         #FIXME: Implementation could probably be nicer with something like Mock.patch.
         # From the datasci.savior.*Report classes
     disp = getattr(out, 'output', display)
@@ -195,12 +195,14 @@ def test_transforms(alls, variables, figsize=(14, 5), widget=False, out=None):
     suggested_transform = {}
 
     iter_features = enumerate(variables)
-    if widget:
-        try:
-            from UItools.jupytertricks import make_tabs
-            iter_features = make_tabs(iter_features, lambda item: item[1])
-        except ImportError as err:
-            logger.error()
+    if widget is not None:
+        #iter_features = zip(iter_features, widget())  # Example: widget=lambda: generate_slideshow(hr)
+        iter_features = widget(iter_features)  # Example: widget=slideshow_generator(hr)
+        #try:
+        #    from UItools.jupytertricks import make_tabs
+        #    iter_features = make_tabs(iter_features, lambda item: item[1])
+        #except ImportError as err:
+        #    logger.error()
     for i, ft in iter_features:
 
         var = alls[ft]
@@ -341,23 +343,24 @@ def test_transforms(alls, variables, figsize=(14, 5), widget=False, out=None):
 
         #fig.show(warn=False)
         show()
+        plt.close(fig)
         suggested_transform[ft] = sorted(transform_skews.items(),
                                          key=lambda x: abs(x[1]))[0][0]
 
     return suggested_transform  #, figs
 
 
-def randomforest_regression(X, y, cv=10, n_estimators=100, max_depth=5, **kwargs):
+def randomforest_regression(X, y, cv=10, n_estimators=100, max_depth=5, out=None, **kwargs):
     RF = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth)
     RFfit = RF.fit(X, y)
     ft_importance = pd.Series(RFfit.feature_importances_,
                               index=X.columns).sort_values(ascending=False)
-    print("R² =", RFfit.score(X, y))
-    print(ft_importance)  # Does not give the direction of the effect.
+    print("R² =", RFfit.score(X, y), file=out)
+    print(ft_importance, file=out)  # Does not give the direction of the effect.
 
     # a list of R² for each fit without a subsample
     RFcrossval = cross_val_score(RF, X, y, cv=cv, n_jobs=-1)
-    print(RFcrossval)
+    print(RFcrossval, file=out)
 
     return RFfit
 
@@ -409,6 +412,7 @@ def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
     ax.set_ylabel("Cumulative ratio of variance explained")
     show()
     outputs.append(fig)
+    plt.close(fig)  # Not sure of the consequences.
 
     # ### PC loadings
 
@@ -459,6 +463,7 @@ def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
         'Factor Analysis' if FA else 'PCA'))
     show()
     outputs.append(fig)
+    plt.close(fig)
 
     # Plot feature vectors in the PC space
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(10, 20),
@@ -469,6 +474,7 @@ def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
     fig.suptitle("Features in Principal Component space (%s)" % ('Factor Analysis' if FA else 'PCA'))
     show()
     outputs.append(fig)
+    plt.close(fig)
 
     fig, (ax0, ax1) = plt.subplots(1, 2, sharey=True)
     scatter_density(transformed[:,1], transformed[:,0], alpha=0.5, ax=ax0)
@@ -480,6 +486,7 @@ def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
     fig.suptitle('Data plotted in component space (%s)' % ('Factor Analysis' if FA else 'PCA'))
     show()
     outputs.append(fig)
+    plt.close(fig)
     return fa, outputs
 
 
@@ -554,11 +561,9 @@ def display_drop_eval(features, func):
 
 
 def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=None,
-                   protected=None, format_df='matplotlib', widget=True, out=None):
-    if out is not None:
+                   protected=None, format_df='matplotlib', widget=None, out=None):
+    #if out is not None:
         # Replace the functions: `print`, `display`, `plt.show`
-        if widget:
-            raise ValueError("arguments `out` and `widget` are incompatible")
         #FIXME: Implementation could probably be nicer with something like Mock.patch.
     disp = getattr(out, 'output', display)
     disp_html = getattr(out, 'html', display_html)
@@ -582,6 +587,7 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
             ax.figure.set_size_inches(bw*series.shape[0], bh)
             show()
             outputs.append(ax.figure)
+            plt.close(ax.figure)
     elif format_df in ('pd', 'pandas'):
         def format_df(df):
             styled = series.to_frame().style.bar()
@@ -590,16 +596,12 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
     elif not callable(format_df):
         raise ValueError('`show` must be a value in [None, "pandas", "matplotlib"] or a callable')
 
-    make_tabs = lambda iterator, *a, **kw: iterator
-    if widget:
-        try:
-            from UItools.jupytertricks import make_tabs
-        except ImportError as err:
-            logger.error()
-
+    if widget is None:
+        widget = lambda iterator, *a, **kw: iterator
+        
     dropped_features = []
     next_features = [ft for ft in features]
-    for k in make_tabs(range(nloops)):
+    for k in widget(range(nloops)):
         dropped_k = drop_eval(next_features, func)
         format_df(dropped_k)
 
@@ -624,7 +626,7 @@ def loop_drop_eval(features, func, criterion='min', nloops=None, stop_criterion=
 
     if not stopped:
         print('WARNING: could not reach the criterion %s' % stop_criterion, file=out)
-        logger.warning('could not reach the criterion %s', stop_criterion, file=out)
+        logger.warning('could not reach the criterion %s', stop_criterion)
     return dropped_features, outputs
 
 
@@ -687,21 +689,26 @@ def sm_pretty_slopes(olsfit, join=None, renames=None, bars=['coef']):
     return r_coefs_styled
 
 
-def sm_pretty_summary(fit, join=None, renames=None, bars=['coef']):
+def sm_pretty_summary(fit, join=None, renames=None, bars=['coef'], out=None):
     try:
         summary = fit.summary()
     except NotImplementedError:
         summary = None
     if summary is not None:
-        display_html(summary.tables[0])
-        for table in summary.tables[2:]:
-            display_html(table)
+        try:
+            out.html(summary.tables[0])
+            for table in summary.tables[2:]:
+                out.html(table)
+        except AttributeError:
+            display_html(summary.tables[0])
+            for table in summary.tables[2:]:
+                display_html(table)
     else:
-        print('Warning: R² and adjusted R² not provided for this result.')
+        print('Warning: R² and adjusted R² not provided for this result.', file=out)
         print('R² =', r_squared(fit.model.endog, fit.fittedvalues),
               '; Adj. R² =', adj_r_squared(fit.model.endog,
                                          fit.fittedvalues,
-                                         len(fit.params)))
+                                         len(fit.params)), file=out)
     pretty_slopes = sm_pretty_slopes(fit, join, renames, bars)
     #display_html(pretty_slopes)
     return pretty_slopes

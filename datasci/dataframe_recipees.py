@@ -142,7 +142,8 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
         kind = 'barh'
         sharex, sharey = False, True
         layout = (1, len(y))
-        text_kwargs = dict(va=('bottom' if text_above else 'center'), ha='right', **text_kwargs)
+        text_kwargs = dict(va=('bottom' if text_above else 'center'), ha='right',
+                           **({} if text_kwargs is None else text_kwargs))
         text = lambda ax, pos, val: ax.text(ax.get_xlim()[1], pos, float_fmt % val,
                                             **text_kwargs)
         xerr, yerr = err, None
@@ -150,7 +151,8 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
         kind = 'bar'
         sharex, sharey = True, False
         layout = (len(y), 1)
-        text_kwargs = dict(ha='center', va='top', rotation=90, **text_kwargs)  # text_above is not going to work
+        text_kwargs = dict(ha='center', va='top', rotation=90,  # text_above is not going to work
+                           **({} if text_kwargs is None else text_kwargs))
         text = lambda ax, pos, val: ax.text(pos-(0.33 if text_above else 0),
                                             ax.get_ylim()[1], float_fmt % val,
                                             **text_kwargs)

@@ -58,8 +58,12 @@ import statsmodels.graphics as smg  # smg.gofplots.qqplot
 
 from IPython.display import display_html
 from IPython.utils.io import capture_output
+from datasci.savior import HtmlReport, CellReport, DoubleReport, \
+                        css_dark_style, generate_slideshow, slideshow_generator
 import logging
 
+# BUG in Jupyter Notebook: I must catch the following error:
+import joblib.externals.loky.process_executor #.TerminatedWorkerError
 
 logfmt = "%(levelname)-7s:l.%(lineno)3s:%(funcName)-20s:%(message)s"
 logf = logging.Formatter(logfmt)
@@ -85,7 +89,11 @@ if not logger.hasHandlers():
 # to reset:
 #logging.shutdown()
 
-mpl.style.use("softer")
+myslideshow_js = op.expanduser('~/mydvpt/atavistic-doc-tools/myslideshow.js')
+myslideshow_css = myslideshow_js.replace('.js', '.css')
+
+
+mpl.style.use("softer")  # See "softdark" as well.
 pd.set_option("display.max_columns", 50)
 pd.set_option("display.width", 115)
 pd.set_option("display.max_colwidth", 50)
@@ -1512,7 +1520,7 @@ def compare_params(x='taxon', y='age_dS', split=True, order=None, hue_order=None
 
 
 def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
-                          L1_wt=1, cov_type='HC1', **psummary_kw):
+                          L1_wt=1, cov_type='HC1', out=None, **psummary_kw):
     exog = sm.add_constant(a[features])
     if 'const' not in exog:
         logger.warning('No constant added to `exog`: some features are already constant')
@@ -1534,7 +1542,7 @@ def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
              fitlasso.params.drop('const').shape[0],
              len(features),
              atol,
-             almost_zero.sum()))
+             almost_zero.sum()), file=out)
 
     sorted_coefs = fitlasso.params.drop('const').abs().sort_values(ascending=False)
     sorted_features = sorted_coefs.index.tolist()
@@ -1547,16 +1555,19 @@ def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
         multicol_test_cumul.loc[ft] = [multicol_test(exog[['const'] + sorted_features[:i]]),
                                        multicol_test(exog[sorted_features[:i]])]
 
-    pslopes = sm_pretty_summary(fitlasso, multicol_test_cumul)
-    display_html(pslopes)
+    pslopes = sm_pretty_summary(fitlasso, multicol_test_cumul, out=out)
+    try:
+        out.html(pslopes)  #with out=HtmlReport()
+    except AttributeError:
+        display_html(pslopes)
 
     #scatter_density('ingroup_glob_len', y, data=a, alpha=0.5);
     #sb.violinplot('triplet_zeros_dS', 'abs_age_dev', data=a);
 
-    print('\n#### OLS refit of Lasso-selected variables (%g)' % atol)
+    print('\n#### OLS refit of Lasso-selected variables (%g)' % atol, file=out)
     #TODO: delete but make a refit.
     selected_features = sorted_coefs[sorted_coefs > atol].index.tolist()
-    print('Removed variables:', ', '.join(sorted_coefs[sorted_coefs <= atol].index))
+    print('Removed variables:', ', '.join(sorted_coefs[sorted_coefs <= atol].index), file=out)
     fit = sm.OLS(a[y], exog[['const'] + selected_features]).fit(cov_type='HC1')
 
     bars_to_show = ['coef', 'Lasso coef', 'Simple regression coef']
@@ -1576,8 +1587,11 @@ def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
                     ) + (() if info_to_join is None else (info_to_join,)),
                     axis=1, sort=False)
 
-    preslopes = sm_pretty_summary(fit, param_info, bars=bars_to_show, **psummary_kw)
-    display_html(preslopes)
+    preslopes = sm_pretty_summary(fit, param_info, bars=bars_to_show, out=out, **psummary_kw)
+    try:
+        out.html(preslopes)  #with out=HtmlReport()
+    except AttributeError:
+        display_html(preslopes)
 
     assert set(selected_features) == set(preslopes.data.drop('const').index)
     # Test of homoscedasticity
@@ -1737,11 +1751,12 @@ class full_dating_regression(object):
                  'features',
                  'measures',  # measures of branch lengths and ages.
                  'ref_suggested_transform',
-                 'impose_transform',
-                 'to_decorr',
-                 'must_drop_features',
-                 'protected_features',
-                 'must_drop_data']
+                 'impose_transform',    # global _must_transform
+                 'to_decorr',           # global _must_decorr
+                 'must_drop_features',  # global _must_drop_features
+                 'protected_features',  # global _protected_features
+                 'must_drop_data',      # global _must_drop_data
+                 'out', 'logger']
 
     init_defaults = {'ref_suggested_transform': dict,
                      'impose_transform': dict,
@@ -1754,13 +1769,34 @@ class full_dating_regression(object):
                  measures=MEASURES, ref_suggested_transform=None,
                  impose_transform=None, must_drop_features=None,
                  to_decorr=None,
-                 protected_features=None, must_drop_data=None):
+                 protected_features=None, must_drop_data=None,
+                 out=None, logger=None, widget=None):
         for k,v in locals().items():
             if k != 'self':
                 if k in self.init_defaults and v is None:
                     v = self.init_defaults[k]()  # initialize to the proper type.
                 setattr(self, k, v)
         self.displayed = []  # Figures and styled dfs
+        self.set_output()
+
+    def set_output(self):
+        try:
+            self.show = self.out.show
+        except AttributeError:
+            self.show = plt.show
+        try:
+            self.display = self.out.display
+        except AttributeError:
+            self.display = display
+        try:
+            self.display_html = self.out.html
+        except AttributeError:
+            self.display_html = display_html
+        #print('Setting logger: current __name__ = %r; ' % __name__,
+        #      'current self.__module__ = %r' % self.__module__)
+        if self.logger is None:
+            # For some reason, here __name__ == 'builtins'.
+            self.logger = logging.getLogger(self.__module__)
 
     @classmethod
     def from_other(cls, other_regression):
@@ -1775,6 +1811,7 @@ class full_dating_regression(object):
                 except AttributeError as err:
                     err.args += (k,)
                     raise
+        self.set_output()
         return self
 
     def do_rates(self, unnamed_rate_setting=None, **named_rate_settings):
@@ -1787,7 +1824,7 @@ class full_dating_regression(object):
         toconcat = []
         for setting, rate_args in named_rate_settings.items():
             print('### Compute rates with setting %r and measures %s.'
-                    % (setting, ','.join(self.measures)))
+                    % (setting, ','.join(self.measures)), file=self.out)
             kwargs = {'branchtime': 'median_brlen_dS',
                       'taxon_age': 'median_age_dS',  # defaults kwargs
                       **rate_args}
@@ -1815,7 +1852,7 @@ class full_dating_regression(object):
             suggested_transform = test_transforms(alls,
                                     [ft for ft in responses+features
                                         if ft not in impose_transform],
-                                    widget=True) #ages_features + rate_features
+                                    out=self.out, widget=self.widget) #ages_features + rate_features
             #TODO: add to self.displayed
 
             suggested_transform.update(**dict(
@@ -1851,17 +1888,17 @@ class full_dating_regression(object):
                                 # *Updating*
                                 suggested_transform[k] = ref_suggested_transform[k]
                 if onlynew:
-                    print('Transforms only in new:', ', '.join(onlynew))
+                    print('Transforms only in new:', ', '.join(onlynew), file=self.out)
                 if onlyref:
-                    print('Transforms only in ref:', ', '.join(onlyref))
+                    print('Transforms only in ref:', ', '.join(onlyref), file=self.out)
                 if diff_funcs:
-                    print('Different transforms:\n', '\n'.join('%35s\t%s' % t for t in diff_funcs))
+                    print('Different transforms:\n', '\n'.join('%35s\t%s' % t for t in diff_funcs), file=self.out)
                 if diff_args:
-                    print('Different transform args:\n', '\n'.join('%35s\t%s' % t for t in diff_args))
+                    print('Different transform args:\n', '\n'.join('%35s\t%s' % t for t in diff_args), file=self.out)
 
             for ft in list(suggested_transform.keys()):
                 if ft not in alls.columns:
-                    logger.warning('Hardcoded feature %s not available: delete.', ft)
+                    self.logger.warning('Hardcoded feature %s not available: delete.', ft)
                     suggested_transform.pop(ft)
 
             self._suggested_transform = suggested_transform
@@ -1870,6 +1907,7 @@ class full_dating_regression(object):
 
     def do(self):
         """Run self.do_rates() first."""
+        logger = self.logger
         cs_rates = self.cs_rates
 
         data = self.data
@@ -1884,7 +1922,7 @@ class full_dating_regression(object):
         ages_controled = data.ages_controled
         mean_errors = data.mean_errors
 
-        print('\n# Merge features')
+        print('\n# Merge features', file=self.out)
         self.alls = alls = pd.concat((mean_errors,
                                       data.ns[dataset_params],
                                       cs_rates,
@@ -1893,8 +1931,8 @@ class full_dating_regression(object):
                                      verify_integrity=True)
 
         y = responses[0]
-        print('Variable Y :', y)
-        print('%d observation × %d features' % alls.shape)
+        print('Variable Y :', y, file=self.out)
+        print('%d observation × %d features' % alls.shape, file=self.out)
         if alls.shape[0] == 0:
             logger.error('NULL inner join from:\nmean_errors\n------\n'
                          + str(mean_errors.iloc[:5, :5]) + '\n'
@@ -1907,8 +1945,8 @@ class full_dating_regression(object):
                          )
             sys.exit(1)
         self.na_amount = na_amount = alls.isna().sum(axis=0).sort_values(ascending=False)
-        print('Amount of NA:', na_amount.head(10), sep='\n')
-        print('Amount of Inf:', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10), sep='\n')
+        print('Amount of NA:', na_amount.head(10), sep='\n', file=self.out)
+        print('Amount of Inf:', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10), sep='\n', file=self.out)
         
         too_many_na = na_amount.index[(na_amount >= 0.9*alls.shape[0])].tolist()
         many_na = na_amount.index[(na_amount >= 0.5*alls.shape[0])].tolist()
@@ -1935,17 +1973,17 @@ class full_dating_regression(object):
             logger.warning('Replace Inf,-Inf by NaN')
         alls_transformed = alls.replace([-np.Inf, np.Inf], np.NaN).transform(suggested_transform)
 
-        print('transformed -> Any NA:', alls_transformed.isna().sum(axis=0).any())
-        print('transformed -> *All* NA:', alls_transformed.columns[alls_transformed.isna().all()])
-        print('transformed shape:', alls_transformed.shape)
+        print('transformed -> Any NA:', alls_transformed.isna().sum(axis=0).any(), file=self.out)
+        print('transformed -> *All* NA:', alls_transformed.columns[alls_transformed.isna().all()], file=self.out)
+        print('transformed shape:', alls_transformed.shape, file=self.out)
 
         self.a_t = a_t = alls_transformed
 
         self.na_rows_t = na_rows_t = a_t.isna().any(axis=1)
         if na_rows_t.any():
-            print('%d NA rows (after transform).' % na_rows_t.sum())
+            print('%d NA rows (after transform).' % na_rows_t.sum(), file=self.out)
             print('Columns with NA (after transform):\n',
-                    a_t.isna().sum().sort_values(ascending=False).head())
+                    a_t.isna().sum().sort_values(ascending=False).head(), file=self.out)
             #self.a_t.dropna(inplace=True)
 
     #def do_norm(self):
@@ -1959,24 +1997,24 @@ class full_dating_regression(object):
                 + '\n'.join('%s -> %s : Mean=%.4f Std=%.4f'
                             %(r, suggested_transform[r].__name__,
                               a_t[r].mean(), a_t[r].std())
-                          for r in responses))
+                          for r in responses), file=self.out)
 
-        print(a_n.shape)
-        print('normed -> Any NA:', a_n.columns.values[a_n.isna().any(axis=0)])
-        print('Check a_n.head():')
-        display_html(a_n.head())
+        print(a_n.shape, file=self.out)
+        print('normed -> Any NA:', a_n.columns.values[a_n.isna().any(axis=0)], file=self.out)
+        print('Check a_n.head():', file=self.out)
+        self.display_html(a_n.head())
         self.na_rows_n = na_rows_n = a_n.isna().any(axis=1)
         if na_rows_n.any():
-            print('Drop %d NA rows (after zscoring)' % na_rows_n.sum())
+            print('Drop %d NA rows (after zscoring)' % na_rows_n.sum(), file=self.out)
             a_n.dropna(inplace=True)
 
         a_nn = a_n.select_dtypes(np.number)  # Numeric columns only.
         inf_rows = np.isinf(a_nn).any(axis=1)
         if inf_rows.any():
-            print('Drop %d Inf rows' % inf_rows.sum())
+            print('Drop %d Inf rows' % inf_rows.sum(), file=self.out)
             print('Data with Inf: column %s:\n%s' % (
                         a_nn.columns[np.isinf(a_nn).any()],
-                        alls[~na_rows_n][inf_rows].head(10)))
+                        alls[~na_rows_n][inf_rows].head(10)), file=self.out)
             a_n = a_n[~inf_rows].copy(deep=False)
         
         constant_vars = a_n.columns[(a_n.agg(np.ptp) == 0)].tolist()
@@ -1989,10 +2027,10 @@ class full_dating_regression(object):
 
 
     #def do_fitall(self):
-        print('\n### Fit of all features (lasso)')
+        print('\n### Fit of all features (lasso)', file=self.out)
 
         #fitlasso, fit, pslopes, displayed =
-        *_, pslopes0, preslopes0 = lassoselect_and_refit(a_n, y, features)
+        *_, pslopes0, preslopes0 = lassoselect_and_refit(a_n, y, features, out=self.out)
         self.displayed.extend((pslopes0, preslopes0))
 
         #sb.violinplot('null_dS_before', 'abs_age_dev', data=a_n, cut=0);
@@ -2002,19 +2040,19 @@ class full_dating_regression(object):
         #scatter_density(alls.null_dist_before, alls.null_dS_before)
 
     #def do_pca(self):
-        print('\n### Dimension reduction of features\n#### PCA')
+        print('\n### Dimension reduction of features\n#### PCA', file=self.out)
 
         ft_pca, ft_pca_outputs = detailed_pca(a_n, features, abs_cov=True,
                                               make_corr=True, heat_dendro=True,
-                                              dendro_pad=0.2)
+                                              dendro_pad=0.2, out=self.out)
         self.ft_pca = ft_pca
         self.displayed.extend(ft_pca_outputs)
 
-        print('\n#### Factor analysis')
+        print('\n#### Factor analysis', file=self.out)
 
         # To take into account continuous and categorical variables
 
-        FA, fa_outputs = detailed_pca(a_n, features, FA=True)
+        FA, fa_outputs = detailed_pca(a_n, features, FA=True, out=self.out)
         self.FA = FA
         self.displayed.extend(fa_outputs)
 
@@ -2032,7 +2070,7 @@ class full_dating_regression(object):
         #transformed0_out = transformed0[:,1] > eq_sep(transformed0[:,0])
         #plt.plot(transformed0[transformed0_out, 0], transformed0[transformed0_out, 1], 'r.')
 
-        print('\n### Feature decorrelation: 1. Drop features; 2. decorr.')
+        print('\n### Feature decorrelation: 1. Drop features; 2. decorr.', file=self.out)
         #must_drop_features
         ### **TODO**!!! Check that decorrelation is done on the un-zscored data!!
         
@@ -2042,8 +2080,8 @@ class full_dating_regression(object):
         except KeyError as err:
             logger.warning("Not in `self.a_n`:" + err.args[0])
             a_n_inde = a_n.drop(must_drop_features, axis=1, errors='ignore')
-        logger.info('Dropped : %s', ' '.join(a_n.columns.intersection(must_drop_features)))
-        print('%d Independent features (%d rows)' % a_n_inde.shape[::-1])
+        logger.info('Dropped: %s', ' '.join(a_n.columns.intersection(must_drop_features)))
+        print('%d Independent features (%d rows)' % a_n_inde.shape[::-1], file=self.out)
 
         #self.missing_todecorr = Args.fromitems()
         self.missing_todecorr = [pair for pair in
@@ -2136,12 +2174,12 @@ class full_dating_regression(object):
             a_n_inde = decorr_args(decorr_func, a_n_inde, a_t[~na_rows_n])
         # special_decorr
         a_n_inde['CpG_odds'] = zscore(log(alls.ingroup_mean_CpG / (alls.ingroup_mean_GC**2)))[~na_rows_n]
-        print('%d independent features (%d rows)' % a_n_inde.shape[::-1])
+        print('%d independent features (%d rows)' % a_n_inde.shape[::-1], file=self.out)
 
         inde_features = [ft for ft in features if ft in a_n_inde]
-        #print('inde_features', len(inde_features))
+        #print('inde_features', len(inde_features), file=self.out)
         inde_features += [colname for colname in a_n_inde.columns.difference(a_n.columns)]
-        print('inde_features', len(inde_features))
+        print('inde_features', len(inde_features), file=self.out)
 
         new_inde_features = set(inde_features) - set(features)
 
@@ -2174,9 +2212,9 @@ class full_dating_regression(object):
 
         na_rows_decorr = a_n_inde.isna().any(axis=1)
         if na_rows_decorr.any():
-            print('%d NA rows after decorr!' % na_rows_decorr.sum())
+            print('%d NA rows after decorr!' % na_rows_decorr.sum(), file=self.out)
 
-        #ft_pca_inde, ft_pca_inde_outputs = detailed_pca(a_n_inde, inde_features)
+        #ft_pca_inde, ft_pca_inde_outputs = detailed_pca(a_n_inde, inde_features, out=self.out)
         self.ft_pca_inde = ft_pca_inde = PCA(n_components=15)
         # The above line is necessary to get all attributes (e.g. covariance)
         ft_pca_inde.fit_transform(a_n_inde[inde_features]) # -> transformed data
@@ -2184,16 +2222,16 @@ class full_dating_regression(object):
         heatmap_cov(np.abs(ft_pca_inde.get_covariance()), inde_features,
                     make_corr=True).suptitle('Inde features absolute correlation (PCA)')
         self.displayed.append(plt.gcf())
-        plt.show()
+        self.show(); plt.close()
 
-        #FA_inde, FA_inde_outputs = detailed_pca(a_n_inde, inde_features, FA=True)
+        #FA_inde, FA_inde_outputs = detailed_pca(a_n_inde, inde_features, FA=True, out=self.out)
         self.FA_inde = FA_inde = FactorAnalysis(n_components=15)
         self.transformed_inde = transformed_inde = FA_inde.fit_transform(a_n_inde[inde_features])
 
         heatmap_cov(np.abs(FA_inde.get_covariance()), inde_features, make_corr=True)
         self.displayed.append(plt.gcf())
         self.displayed[-1].suptitle('Inde features absolute correlation (FA)')
-        plt.show()
+        self.show(); plt.close()
         fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
         scatter_density(transformed_inde[:,1], transformed_inde[:,0], alpha=0.4,
                         ax=ax1)
@@ -2202,23 +2240,28 @@ class full_dating_regression(object):
         scatter_density(transformed_inde[:,2], transformed_inde[:,0], alpha=0.4,
                         ax=ax2)
         ax2.set_xlabel('PC3')
-        plt.show()
         self.displayed.append(fig)
+        self.show(); plt.close()
 
 
     #def do_fit(self):
-        print('\n### Fit of less colinear features (after internal decorrelation)')
+        print('\n### Fit of less colinear features (after internal decorrelation)', file=self.out)
 
         self.fitlasso, self.fit, pslopes, preslopes = lassoselect_and_refit(
                                 a_n_inde, y, inde_features, atol=1e-2,
-                                method='elastic_net', L1_wt=1, cov_type='HC1') #**psummary_kw
+                                method='elastic_net', L1_wt=1, cov_type='HC1', out=self.out) #**psummary_kw
         self.slopes = pslopes.data
         self.reslopes = preslopes.data
         self.displayed.extend((pslopes, preslopes))
 
     #def do_randomforest(self):
-        print('\n#### Random Forest Regression')
-        RFcrossval_r2 = randomforest_regression(a_n_inde[inde_features], a_n_inde[y])
+        print('\n#### Random Forest Regression', file=self.out)
+        try:
+            RFcrossval_r2 = randomforest_regression(a_n_inde[inde_features], a_n_inde[y],
+                                                    out=self.out)
+        except joblib.externals.loky.process_executor.TerminatedWorkerError:
+            logger.error("Can't compute RFcrossval_r2 from random forest due to parallel error (TerminatedWorkerError)")
+
 
         reslopes2 = self.do_bestfit()
         self.do_worsttrees()
@@ -2231,14 +2274,15 @@ class full_dating_regression(object):
         try:
             return self._suggest_multicolin
         except AttributeError:
-            print('\n#### Finding the most colinear features')
+            print('\n#### Finding the most colinear features', file=self.out)
             #multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
             protected_features = [ft for ft in self.protected_features
                                     if ft in self.inde_features]
             self._suggest_multicolin, outputs = loop_drop_eval(self.inde_features,
                                           lambda x: multicol_test(self.a_n_inde[x]),
                                           stop_criterion=20,
-                                          protected=protected_features, widget=True)
+                                          protected=protected_features,
+                                          out=self.out, widget=self.widget)
             self.displayed.extend(outputs)
             return self._suggest_multicolin
 
@@ -2247,13 +2291,14 @@ class full_dating_regression(object):
         try:
             return self._suggest_multicolin2
         except AttributeError:
-            print('\n#### Finding the most colinear features (after bad-data removed)')
+            print('\n#### Finding the most colinear features (after bad-data removed)', file=self.out)
             #multicol_test(a_n[features]), multicol_test(a_n_inde[inde_features])
             protected_features2 = self.protected_features.intersection(self.inde_features2)
             self._suggest_multicolin2, outputs = loop_drop_eval(self.inde_features2,
                                           lambda x: multicol_test(self.a_n_inde2[x]),
                                           stop_criterion=20,
-                                          protected=protected_features2, widget=True)
+                                          protected=protected_features2,
+                                          out=self.out, widget=self.widget)
             self.displayed.extend(outputs)
             return self._suggest_multicolin2
 
@@ -2261,15 +2306,16 @@ class full_dating_regression(object):
     def do_bestfit(self):
 
     #def do_dropcolinear(self):
+        logger = self.logger
         a_n_inde = self.a_n_inde
         inde_features = self.inde_features
         y = self.responses[0]
 
-        print(self.suggest_multicolin)
+        print(self.suggest_multicolin, file=self.out)
 
-        print('\n#### Refit without most colinear features')
+        print('\n#### Refit without most colinear features', file=self.out)
         
-        print('Drop trees with bad properties (before removing colinear features)')
+        print('Drop trees with bad properties (before removing colinear features)', file=self.out)
         bad_props = {}
         missing_bad_props = set()
         bad_props_ttests = {}
@@ -2278,11 +2324,11 @@ class full_dating_regression(object):
             if badp not in a_n_inde.columns:
                 missing_bad_props.add(badp)
                 continue
-            print('\n--------\n#', badp)
+            print('\n--------\n#', badp, file=self.out)
             vcounts = a_n_inde[badp].value_counts()
             if vcounts.shape[0] > 2:
                 logger.warning('%r not binary.', badp)
-            print('\n'.join(str(vcounts).split('\n')[:-1]))
+            print('\n'.join(str(vcounts).split('\n')[:-1]), file=self.out)
             is_badval = a_n_inde[badp].isin(badval)
             if (is_badval.sum()) > 0.05 * vcounts.sum():
                 logger.warning('Discarding %s.isin(%s) trees will remove >5%% of the subtrees',
@@ -2291,7 +2337,7 @@ class full_dating_regression(object):
                         a_n_inde.loc[~is_badval, y],
                         a_n_inde.loc[is_badval, y],
                         equal_var=False)
-            print('T-test: Y(goodval) VS Y(badval): t=%g, p=%g' % tt_badp)
+            print('T-test: Y(goodval) VS Y(badval): t=%g, p=%g' % tt_badp, file=self.out)
             bad_props[badp] = badval
             bad_props_ttests[badp] = tt_badp
 
@@ -2308,7 +2354,7 @@ class full_dating_regression(object):
                     equal_var=False)
         print(("Kept VS removed data: t=%g; p=%g (two-tailed Welch's t-test; "
                +"sample sizes: %d, %d)") % (*tt_bad,
-                  (~bad_data_rows).sum(), bad_data_rows.sum()))
+                  (~bad_data_rows).sum(), bad_data_rows.sum()), file=self.out)
         bad_props_ttests = pd.DataFrame(bad_props_ttests, index=['T', 'P']).T
         na_ttests = bad_props_ttests.isna()
         
@@ -2323,18 +2369,21 @@ class full_dating_regression(object):
         # Add last row being the pooled features T-test.
         self.bad_props_ttests = bad_props_ttests.append(
                                     pd.Series(tt_bad, index=['T', 'P'], name='ANY'))
-        display_html(self.bad_props_ttests)
+        self.display_html(self.bad_props_ttests.style.applymap(
+                         lambda v: ('background: khaki' if v<0.01 else
+                                    'background: lemonchiffon; alpha: 0.5' if v<=0.05 else ''),
+                                 subset=['Pcorr']))
 
-        print("New shape after removing bad data:", a_n_inde2.shape)
+        print("New shape after removing bad data:", a_n_inde2.shape, file=self.out)
         print("New Mean,SD of response: %g; %g" % (
-                a_n_inde2[y].mean(), a_n_inde2[y].std()))
+                a_n_inde2[y].mean(), a_n_inde2[y].std()), file=self.out)
         inde_features2 = [ft for ft in inde_features
                                                 if ft not in set(bad_props)]
 
         constant_vars = a_n_inde2[inde_features2].agg(np.ptp)
         
         print('Check for newly introduced constant variables:\n',
-              constant_vars.sort_values())
+              constant_vars.sort_values(), file=self.out)
         self.inde_features2, constant_varnames = [], []
         for ft in inde_features2:
             if constant_vars[ft]>0:
@@ -2350,17 +2399,17 @@ class full_dating_regression(object):
                                    .transform(zscore)))
         #TODO: drop some constant features.
 
-        print('Check multi-colinearity post-removal of bad data:')
-        print(self.suggest_multicolin2)
+        print('Check multi-colinearity post-removal of bad data:', file=self.out)
+        print(self.suggest_multicolin2, file=self.out)
         self.inde_features2 = inde_features2 = [ft for ft in inde_features2
                                                 if ft not in self.suggest_multicolin2]
-        #print('\n##### OLS fit (2)')
+        #print('\n##### OLS fit (2)', file=self.out)
         #self.fit2 = fit2 = ols.fit()
         #fit2.summary()
-        ##display_html(sm_pretty_slopes(fit2))
-        #display_html(fit2.summary())
+        ##display_html(sm_pretty_slopes(fit2), file=self.out)
+        #display_html(fit2.summary(), file=self.out)
         
-        print('\n##### LASSO fit (2)')
+        print('\n##### LASSO fit (2)', file=self.out)
         inde_features2_source = [self.decorr_source.get(ft, ft) for ft in inde_features2]
         param_info = pd.concat((
                         pd.Series([self.suggested_transform[sft].__name__
@@ -2375,11 +2424,11 @@ class full_dating_regression(object):
                         ),
                         axis=1, sort=False)
 
-        print('Re-check newly introduced constant features:')
-        print(a_n_inde2[inde_features2].agg(np.ptp).sort_values().head())
+        print('Re-check newly introduced constant features:', file=self.out)
+        print(a_n_inde2[inde_features2].agg(np.ptp).sort_values().head(), file=self.out)
 
         fitlasso2, refitlasso2, slopes2_styled, reslopes2_styled = \
-                lassoselect_and_refit(a_n_inde2, y, inde_features2, join=param_info)
+                lassoselect_and_refit(a_n_inde2, y, inde_features2, join=param_info, out=self.out)
         self.displayed.extend((slopes2_styled, reslopes2_styled))
         self.fitlasso2 = fitlasso2
         self.refitlasso2 = refitlasso2
@@ -2392,7 +2441,7 @@ class full_dating_regression(object):
         self.F_pval2 = refitlasso2.f_pvalue
         self.lL2 = refitlasso2.llf
         #print('fstat = %g\nP(F > fstat) = %g\nlog-likelihood = %g' %(
-        #        refitlasso2.fvalue, self.F_pval2, self.lL2))
+        #        refitlasso2.fvalue, self.F_pval2, self.lL2), file=self.out)
 
         figsize = mpl.rcParams['figure.figsize']
         fig, axes = plt.subplots(3, figsize=(figsize[0], figsize[1]*2))
@@ -2419,22 +2468,22 @@ class full_dating_regression(object):
         ax.set_xlabel('Predicted response')
 
         smg.gofplots.qqplot(refitlasso2.resid, line='r', ax=axes[2])
-        plt.show()
         self.displayed.append(fig)
+        self.show(); plt.close()
 
         if hasattr(refitlasso2, 'cov_HC0'):
             fig = heatmap_cov(refitlasso2.cov_HC0, ['const']+self.selected_features2,
                         cmap='seismic', make_corr=True)
             fig.suptitle('cov_HC0')
-            plt.show()
             self.displayed.append(fig)
+            self.show(); plt.close()
         else:
             logger.warning("No attribute 'cov_HC0' in `refitlasso2`.")
         if hasattr(refitlasso2, 'cov_HC1'):
             fig = heatmap_cov(refitlasso2.cov_HC1, ['const']+self.selected_features2,
                         cmap='seismic', make_corr=True)
             fig.suptitle('cov_HC1')
-            plt.show()  # Not needed because this is the last figure before return.
+            self.show(); plt.close()  # Not needed because this is the last figure before return.
             self.displayed.append(fig)
         else:
             logger.warning("No attribute 'cov_HC1' in `refitlasso2`.")
@@ -2445,17 +2494,17 @@ class full_dating_regression(object):
         return reslopes2
 
     def do_worsttrees(self):
-        print('\n### Investigate the worst trees')
-        display_html(self.alls.sort_values(self.responses[0], ascending=False).head(50))
+        print('\n### Investigate the worst trees', file=self.out)
+        self.display_html(self.alls.sort_values(self.responses[0], ascending=False).head(50))
 
     def show(self):
         for out in self.outputs:
             if isinstance(out, (pd.Series, pd.DataFrame, pd.io.formats.style.Styler)):
-                display_html(out)
+                self.display_html(out)
             elif isinstance(out, mpl.figure.Figure):
-                display(out)
+                self.display(out)
             else:
-                print(out)
+                print(out, file=self.out)
 
 
 
