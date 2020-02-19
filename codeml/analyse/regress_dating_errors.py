@@ -2368,18 +2368,18 @@ class full_dating_regression(object):
 
         #FA_inde, FA_inde_outputs = detailed_pca(a_n_inde, inde_features, FA=True, out=self.out)
         self.FA_inde = FA_inde = FactorAnalysis(n_components=15)
-        self.transformed_inde = transformed_inde = FA_inde.fit_transform(a_n_inde[inde_features])
+        self.FA_inde_components = FA_inde_components = FA_inde.fit_transform(a_n_inde[inde_features])
 
         heatmap_cov(np.abs(FA_inde.get_covariance()), inde_features, make_corr=True)
         self.displayed.append(plt.gcf())
         self.displayed[-1].suptitle('Inde features absolute correlation (FA)')
         self.show(); plt.close()
         fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
-        scatter_density(transformed_inde[:,1], transformed_inde[:,0], alpha=0.4,
+        scatter_density(FA_inde_components[:,1], FA_inde_components[:,0], alpha=0.4,
                         ax=ax1)
         ax1.set_ylabel('PC1')
         ax1.set_xlabel('PC2')
-        scatter_density(transformed_inde[:,2], transformed_inde[:,0], alpha=0.4,
+        scatter_density(FA_inde_components[:,2], FA_inde_components[:,0], alpha=0.4,
                         ax=ax2)
         ax2.set_xlabel('PC3')
         self.displayed.append(fig)

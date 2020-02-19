@@ -208,7 +208,7 @@ class HtmlReport(Report):
               /*color: black;*/
               table-layout: fixed;
             }
-            table.dataframe > * {
+            table > *, table.dataframe > * {
               font-size: x-small;
             }
             .dataframe thead {
@@ -229,6 +229,10 @@ class HtmlReport(Report):
             }
             .dataframe tbody tr th:only-of-type {
               vertical-align: middle;
+            }
+            div>table[class="dataframe"]+p {
+              font-family: monospace;
+              font-size: small;
             }
 ''')
         else:
