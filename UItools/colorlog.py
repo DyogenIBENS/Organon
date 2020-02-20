@@ -10,8 +10,9 @@ Taken from: https://stackoverflow.com/a/384125
 
 import sys
 import string
-import logging
+import re
 from copy import copy
+import logging
 from UItools.shellchrome import RESET_SEQ, COLOR_SEQ, BOLD_SEQ, COLOR, \
                                 BG_COLOR, COLORS_I
 
@@ -77,19 +78,38 @@ class ColoredFormatter(logging.Formatter):
                 logger.addHandler(sh)
 
 
+convert_html_char = {'<': '&lt;', '>': '&gt;', '&': '&amp;'}
+escape_html_char = {'<': r'\<', '>': r'\>', '&': r'\&'}
+escape_html_trans = str.maketrans(escape_html_char)
+#def escape_html(txt):
+#    return txt.translate(escape_html_trans)
+
+#trans_special_html_char = str.maketrans(special_html_char)
+html_escaped = re.compile(r'\\(<|>|\\|&)')
+html_converted = re.compile(r'(?<!(?<!\\)\\)(<|>|&)')
+def to_html(txt):
+    txt = html_converted.sub(lambda m: convert_html_char[m.group(1)], txt)
+    return html_escaped.sub(lambda m: m.group(1), txt)
+#TODO: how to escape quotes in raw strings: e.g. this backslashed quotes print as is: r"thing = \"value\""
+
+
+def instyle(style: str):
+    return ('<span style="%s">' % style).translate(escape_html_trans)
 class HtmlColoredFormatter(ColoredFormatter):
-    RESET_SEQ = '</span>'
-    BOLD_SEQ = '<span style="font-weight:bold">'
-    BG_LVLCOLOR = {lvl: '<span style="background: %s">' % col for lvl,col in LVL_COLNAME.items()}
-    LVLCOLOR    = {lvl: '<span style="color:%s">' % col for lvl,col in LVL_COLNAME.items()}
-    LVLCOLOR.update(ERROR='<span style="color:red;font-weight:bold">',
-                    CRITICAL='<span style="background:red">')
-    COLOR = {col.lower(): '<span style="color:%s">' % col.lower() for col in COLOR}
-    COLOR.update({col.upper(): '<span style="color:%s;font-weight:bold">' % col.lower()
+    RESET_SEQ = '</span>'.translate(escape_html_trans)
+    BOLD_SEQ = instyle("font-weight:bold")
+    BG_LVLCOLOR = {lvl: instyle("background:%s" % col) for lvl,col in LVL_COLNAME.items()}
+    LVLCOLOR    = {lvl: instyle("color:%s" % col) for lvl,col in LVL_COLNAME.items()}
+    LVLCOLOR.update(ERROR=instyle("color:red;font-weight:bold"),
+                    CRITICAL=instyle("background:red"))
+    COLOR = {col.lower(): instyle("color:%s" % col.lower()) for col in COLOR}
+    COLOR.update({col.upper(): instyle("color:%s;font-weight:bold" % col.lower())
                   for col in COLOR})
     BG_COLOR = {('BG' if col.isupper() else 'bg')+col: tag.replace('color:', 'background:')
                 for col, tag in COLOR.items()}
-
+    
+    def format(self, record):
+        return to_html(super(HtmlColoredFormatter, self).format(record))
 
 # Pb: if there were width specifications, they aren't visually respected anymore (because ANSI escape codes consume width internally, but not visibly)...
 # Better: using newstyle string formatting, then:
