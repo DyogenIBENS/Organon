@@ -432,15 +432,19 @@ def dendrogram():
 
 # Functions for the PCA
 
-def plot_cov(ft_cov, features, cmap='seismic', figax=None, cax=None,
+def plot_cov(ft_cov, features=None, cmap='seismic', figax=None, cax=None,
              ylabel="Features", cb_kw=None):
     """Plot a covariance matrix.
     
     Consider converting it to a correlation matrix if your PCA features were
     not normalized.
     """
+    if features is None: features = np.arange(ft_cov.shape[1])
     cmap = plt.get_cmap(cmap)
-    norm = mpl.colors.Normalize(-1 if (ft_cov<0).any() else 0, 1)
+    norm = mpl.colors.Normalize(-1 if (ft_cov[~np.isnan(ft_cov)]<0).any() else 0, 1)
+    cmap.set_under('DarkSlateGray')
+    cmap.set_over('y' if 'Yl' not in cmap.name else 'w')
+    cmap.set_bad('BurlyWood' if cmap.name in ('Greys', 'Greys_r', 'gray', 'gray_r') else 'grey')
     fig, ax = plt.subplots() if figax is None else figax
     img = ax.imshow(ft_cov, cmap=cmap, norm=norm, aspect='auto', origin='lower') #plt.pcolormesh
     ax.set_xticks(np.arange(len(features)))
@@ -449,11 +453,33 @@ def plot_cov(ft_cov, features, cmap='seismic', figax=None, cax=None,
     ax.set_xticklabels(features, rotation=90, ha='center', va='top')
     if ylabel:
         ax.set_ylabel(ylabel)
-    if cb_kw is None: cb_kw = {}
+    extend = 'neither'
+    if (ft_cov[~np.isnan(ft_cov)] < norm.vmin).any():
+        extend = 'min'
+    if (ft_cov[~np.isnan(ft_cov)] > norm.vmax).any():
+        extend = 'both' if extend=='min' else 'max'
+
+    cb_kw = {'extend': extend, **({} if cb_kw is None else cb_kw)}
     logger.debug('add heatmap colorbar')
     fig.colorbar(img, ax=None, #(ax if cax is None else None),
                  cax=cax, aspect=ft_cov.shape[0], **cb_kw)
     return img
+
+
+def tri_to_sym(mat, lower=False, over_nan=True, diagval=0):
+    """Convert matrix with NaN values under the diagonal to a symmetrical matrix"""
+    # Also see scipy.spatial.squareform
+    ti, tj = (np.tril_indices_from(mat, k=-1) if lower  # non-NaN data in lower tri.
+              else np.triu_indices_from(mat, k=1))
+    di, dj = np.diag_indices_from(mat)
+    #if not np.isna(mat[ai, aj]).all():
+    symmat = mat.copy()
+    
+    if not over_nan or np.isnan(symmat[tj, ti]).all():
+        symmat[tj, ti] = symmat[ti, tj]
+    if over_nan and np.isnan(symmat[di, dj]).all():
+        symmat[di, dj] = diagval
+    return symmat
 
 
 def heatmap_cov(ft_cov, features=None, cmap='seismic', make_corr=False,
@@ -461,14 +487,21 @@ def heatmap_cov(ft_cov, features=None, cmap='seismic', make_corr=False,
     """plot_cov, but with hierarchical clustering on the side"""
     # Tested with figsize=(20, 12)
     if features is None:
-        features = ft_cov.index.tolist()
-        ft_cov = ft_cov.values
+        try:
+            features = ft_cov.index.tolist()
+        except AttributeError:
+            features = np.arange(ft_cov.shape[1])
+        try:
+            ft_cov = ft_cov.values
+        except AttributeError:
+            ft_cov = np.asarray(ft_cov)
     fig, (ax_ddg, ax, ax_cb) = plt.subplots(1,3,
                                     subplot_kw={'facecolor': 'none'},
                                     gridspec_kw={'width_ratios': [
                                                   dendro_ratio,
                                                   1,
                                                   cb_ratio]})
+                                    #constrained_layout=True)
     #(x0, y0), (w, h) = ax.get_position().get_points()
     ## absolute padding (in figure coordinate)
     ## correct ratio by taking pad into account
@@ -486,10 +519,27 @@ def heatmap_cov(ft_cov, features=None, cmap='seismic', make_corr=False,
     ax_ddg.xaxis.set_visible(False)
     #ax_cb = fig.add_axes([x0 + w*(1-cb_ratio), y0, w*cb_ratio, h])
 
-    distmat = 1 - np.abs(cov2cor(ft_cov))
+    is_upper_tri = np.isnan(ft_cov[np.tril_indices_from(ft_cov, k=-1)]).all()
+    sym_cov = tri_to_sym(ft_cov, diagval=np.nanmax(ft_cov)**2)  # Ensure this contains no NaN.
+    distmat = 1 - np.abs(cov2cor(sym_cov))
+    if logger.getEffectiveLevel() <= logging.DEBUG:
+        logger.debug('Any NA ft_cov: %s', np.isnan(ft_cov).any())
+        logger.debug('Any NA tri_to_sym(ft_cov, *): %s', np.isnan(sym_cov).any())
+        logger.debug('Any NA cov2cor(tri_to_sym(ft_cov, *)): %s; any abs >1: %s',
+                np.isnan(cov2cor(sym_cov)).any(), (np.abs(cov2cor(sym_cov))>1).any())
+        logger.debug('Any NA distmat: %s', np.isnan(distmat).any())
+    #ax.imshow(cov2cor(sym_cov))
     tol=1e-15
     #assert (np.diag(distmat) < tol).all()
     #assert (np.abs(distmat - distmat.T) < tol).all()
+
+    #tri_i, tri_j = np.tril_indices_from(distmat, k=-1)
+    #diag_i, diag_j = np.diag_indices_from(distmat)
+    #if np.isnan(distmat[tri_i, tri_j]).all():
+    #    distmat[tri_i, tri_j] = distmat[tri_j, tri_i]
+    #if np.isnan(distmat[diag_i, diag_j]).all():
+    #    distmat[diag_i, diag_j] = 0
+    
     spdist.is_valid_dm(distmat, tol, throw=True)
 
     flatdist = spdist.squareform(distmat, force='tovector', checks=False)
@@ -497,16 +547,25 @@ def heatmap_cov(ft_cov, features=None, cmap='seismic', make_corr=False,
     ddg = hclust.dendrogram(Z, orientation='left', no_labels=True, #labels=features,
                             ax=ax_ddg)
 
+    # WARNING: doing this reordering with NaN in one triangle will look completely messed up.
     clustered_ft_cov = ft_cov[ddg['leaves'],:][:,ddg['leaves']]
     if make_corr:
+        #tri_to_sym
         clustered_ft_cov = cov2cor(clustered_ft_cov)
+    if is_upper_tri:
+        #TODO: make that a function.
+        ti, tj = np.triu_indices_from(clustered_ft_cov)
+        nan_pos = np.isnan(clustered_ft_cov[ti, tj])
+        nan_ti, nan_tj = ti[nan_pos], tj[nan_pos]
+        clustered_ft_cov[nan_ti, nan_tj] = clustered_ft_cov[nan_tj, nan_ti]
+        clustered_ft_cov[nan_tj, nan_ti] = np.NaN
 
     #print(ddg['leaves'], ft_cov.shape)
     #print(clustered_ft_cov)
-    logger.debug(np.array(features)[ddg['leaves']])
+    logger.debug(np.asarray(features)[ddg['leaves']])
     logger.debug('%d artists: %s', len(ax_cb.get_children()), ax_cb.get_children())
     img = plot_cov(clustered_ft_cov,
-             np.array(features)[ddg['leaves']], cmap, (fig, ax), ax_cb, '')#,
+             np.asarray(features)[ddg['leaves']], cmap, (fig, ax), ax_cb, '')#,
              #cb_kw={'fraction': cb_ratio/(1. - dendro_ratio), 'shrink': 0.5})
     #fig.colorbar(img, ax=None, #(ax if cax is None else None),
     #             cax=ax_cb, aspect=ft_cov.shape[0])

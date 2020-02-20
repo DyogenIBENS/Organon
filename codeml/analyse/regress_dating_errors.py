@@ -2470,6 +2470,7 @@ class full_dating_regression(object):
         a_n_inde = self.a_n_inde
         inde_features = self.inde_features
         y = self.responses[0]
+        assert not a_n_inde[inde_features + [y]].isna().any(axis=None)
 
         print(self.suggest_multicolin, file=self.out)
 

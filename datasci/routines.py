@@ -547,6 +547,26 @@ def display_decorrelate(var, correlated_var, data, logdata=None):
               stats.pearsonr(logdecor_var, logdata[correlated_var])[0]))
 
 
+def pairwise_regress_stats(data, features):
+    """Return R², intercept, slope, Pval."""
+    N = len(features)
+    # Attributes and indices to get the statistics:
+    stats = {'R2': ('rsquared',None),
+             'const': ('params', 0),
+             'slope': ('params', 1),
+             'Pval': ('f_pvalue', None)}
+    mats = {stat: np.full((N, N), np.NaN) for stat in stats}
+    for j, fty in enumerate(features[:-1]):
+        for i, ftx in enumerate(features[j+1:], start=j+1):
+            fit = sm.OLS(data[fty], sm.add_constant(data[[ftx]])).fit()
+            for stat, (attr, idx) in stats.items():
+                value = getattr(fit, attr)
+                if idx is not None:
+                    value = value[idx]
+                mats[stat][j, i] = value  # Upper triangular.
+    return mats
+
+
 def leave1out_eval(features, func):
     """Example: func=lambda x: multicol_test(df[x])"""
     out = pd.Series(0, index=features, dtype=float)
