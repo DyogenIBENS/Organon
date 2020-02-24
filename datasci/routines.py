@@ -564,12 +564,13 @@ def pairwise_regress_stats(data, features):
                 if idx is not None:
                     value = value[idx]
                 mats[stat][j, i] = value  # Upper triangular.
+    # TODO: add the 1 against 2 combinations
     return mats
 
 
-def leave1out_eval(features, func):
+def leave1out_eval(features, func, dtype=np.float):
     """Example: func=lambda x: multicol_test(df[x])"""
-    out = pd.Series(0, index=features, dtype=float)
+    out = pd.Series(0, index=features, dtype=dtype)
     for i, ft in enumerate(features):
         out[features[i]] = func(features[:i] + features[(i+1):])
 
@@ -580,14 +581,31 @@ def display_leave1out_eval(features, func):
     return leave1out_eval(features, func).to_frame.style.bar()
 
 
+symbol_to_operator = {'<=': '__le__',
+                      '>=': '__ge__',
+                      '==': '__eq__',
+                      '!=': '__ne__',
+                      '<': '__lt__',
+                      '>': '__gt__'}
+stop_reg = re.compile(r'(' + r'|'.join(symbol_to_operator) + r')\s*(.*)')
+
 def loop_leave1out(features, func, criterion='min', nloops=None, stop_criterion=None,
-                   protected=None, format_df='matplotlib', widget=None, out=None,
-                   na_equiv='nan'):
-    """NOTE: NaN values returned by `func` never fulfill the stop_criterion.
+                   protected=None, format_df='matplotlib', na_equiv='nan',
+                   widget=None, out=None):
+    """
+    `criterion`: how to select what to *drop* ("min"/"max").
+    `stop_criterion`: string with operator and number: example: ">20".
+    
+    NOTE: NaN values returned by `func` never fulfill the stop_criterion.
     na_equiv = "nan" -> NA values propagate in min and max.
     na_equiv = "Inf" -> NA values propagate in max only.
     na_equiv = "-Inf" -> NA values propagate in min only.
     na_equiv = "ignore" -> NA values are skipped.
+
+    EXAMPLE:
+        func      = lambda x: multicol_test(df[x]),
+        criterion = "min",
+        na_equiv  = "max"  # because multicol_test returns NaN when super high colinearity!
     """
     #if out is not None:
         # Replace the functions: `print`, `display`, `plt.show`
@@ -629,14 +647,29 @@ def loop_leave1out(features, func, criterion='min', nloops=None, stop_criterion=
     na_equiv = na_equiv.lower()
     if criterion == 'min':
         select_drop = np.argmin if na_equiv in ('nan', '-inf') else np.nanargmin
-        def is_stopped(values, i): return values[i] < stop_criterion
     elif criterion == 'max':
         select_drop = np.argmax if na_policy in ('nan', 'inf') else np.nanargmax
-        def is_stopped(values, i): return values[i] > stop_criterion
     else:
         raise ValueError('Unknown criterion %r (min/max)' % criterion)
     if stop_criterion is None:
         def is_stopped(values, i): return False
+    else:
+        # Old behavior: raise DeprecationWarning
+        if isinstance(stop_criterion, (int, float)):
+            if criterion == 'min':
+                def is_stopped(values, i): return values[i] < stop_criterion
+            elif criterion == 'max':
+                def is_stopped(values, i): return values[i] > stop_criterion
+
+        else:
+            stop_comp, stop_val = stop_reg.match(stop_criterion).groups()
+            stop_comp = symbol_to_operator[stop_comp]
+            try:
+                stop_val = int(stop_val)
+            except ValueError:
+                stop_val = float(stop_val)
+            
+        def is_stopped(values, i): return getattr(values[i], stop_comp)(stop_val)
 
     dropped_features = []
     next_features = [ft for ft in features]

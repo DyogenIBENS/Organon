@@ -3,6 +3,8 @@
 
 
 import sys
+import os
+import os.path as op
 from datetime import datetime as dt
 from contextlib import contextmanager
 from io import StringIO, BytesIO
@@ -45,7 +47,7 @@ def format_fig(fig, format='svg', **kwargs):
 def figure(*content):
     return '<figure>\n' + '\n'.join(content) + '\n</figure>\n'
 
-def format_embed_fig(fig, format='png', bare=False, **kwargs):
+def format_fig_embed(fig, format='png', bare=False, **kwargs):
     kwargs = {'bbox_inches': 'tight', **kwargs}
     open_out = StringIO if format=='svg' else BytesIO
     with open_out() as out:
@@ -74,6 +76,14 @@ def format_embed_fig(fig, format='png', bare=False, **kwargs):
     # alt=
     # style="width:500px;height:600px;" || width="500" height="600"
     # <figcaption>
+
+def format_fig_extern(fig, filename, bare=False, **kwargs):
+    kwargs = {'bbox_inches': 'tight', **kwargs}
+    fig.savefig(filename, **kwargs)
+    format = op.splitext(filename)[1].lstrip('.')
+    img = '<img src="%s" />' % filename
+    return img if bare else figure(img)
+# For interactive svg, I should use <iframe> or <object>.
 
 # See help of IPython.display.display:
 #  - `_repr_html_`: return raw HTML as a string, or a tuple (see below).
@@ -157,30 +167,15 @@ color: #E5E5E5;
 # see /static/style/style.min.css?v=29c09309dd70e7fe93378815e5f022ae
 # or /Users/grant/Sites/jupyter/notebook/notebook/static/notebook/less/renderedhtml.less
 class HtmlReport(Report):
-    def __init__(self, filename=None, mode='w', figformat='png', title=None,
-                 css=None, scripts=None, mathjax=True, style=None, metas=None,
-                 postscripts=None):
-        self.filename = filename
-        self.mode = mode
-        self.figformat = figformat
-        self.printing = False  # Whether a <pre> is already opened
-        if css is None: css = []
-        if not isinstance(css, (list, tuple)):
-            raise ValueError('css= argument should be a list/tuple.')
-        if scripts is None: scripts = []
-        if not isinstance(scripts, (list, tuple)):
-            raise ValueError('scripts= argument should be a list/tuple.')
-        if postscripts is None: postscripts = []
-        if not isinstance(postscripts, (list, tuple)):
-            raise ValueError('postscripts= argument should be a list/tuple.')
-        if metas is None: metas = ['charset="UTF-8"']
-        if style is not False:
-            styles = ['''
+    
+    @classmethod
+    def get_default_styles(cls):
+        default_styles = ['''
             .column{0} {{
               float: left;
               width: {0}%;
             }}'''.format(p) for p in range(10,100,10)]
-            styles.append('''
+        default_styles.append('''
             /* Clear floats after the columns */
             .columns:after {
               content: "";
@@ -235,15 +230,59 @@ class HtmlReport(Report):
               font-size: small;
             }
 ''')
+        return default_styles
+
+    def __init__(self, filename=None, mode='w', figformat='png', title=None,
+                 css=None, scripts=None, mathjax=True, style=None, metas=None,
+                 postscripts=None, external_content=False):
+        self.filename = filename
+        self.mode = mode
+        self.figformat = figformat
+        self.printing = False  # Whether a <pre> is already opened
+        if css is None: css = []
+        if not isinstance(css, (list, tuple)):
+            raise ValueError('css= argument should be a list/tuple.')
+        if scripts is None: scripts = []
+        if not isinstance(scripts, (list, tuple)):
+            raise ValueError('scripts= argument should be a list/tuple.')
+        if postscripts is None: postscripts = []
+        if not isinstance(postscripts, (list, tuple)):
+            raise ValueError('postscripts= argument should be a list/tuple.')
+        if metas is None: metas = ['charset="UTF-8"']
+
+        self.external_content = external_content
+        if external_content:
+            self.content_dir = op.splitext(self.filename)[0]
+            self.figcounter = 0
+            def format_fig(fig, format='png', bare=False, **kwargs):
+                self.figcounter += 1
+                # if fig._suptitle is not None:
+                figfile = op.join(self.content_dir, '%03d.%s' %(self.figcounter, format))
+                format_fig_extern(fig, figfile, bare=bare, **kwargs)
+            self.format_fig = format_fig
+            # TODO: external CSS as well.
         else:
-            styles = []
-        #TODO: put the notebook CSS code for dataframes (.rendered_html table)
-        if style:
+            self.format_fig = format_fig_embed
+
+        default_styles = False
+        if style is not False:
+            # Default styling
+            default_styles = self.get_default_styles()
+            if external_content:
+                default_css = op.join(self.content_dir, 'default.css')
+                with open(default_css, 'w') as css_f:
+                    css_f.write('\n'.join(default_styles) + '\n')
+                css.insert(0, default_css)
+
+        styles = []
+        if style and style is not True:
             styles.append(style)
+
         self.head = '\n'.join(
             ['<!DOCTYPE html>', '<html>', '<head>',
              '<title>%s</title>' if title else ''] +
             ['<meta %s />' % m for m in metas] +
+            (['<style>\n%s\n</style>' % '\n'.join(default_styles)] if default_styles else []) +
             ['<link rel="stylesheet" type="text/css" href="%s" />' % c for c in css] +
             (['<script type="text/javascript" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/latest.js?config=TeX-MML-AM_CHTML"></script>'] if mathjax else []) +
             ['<script type="text/javascript" src="%s" async></script>' % s for s in scripts] +
@@ -258,11 +297,16 @@ class HtmlReport(Report):
         self.closed = True
         self.begun = []  # opened html tags inside body.
     
+
     def open(self, mode):
         self.handle = StringIO() if self.filename is None else open(self.filename, mode)
         self.loghandler = logging.StreamHandler(self.handle)
-        self.loghandler.setFormatter(HtmlColoredFormatter(fmt='<pre class="log">'+BASIC_FORMAT+'</pre>'))
+        self.loghandler.setFormatter(HtmlColoredFormatter(fmt=r'\<pre class="log"\>'+BASIC_FORMAT+r'\</pre\>'))
         self.closed = False
+        if self.external_content:
+            # Filename should not be None
+            os.mkdir(self.content_dir)
+
         logger.debug('Opened %s(filename=%r, mode=%r) -> closed=%s, handle=%r',
                      self.__class__.__name__, self.filename, mode, self.closed,
                      self.handle)
@@ -337,7 +381,7 @@ class HtmlReport(Report):
             self.handle.write('</pre>\n')
             self.printing = False
         if fig is None: fig = plt.gcf()
-        self.handle.write(format_embed_fig(fig, self.figformat, **kwargs))
+        self.handle.write(self.format_fig(fig, self.figformat, **kwargs))
     
     def html(self, obj):
         if self.printing:
@@ -517,24 +561,26 @@ def generate_slideshow(hr: HtmlReport, nmax: int=100, **attrs):
     """Needs JS and CSS from `atavistic-doc-tools/myslideshow`"""
     hr.begin('div', class_="slideshow", id_=attrs.pop('id_', None), attrs=attrs)
     hr.begin('ul')
-    for i in range(nmax):
-        hr.begin('li')
-        try:
-            yield i
-            # Example:
-            #plt.plot(np.random.random(5), color=color)
-            #hr.show(bare=True)
-            #plt.close()
-        # Capture a break:
-        except StopIteration:
-            break
-        finally:
-            hr.end('li')
-
-    hr.end('ul')
-    hr.end('div', class_='slideshow')
-    if i==nmax-1:
-        warnings.warn('Reached max number of slides. This iterator should be explicitly stopped before.')
+    try:
+        for i in range(nmax):
+            hr.begin('li')
+            try:
+                yield i
+                # Example:
+                #plt.plot(np.random.random(5), color=color)
+                #hr.show(bare=True)
+                #plt.close()
+            # Capture a break:
+            except StopIteration:
+                # Unsure but this might be closing hr.
+                break
+            finally:
+                hr.end('li')
+    except GeneratorExit:
+        hr.end('ul')
+        hr.end('div', class_='slideshow')
+        if i==nmax-1:
+            warnings.warn('Reached max number of slides. This iterator should be explicitly stopped before.')
 
 def slideshow_generator(hr: HtmlReport, **gkwargs):
     # Mimic the implementation of UItools.jupytertricks.make_folds()
@@ -542,3 +588,20 @@ def slideshow_generator(hr: HtmlReport, **gkwargs):
         for elem, slide in zip(iterable, generate_slideshow(hr, **gkwargs)):
             yield elem
     return slideshow_iter
+
+
+@contextmanager
+def reroute_loggers(hr, *loggers):
+    if len(loggers)==1 and isinstance(loggers[0], (tuple, list)):
+        loggers, = loggers  # Unpack.
+    logger_states = {}
+    with hr as hr_entered:
+        for logr in loggers:
+            #if logger.hasHandlers():
+            logger_states[logr.name] = logr.handlers
+            logr.handlers = [hr_entered.loghandler]
+        yield hr_entered
+        for logr in loggers:
+            logr.handlers = logger_states.pop(logr.name)
+
+

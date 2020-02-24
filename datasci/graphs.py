@@ -456,13 +456,17 @@ def plot_cov(ft_cov, features=None, cmap='seismic', figax=None, cax=None,
     extend = 'neither'
     if (ft_cov[~np.isnan(ft_cov)] < norm.vmin).any():
         extend = 'min'
+        logger.info('Matrix value %s < vmin %g',
+                    ft_cov[~np.isnan(ft_cov) & (ft_cov<norm.vmin)].max(), norm.vmin)
     if (ft_cov[~np.isnan(ft_cov)] > norm.vmax).any():
         extend = 'both' if extend=='min' else 'max'
+        logger.info('Matrix value %s > vmax %g',
+                    ft_cov[~np.isnan(ft_cov) & (ft_cov>norm.vmax)].min(), norm.vmax)
 
     cb_kw = {'extend': extend, **({} if cb_kw is None else cb_kw)}
     logger.debug('add heatmap colorbar')
     fig.colorbar(img, ax=None, #(ax if cax is None else None),
-                 cax=cax, aspect=ft_cov.shape[0], **cb_kw)
+                 cax=cax, aspect=min(60, max(25, ft_cov.shape[0])), **cb_kw)
     return img
 
 
@@ -574,7 +578,8 @@ def heatmap_cov(ft_cov, features=None, cmap='seismic', make_corr=False,
     ax_cb.set_ylabel('Correlation coefficient' if make_corr else 'Covariance')
     box_cb = ax_cb.get_position()
     w_cb, h_cb = box_cb.size
-    ax_cb.set_position(box_cb.translated(w_cb/2., h_cb/4.).shrunk(0.5,0.5).shrunk_to_aspect(25))
+    #ax_cb.set_position(#box_cb.translated(w_cb/2., h_cb/4.).shrunk(0.5, 0.5).shrunk_to_aspect(25))
+    ax_cb.set_position(box_cb.shrunk(0.5, 1).anchored('E', box_cb))
 
     #xmin_ylabel = min(yt.get_window_extent().x0 / fig.dpi for yt in ax.get_yticklabels())
     #logger.debug('xmin_ylabel: %s VS xmin (ax): %s', xmin_label,

@@ -19,9 +19,10 @@ import statsmodels.api as sm
 from datasci.graphs import scatter_density, brokenAxes
 from datasci.routines import test_transforms
 from datasci.dataframe_recipees import bounded_background_gradient
-from datasci.savior import HtmlReport, css_dark_style
+from datasci.savior import HtmlReport, css_dark_style, reroute_loggers, generate_slideshow
 
 from duprates.optim_gamma import inverse_scale #, gamma_negloglikelihood
+from codeml.analyse.regress_dating_errors import *
 
 
 float_ = np.longdouble  # Global precision set here.
@@ -39,6 +40,8 @@ import seaborn as sb
 #sb.set_palette('Set2')
 
 mpl.rcParams['figure.figsize'] = (12,7)
+myslideshow_js = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.js') 
+myslideshow_css = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.css') 
 
 
 if __name__ == '__main__':
@@ -48,6 +51,7 @@ if __name__ == '__main__':
     except ImportError:
         logging.basicConfig()
     logger.setLevel(logging.INFO)
+
 
 continuous_distribs = [d for dname, d in sorted(vars(st).items())
                        if isinstance(d, st.rv_continuous)]
@@ -152,20 +156,25 @@ def load_generax_familyrates():
     return df
 
 
+def filter_invalid_generax(df, out=None):
+    invalid = (df.duprate < 0) | (df.lossrate < 0)
+    print('%d Invalid dup/loss rates' % invalid.sum(), file=out)
+    df = df[~invalid].copy()
+    print('%d NA values' % df.isnull().any(axis=1).sum(), file=out)
+    # There's a minimum value returned by generax, and many gene trees have this value:
+    min_dup = df.duprate.min()
+    nodup = (df.duprate == min_dup)
+    print('Min Dup rate = %g  (%d gene trees)' % (min_dup, nodup.sum()), file=out)
+    min_loss = df.lossrate.min()
+    print('Min loss rate = %g  (%d gene trees)' % (min_loss, (df.lossrate == min_loss).sum()), file=out)
+    return df
+
+
 def analysis_1_generax_withgamma():
     # First analyse output from GeneRax (1by1)
     with HtmlReport(str(workdir / 'familyrates.html'), style=css_dark_style) as hr:
         # Invalid values:
-        invalid = (df.duprate < 0) | (df.lossrate < 0)
-        hr.print('%d Invalid dup/loss rates' % invalid.sum())
-        df = df[~invalid].copy()
-        hr.print('%d NA values' % df.isnull().any(axis=1).sum())
-        # There's a minimum value returned by generax, and many gene trees have this value:
-        min_dup = df.duprate.min()
-        nodup = (df.duprate == min_dup)
-        hr.print('Min Dup rate = %g  (%d gene trees)' % (min_dup, nodup.sum()))
-        min_loss = df.lossrate.min()
-        hr.print('Min loss rate = %g  (%d gene trees)' % (min_loss, (df.lossrate == min_loss).sum()))
+        df = filter_invalid_generax(load_generax_familyrates(), out=hr)
 
         fig, ((ax0top, ax1top), (ax0bottom, ax1bottom)) = plt.subplots(2, ncols=2)
         # Y axis with a broken scale : ---//---
@@ -275,16 +284,7 @@ def analysis_1_generax_withgamma():
 def analysis_2_alldistribs():
     with HtmlReport(str(workdir / 'familyrates_fitdistribs.html'), style=css_dark_style) as hr:
         # Invalid values:
-        invalid = (df.duprate < 0) | (df.lossrate < 0)
-        hr.print('%d Invalid dup/loss rates' % invalid.sum())
-        df = df[~invalid].copy()
-        hr.print('%d NA values' % df.isnull().any(axis=1).sum())
-        # There's a minimum value returned by generax, and many gene trees have this value:
-        min_dup = df.duprate.min()
-        nodup = (df.duprate == min_dup)
-        hr.print('Min Dup rate = %g  (%d gene trees)' % (min_dup, nodup.sum()))
-        min_loss = df.lossrate.min()
-        hr.print('Min loss rate = %g  (%d gene trees)' % (min_loss, (df.lossrate == min_loss).sum()))
+        df = filter_invalid_generax(load_generax_familyrates(), out=hr)
         hr.mkd('## Fitting other distributions')
 
         descriptions = ('dup', 'dup (>0)', 'loss', 'loss (dup>0)', 'loss (dup=0)')
@@ -323,17 +323,39 @@ def analysis_2_alldistribs():
                                .apply(bounded_background_gradient, cmap='gray_r',
                                       subset=['AIC'], bad='#707099', under='k', over='k'))
 
-        # CCL: Best ones:
-        # - dup:    + chi, gengamma, pareto, powerlognorm, recipinvgauss (good KL, badAIC), ~expon
-        #           - gompertz looks good but has high KL and high AIC. Nakagami looks good.
-        #           - gamma is quite bad!
-        # - dup >0:
+    # CCL: Best ones:
+    # - dup:    + chi, gengamma, pareto, powerlognorm, recipinvgauss (good KL, badAIC), ~expon
+    #           - gompertz looks good but has high KL and high AIC. Nakagami looks good.
+    #           - gamma is quite bad!
+    # - dup >0:
+    # NOTE:    
+    # - do we really want truncexpon...?
+    # - gengamma > {weibull, gamma}
 
     fit_stats.to_csv('distrib_fits_duploss.csv', sep='\t')
     #TODO: analyse the eventCounts as well.
 
+def analysis_3_alldistribs():
+    """2020/02/24"""
+    with HtmlReport(str(workdir / 'familyrates_correlates.html'),
+                    style=css_dark_style, css=[myslideshow_css],
+                    scripts=[myslideshow_js]) as hr:
+        df = filter_invalid_generax(load_generax_familyrates(), out=hr)
+        stattypes = ('tree', 'al', 'codeml', 'cleaning', 'alfsa',
+                     'codemlfsa', 'cleaningfsa', 'beastS', 'alfsahmmc', 'codemlfsahmmc')
+        ss = load_subtree_stats(
+                "../subtrees_stats/subtreesGoodQualO2_{stattype}stats-Simiiformes.tsv",
+                stattypes=stattypes)
+        check_subtree_stats(list(zip(stattypes, ss)))
+        hr.show()
+        plt.close()
+
+        reg = fullRegression()
+
+
+
+
 
 if __name__ == '__main__':
-    df = load_generax_familyrates()
     #analysis_1_generax_withgamma()
     analysis_2_alldistribs()

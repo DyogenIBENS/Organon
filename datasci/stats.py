@@ -201,9 +201,46 @@ def adj_r_squared(Y, pred, p):
     return 1 - (MSres(Y, pred) / MStot(Y)) * (n - 1)/(n - p -1)
 
 
+def partial_r_squared(fit, feature):
+    """fit: a statsmodels.api.OLS.fit object.
+    See statsmodels.stats.outliers_influence.variance_inflation_factor"""
+    fitter = type(fit.model)
+    #reduced_features = [ft for ft in fit.exog_names if ft != feature]
+    #feature_i = fit.exog_names.index(feature)
+    reduced_fit = fitter(fit.model.data.orig_endog,
+                         fit.model.data.orig_exog.drop(feature, axis=1)
+                        ).fit(cov_type=fit.cov_type)
+    reduced_R2 = reduced_fit.rsquared
+    return (reduced_R2 - fit.rsquared) / reduced_R2  #FIXME: Results seem wrong.
+
+def VIF(fit, feature):
+    fitter = type(fit.model)
+    #reduced_features = [ft for ft in fit.exog_names if ft != feature]
+    #feature_i = fit.exog_names.index(feature)
+    xi_fit = fitter(fit.model.data.orig_exog[feature],
+                         fit.model.data.orig_exog.drop(feature, axis=1)
+                        ).fit(cov_type=fit.cov_type)
+    return 1. / (1. - xi_fit.rsquared)
+
+def VIFs(fit):
+    fitter = type(fit.model)
+    
+    x_fits = [fitter(fit.model.data.orig_exog[feature],
+                     fit.model.data.orig_exog.drop(feature, axis=1)
+                    ).fit(cov_type=fit.cov_type)
+              for feature in fit.model.exog_names]
+    return pd.Series([1. / (1. - xf.rsquared) for xf in xfits],
+                     index=fit.model.exog_names,
+                     name='VIFs')
+
+
+
 #def multicol_condition_number(X):
 def multicol_test(X):
-    """Values >20 mean high colinearity."""
+    """Values >20-30 mean high colinearity.
+    
+    See statsmodels.regression.linear_model.OLSResults.condition_number.
+    """
     norm_xtx = np.dot(X.T, X)
     eigs = np.linalg.eigvals(norm_xtx)
     emax, emin = eigs.max(), eigs.min()

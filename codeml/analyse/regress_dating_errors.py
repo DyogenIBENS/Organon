@@ -10,6 +10,7 @@ import os.path as op
 import itertools as it
 from itertools import chain
 import textwrap
+from datetime import datetime as dt
 
 import warnings
 from copy import copy, deepcopy
@@ -37,7 +38,7 @@ from datasci.graphs import scatter_density, \
 from datasci.compare import pairwise_intersections, align_sorted
 from datasci.stats import r_squared, adj_r_squared, multicol_test, multi_vartest,\
                           rescale_groups, iqr, iqr90, iqr95, mad, trimstd, trimmean, \
-                          mean_absdevmed, f_test
+                          mean_absdevmed, f_test, VIF
 from datasci.routines import *
 from datasci.dataframe_recipees import *
 
@@ -54,12 +55,14 @@ import statsmodels.api as sm
 #import statsmodels.formula.api as smf
 import statsmodels.stats.api as sms
 import statsmodels.stats.multitest as smm
+import statsmodels.stats.outliers_influence as smo  # variance_inflation_factor
 import statsmodels.graphics as smg  # smg.gofplots.qqplot
 
-from IPython.display import display_html
+from IPython.display import display_html, display_markdown
 from IPython.utils.io import capture_output
 from datasci.savior import HtmlReport, CellReport, DoubleReport, \
-                        css_dark_style, generate_slideshow, slideshow_generator
+                      css_dark_style, generate_slideshow, slideshow_generator,\
+                      reroute_loggers
 import logging
 
 # BUG in Jupyter Notebook: I must catch the following error:
@@ -1683,12 +1686,15 @@ def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
     print('Removed variables:', ', '.join(sorted_coefs[sorted_coefs <= atol].index), file=out)
     fit = sm.OLS(a[y], exog[['const'] + selected_features]).fit(cov_type='HC1')
 
-    bars_to_show = ['coef', 'Lasso coef', 'Simple regression coef']
+    bars_to_show = ['coef', 'Lasso coef', 'Simple regression coef', 'VIFs']
     bars_to_show += psummary_kw.pop('bars', [])
     info_to_join = psummary_kw.pop('join', None)
     simple_regressions =  [sm.OLS(a[y], sm.add_constant(a[features])[['const']]).fit()]
     simple_regressions += [sm.OLS(a[y], sm.add_constant(a[ft])).fit()
                            for ft in features]
+    #vifs = [smo.variance_inflation_factor(a[['const']+selected_features], i)
+    vifs = [VIF(fit, ft) 
+            for i,ft in enumerate(['const']+selected_features)]
     param_info = pd.concat((
                     pslopes.data.coef.rename('Lasso coef'),
                     pd.DataFrame([(reg.params.loc[ft], reg.pvalues[ft])
@@ -1697,6 +1703,7 @@ def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
                                  index=['const'] + features,
                                  columns=['Simple regression coef',
                                           'Simple regression p-value']),
+                    pd.Series(vifs, index=['const']+selected_features, name='VIFs')
                     ) + (() if info_to_join is None else (info_to_join,)),
                     axis=1, sort=False)
 
@@ -1710,6 +1717,26 @@ def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
     # Test of homoscedasticity
     #sms.linear_harvey_collier(fit)
     return fitlasso, fit, pslopes, preslopes
+
+class fullRegression(object):
+    init_vars = [
+                 'same_alls',
+                 'responses',
+                 'features',
+                 'ref_suggested_transform',
+                 'impose_transform',    # global _must_transform
+                 'to_decorr',           # global _must_decorr
+                 'must_drop_features',  # global _must_drop_features
+                 'protected_features',  # global _protected_features
+                 'must_drop_data',      # global _must_drop_data
+                 'out', 'logger']
+
+    init_defaults = {'ref_suggested_transform': dict,
+                     'impose_transform': dict,
+                     'must_drop_features': set,
+                     'to_decorr': Args,
+                     'protected_features': set,
+                     'must_drop_data': dict}
 
 
 _must_transform = dict(
@@ -1852,24 +1879,25 @@ _protected_features = {'RdS_rate_std', 'dS_rate_std',
                        'RdS_rate_std_nonlocal', 'dS_rate_std_nonlocal',
                        'RbeastS_rate_std', 'beastS_rate_std',
                        'ingroup_glob_len'}
+
 # anc = 'Catarrhini'
 # param = 'um1.new'
 # nsCata = age_analyses[anc][param].ns
-class full_dating_regression(object):
+class full_dating_regression(fullRegression):
 
-    init_vars = ['data',
-                 'same_alls',
-                 'dataset_params',
+    init_vars = ['data',  # Not in fullRegression
+                 'same_alls',  # Not in fullRegression (alls instead)
+                 'dataset_params',  # Not in fullRegression
                  'responses',
                  'features',
-                 'measures',  # measures of branch lengths and ages.
+                 'measures',  # Not in fullRegression. measures of branch lengths and ages.
                  'ref_suggested_transform',
                  'impose_transform',    # global _must_transform
                  'to_decorr',           # global _must_decorr
                  'must_drop_features',  # global _must_drop_features
                  'protected_features',  # global _protected_features
                  'must_drop_data',      # global _must_drop_data
-                 'out', 'logger']
+                 'out', 'logger', 'widget']
 
     init_defaults = {'ref_suggested_transform': dict,
                      'impose_transform': dict,
@@ -2018,37 +2046,24 @@ class full_dating_regression(object):
             return suggested_transform
 
 
-    def do(self):
-        """Run self.do_rates() first."""
-        logger = self.logger
+    def prepare_design_matrix(self):
         cs_rates = self.cs_rates
 
         data = self.data
         same_alls = self.same_alls
         dataset_params = self.dataset_params
         responses = self.responses
-        features = self.features
-        must_drop_features = self.must_drop_features
-
-        ages_controled = data.ages_controled
-        mean_errors = data.mean_errors
-
-        ft_idx = pd.Index(features)
-        assert (not ft_idx.has_duplicates), ft_idx[ft_idx.duplicated()]
 
         print('\n# Merge features', file=self.out)
-        self.alls = alls = pd.concat((mean_errors,
+        self.alls = alls = pd.concat((data.mean_errors,
                                       data.ns[dataset_params],
                                       cs_rates,
                                       same_alls),
                                      axis=1, join='inner', sort=False,
                                      verify_integrity=True)
 
-        y = responses[0]
-        print('Variable Y :', y, file=self.out)
-        print('%d observation × %d features' % alls.shape, file=self.out)
         if alls.shape[0] == 0:
-            logger.error('NULL inner join from:\nmean_errors\n------\n'
+            msg = ('NULL inner join from:\nmean_errors\n------\n'
                          + str(mean_errors.iloc[:5, :5]) + '\n'
                          '\ndata.ns[dataset_params]\n------\n'
                          + str(data.ns[dataset_params].iloc[:5, :5]) + '\n'
@@ -2057,7 +2072,25 @@ class full_dating_regression(object):
                          '\nsame_alls\n------\n'
                          + str(same_alls.iloc[:5, :5]) + '\n'
                          )
-            sys.exit(1)
+            raise RuntimeError(msg)
+
+
+    def do(self):
+        """Run self.do_rates() first."""
+        logger = self.logger
+
+        features = self.features
+        ft_idx = pd.Index(features)
+        assert (not ft_idx.has_duplicates), ft_idx[ft_idx.duplicated()]
+
+        responses = self.responses
+        y = responses[0]
+        print('Variable Y :', y, file=self.out)
+
+        self.prepare_design_matrix()
+        alls = self.alls
+        print('%d observation × %d features' % alls.shape, file=self.out)
+
         self.na_amount = na_amount = alls.isna().sum(axis=0).sort_values(ascending=False)
         print('Amount of NA:', na_amount.head(10), sep='\n', file=self.out)
         print('Amount of Inf:', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10), sep='\n', file=self.out)
@@ -2231,7 +2264,7 @@ class full_dating_regression(object):
         #plt.plot(transformed0[transformed0_out, 0], transformed0[transformed0_out, 1], 'r.')
 
         print('\n### Feature decorrelation: 1. Drop features; 2. decorr.', file=self.out)
-        #must_drop_features
+        must_drop_features = self.must_drop_features
         ### **TODO**!!! Check that decorrelation is done on the un-zscored data!!
         
         try:
@@ -2440,7 +2473,8 @@ class full_dating_regression(object):
                                     if ft in self.inde_features]
             self._suggest_multicolin, outputs = loop_leave1out(self.inde_features,
                                           lambda x: multicol_test(self.a_n_inde[x]),
-                                          stop_criterion=20,
+                                          criterion='min',
+                                          stop_criterion='<20',
                                           protected=protected_features,
                                           out=self.out, widget=self.widget)
             self.displayed.extend(outputs)
@@ -2456,7 +2490,8 @@ class full_dating_regression(object):
             protected_features2 = self.protected_features.intersection(self.inde_features2)
             self._suggest_multicolin2, outputs = loop_leave1out(self.inde_features2,
                                           lambda x: multicol_test(self.a_n_inde2[x]),
-                                          stop_criterion=20,
+                                          criterion='min',
+                                          stop_criterion='<20',
                                           protected=protected_features2,
                                           out=self.out, widget=self.widget)
             self.displayed.extend(outputs)
@@ -2607,23 +2642,34 @@ class full_dating_regression(object):
         #print('fstat = %g\nP(F > fstat) = %g\nlog-likelihood = %g' %(
         #        refitlasso2.fvalue, self.F_pval2, self.lL2), file=self.out)
 
-        figsize = mpl.rcParams['figure.figsize']
-        fig, axes = plt.subplots(3, figsize=(figsize[0], figsize[1]*2))
-        # Plot Y~X with largest coef.
-        ax = axes[0]
-        scatter_density(a_n_inde2[y], a_n_inde2[self.slopes2.index[1]], alpha=0.4, ax=ax)
-        x = np.array(ax.get_xlim())
-        a, b = reslopes2.loc[['const', self.slopes2.index[1]], 'Simple regression coef']
-        ax.plot(x, 0 + b*x, '--', label='Simple Regression line (a=%g b=%g)' % (0,b))
-        a, b = reslopes2.loc[['const', self.slopes2.index[1]], 'Lasso coef']
-        ax.plot(x, a + b*x, '--', label='Lasso regression line (a=%g b=%g)' % (a,b))
-        ax.legend()
-        ax.set_title('Response against the feature with the largest Lasso coef.')
-        ax.set_ylabel(y)
-        ax.set_xlabel(self.slopes2.index[1])
+        # Plot Y~X with each coef (the 10 largest).
+        fit_figs = []
+        iter_coeffs = range(1, min(11, len(self.slopes2.index)))
+        if self.widget is not None:
+            iter_coeffs = self.widget(iter_coeffs)
+        for coef_i in iter_coeffs:
+            fig, ax = plt.subplots()
+            scatter_density(a_n_inde2[y], a_n_inde2[self.slopes2.index[coef_i]], alpha=0.4, ax=ax)
+            x = np.array(ax.get_xlim())
+            a, b = reslopes2.loc[['const', self.slopes2.index[coef_i]], 'Simple regression coef']
+            ax.plot(x, 0 + b*x, '--', label='Simple Regression line (a=%g b=%g)' % (0,b))
+            a, b = reslopes2.loc[['const', self.slopes2.index[coef_i]], 'Lasso coef']
+            ax.plot(x, a + b*x, '--', label='Lasso regression line (a=%g b=%g)' % (a,b))
+            ax.legend()
+            ax.set_title('Response ~ %s (%s largest Lasso coef).'
+                         % (self.slopes2.index[coef_i],
+                            '1st' if coef_i==1 else
+                            '2nd' if coef_i==2 else
+                            '3rd' if coef_i==3 else '%dth' % coef_i))
+            ax.set_ylabel(y)
+            ax.set_xlabel(self.slopes2.index[coef_i])
+            fit_figs.append(fig)
+            self.show(); plt.close()
+        self.displayed.append(fit_figs)
 
         # Residual plot
-        ax = axes[1]
+        fig, axes = plt.subplots(2)
+        ax = axes[0]
         scatter_density(a_n_inde2[y] - refitlasso2.fittedvalues,
                         refitlasso2.fittedvalues,
                         alpha=0.4, ax=ax)
@@ -2631,7 +2677,7 @@ class full_dating_regression(object):
         ax.set_ylabel('Residual error')
         ax.set_xlabel('Predicted response')
 
-        smg.gofplots.qqplot(refitlasso2.resid, line='r', ax=axes[2])
+        smg.gofplots.qqplot(refitlasso2.resid, line='r', ax=axes[1])
         self.displayed.append(fig)
         self.show(); plt.close()
 
@@ -2675,6 +2721,381 @@ class full_dating_regression(object):
                 self.display(out)
             else:
                 print(out, file=self.out)
+
+
+# Convert original code names to names displayed in the paper (see fig.1).
+dataset_to_pipeline = {'fsahmmc': 'fsa+cleaned,branchMPL',   # (6)
+                       'fsahmmcBeastS': 'fsa+cleaned,Beast', # (8)
+                       'fsa': 'fsa,branchMPL', # (5)
+                       'beastS': 'fsa,Beast'}  # (7)
+
+# How many layers of parametrisation can I stack?
+class regressAncs(object):
+    """
+    2020/02/21. Output regressions for each anc in an HTML report.
+    
+    Based on the fsahmmc (fsa+cleaned,MPL) regressions for all ancestors,
+    with rate variables local and nonlocal.
+    
+    Purpose: local & nonlocal are correlated; we started to add "local divided by nonlocal",
+    + this class allow any rate reparametrisation
+    + control over the protected variables.
+    + automatically perform the post-regression joint analysis (display R², plot coeffs).
+    
+    Other core params (as of 2020/02/21) are left as is (e.g, _must_decorr).
+    """
+    # I make it a class, so that internal variables may be retrieved, even if it crashes.
+
+    param_keys = ['rate_settings',
+                  'ref_suggested_transform_anc', # = 'Catarrhini'
+                  'rate_reprocess', # = dict(newname=<function(cs_rates)>)
+                  'add_to_drop_features',  # = <set>
+                  'add_to_protect', # = <set>
+                  'deprotect',      # = <set>
+                  'add_to_drop_data', # = <dict>
+                  'add_to_must_transform'] # = <dict>
+    param_defaults = {'rate_settings': dict,
+                  'ref_suggested_transform_anc': (lambda: 'Catarrhini'),
+                  'rate_reprocess': dict, # = dict(newname=<function(cs_rates)>)
+                  'add_to_drop_features': set,
+                  'add_to_protect': set,
+                  'deprotect':      set,
+                  'add_to_drop_data': dict,
+                  'add_to_must_transform': dict}
+    # Attributes added by `do()` (not created during __init__)
+    todo = ['ref_suggested_transform', 'reports', 'all_reports', 'all_adjR2', 'spec_coefs',
+            'union_top5_coefs', 'union_top3_coefs', 'sorted_union_top5_coefs',
+            'spec_simple_coefs']
+
+    def __init__(self, description,
+                 out_template='outputs/Regression_{anc}_{desc}.html',
+                 **full_dating_kwargs):
+        self.description = description
+        self.parametrisation = {}  # It's actually a reparametrisation, or param update.
+        # {'rate_settings': } #ref_suggested_transform_anc = 'Catarrhini'
+        self.all_regressions = {}
+        self.all_coeffs = {}
+        self.out_template = out_template
+        self.logger_states = {}  # Hold the current handlers
+        self.dataset = 'fsahmmc'  # fsa+cleaned
+
+        default_full_dating_kwargs = dict(
+                                    #age_analyses[anc][self.dataset],
+                                    alls=same_alls_fsahmmc,
+                                    dataset_params=dataset_params_dS,
+                                    responses=['abs_dev_age_dS', 'abs_dev_brlen_dS'],
+                                    features=features,
+                                    measures=['dS'],
+                                    impose_transform={**_must_transform},
+                                    must_drop_features=_must_drop_features.union(
+                                            ('gb_percent', 'gb_Nblocks')),
+                                    to_decorr={**_must_decorr},
+                                    protected_features=_protected_features,
+                                    must_drop_data={**_must_drop_data})
+        self.full_dating_kwargs = {**default_full_dating_kwargs,
+                                   **full_dating_kwargs}
+
+    @classmethod
+    def from_other(cls, other):
+        new = cls(other.description, other.out_template)
+        for attr in ('parametrisation', 'all_regressions', 'all_coeffs',
+                'logger_states', 'dataset', 'ref_suggested_transform'):
+            setattr(new, attr, getattr(other, attr))
+        for attr in cls.todo:
+            setattr(new, attr, getattr(other, attr, None))
+        return new
+
+    def parametrise(self, **kwargs):
+        for k in self.param_keys:
+            self.parametrisation[k] = kwargs.pop(k, self.param_defaults[k]())
+        self.parametrisation.update(**kwargs)
+
+    def print_parametrisation(self, file=None):
+        def fmt_dict(d, valfunc=type):
+            return '{\n  ' + ',\n  '.join(
+                    '%r: %s' %(k,valfunc(v)) for k,v in d.items()) + '\n}'
+        print('# Parametrisation\n\n## Main attributes\n', file=file)
+        print('Description: %s\nout_template: %r\ndataset: %r\n' % (
+                self.description, self.out_template, self.dataset), file=file)
+        print('## full_dating_regression parameters\n', file=file)
+        for p in self.param_keys:
+            print('%25s:\t%s\n' % (p, self.parametrisation[p]), file=file)
+        for p in sorted(set(self.parametrisation).difference(self.param_keys)):
+            print('[Extra] %25s:\t%s\n' % (p, self.parametrisation[p]), file=file)
+        print('## Global variables\n', file=file)
+        print('ordered_simii_anc = [%s]\n' % ' '.join(ordered_simii_anc), file=file)
+        print('loggers (name) = %s\n' % [lgr.name for lgr in loggers], file=file)
+        #print('myslideshow_css, myslideshow_js', file=file)
+        print('age_analyses = %s\n' % fmt_dict(age_analyses, fmt_dict), file=file)
+        print('same_alls_fsahmmc = %s\n' % same_alls_fsahmmc.info(), file=file)
+        print('features = %s\n' % ' '.join(features), file=file)
+        print('dataset_params_dS = %s\n' % ' '.join(dataset_params_dS), file=file)
+        print('renames = %s\n' % type(renames), file=file)
+
+    def do(self):
+        #global ordered_simii_anc, loggers, myslideshow_css, myslideshow_js,
+        # age_analyses, same_alls_fsahmmc
+
+        ref_anc = self.parametrisation['ref_suggested_transform_anc']
+        ref_anc_i = ordered_simii_anc.index(ref_anc)
+        other_ancs = ordered_simii_anc[:ref_anc_i] + ordered_simii_anc[(ref_anc_i+1):]
+
+        self.ref_suggested_transform = None
+        self.all_reports = dict()
+        self.all_reports.update(**{(anc, filename): t for (anc, filename, t) in
+                                   getattr(self, 'reports', [])})
+        self.reports = []  # (anc, <html filename>, <timestamp>).
+        
+        try:
+            for anc_i, anc in enumerate([ref_anc] + other_ancs):
+                print('# %d. %s #\n------------------' % (anc_i, anc))
+                reportfile = self.out_template.format(anc=anc, desc=self.description)
+                self.reports.append((anc, reportfile, dt.now()))
+                if anc in self.all_coeffs:
+                    print('Already done. SKIP.')
+                    continue
+                try:
+                    with reroute_loggers(
+                            HtmlReport(reportfile,
+                                       css=[myslideshow_css], scripts=[myslideshow_js]),
+                            loggers) as hr:
+                        # I currently need this hack to display the slideshow:
+                        #def show_bare(fig=None, **kw):
+                        #    HtmlReport.show(hr, fig=None, bare=True, **kw)
+                        #setattr(hr, 'show', show_bare)
+
+                        self.all_regressions[anc] = \
+                        reg = full_dating_regression(
+                                        age_analyses[anc][self.dataset],
+                                        same_alls_fsahmmc,
+                                        dataset_params_dS,
+                                        ['abs_dev_age_dS', 'abs_dev_brlen_dS'],
+                                        features+list(self.parametrisation['rate_reprocess']),
+                                        measures=['dS'],
+                                        ref_suggested_transform=self.ref_suggested_transform,
+                                        impose_transform={**_must_transform,
+                                                **self.parametrisation['add_to_must_transform']},
+                                        must_drop_features=_must_drop_features.union(
+                                                ('gb_percent', 'gb_Nblocks')).union(
+                                                    self.parametrisation['add_to_drop_features']),
+                                        to_decorr=_must_decorr,
+                                        protected_features=_protected_features.union(
+                                                self.parametrisation['add_to_protect']).difference(
+                                                self.parametrisation['deprotect']),
+                                        must_drop_data={**_must_drop_data,
+                                                **self.parametrisation['add_to_drop_data']},
+                                        out=hr, logger=logger, widget=slideshow_generator(hr))
+                        # for update_key, (attr, update) in self.parametrisation.values():
+                        #    reg_value = deepcopy(getattr(reg, attr))
+                        #    if isinstance(update, set):
+                        #       if update_key.startswith('add_to'):
+                        #           reg_value |= update
+                        #       else:
+                        #           reg_value -= update
+                        #   elif isinstance(update, dict):
+                        #       reg_value.update(update)
+                        #   setattr(reg, attr, reg_value)
+                        reg.do_rates(**self.parametrisation['rate_settings'])
+                        old_rate_shape = reg.cs_rates.shape
+                        reg.cs_rates = reg.cs_rates.assign(**self.parametrisation['rate_reprocess'])
+                        hr.print('cs_rates.shape: %s -> %s' % (old_rate_shape, reg.cs_rates.shape))
+                        coeffs = reg.do()
+                        if anc == ref_anc:
+                            self.ref_suggested_transform = reg.suggested_transform
+
+                    self.all_coeffs[anc] = coeffs
+                except BaseException:
+                    print('ERROR at', anc)
+                    raise
+
+            self.summarize()
+        finally:
+            display_markdown(('Created %d reports:\n\n- ' % len(self.reports)) +
+                    '\n- '.join('[%s](%s) (%s)' % (a,f,t.strftime('%Y-%m-%d %H:%M:%S'))
+                                for (a,f,t) in self.reports),
+                             raw=True)
+
+
+    def summarize(self, ncoefs=8,  # No more than 8 in the main text.
+                  startcoef=0, ncols=2):
+        reportfile = self.out_template.format(anc='allspeciations', desc=self.description)
+        self.reports.append(('allspeciations', reportfile, dt.now()))
+        self.all_reports[('allspeciations', reportfile)] = self.reports[-1][-1]
+        all_coeffs = self.all_coeffs
+        with reroute_loggers(
+                HtmlReport(reportfile,
+                           css=[myslideshow_css], scripts=[myslideshow_js]),
+                loggers) as hr:
+
+            hr.print('\n# adjusted R²\n')
+            self.all_adjR2 = pd.Series([self.all_regressions[anc].refitlasso2.rsquared_adj
+                                        for anc in ordered_simii_anc],
+                                       index=ordered_simii_anc, name='all_adjR2')
+            hr.html(self.all_adjR2.to_frame().style.background_gradient(cmap='YlGn'))
+
+            hr.print('\n# Top coefficients\n')
+            self.spec_coefs = \
+            spec_coefs = pd.concat([all_coeffs[anc][['coef']] for anc in ordered_simii_anc_byage],
+                                keys=ordered_simii_anc_byage, axis=1, join='outer', sort=False)\
+                      .set_axis(ordered_simii_anc_byage, axis=1, inplace=False)\
+                      .assign(absmean=lambda df: df.abs().mean(axis=1))\
+                      .sort_values('absmean', ascending=False)
+
+            spec_top5_coefs = [all_coeffs[anc]['coef'].index[1:6].tolist() for anc in ordered_simii_anc]
+            union_top5_coefs = set.union(*(set(s) for s in spec_top5_coefs))
+            self.union_top5_coefs = union_top5_coefs
+            spec_top3_coefs = [all_coeffs[anc]['coef'].index[1:4].tolist() for anc in ordered_simii_anc]
+            union_top3_coefs = set.union(*(set(s) for s in spec_top3_coefs))
+            self.union_top3_coefs = union_top3_coefs
+            
+            hr.print('%d in union top5; %d in union top3.' % (
+                        len(union_top5_coefs), len(union_top3_coefs)))
+            hr.print('Specific in tops VS global ranking:\ntop5: %s\ntop3: %s\n' % (
+                union_top5_coefs.difference(spec_coefs.drop('const').index[:5]),
+                union_top3_coefs.difference(spec_coefs.drop('const').index[:3])
+                ))
+            #spec_coefs.drop('const').index[:5].difference(union_top5_coefs)
+            hr.html(spec_coefs.style.bar(align='zero')\
+                .set_caption('Top coefficients (sorted by absmean)')\
+                .set_table_styles([dict(selector='caption',
+                                       props=[('caption-side', 'top')])
+                                 ])
+                )
+            #.set_table_attributes(title=))
+
+            # Here, because of .loc[], we need to re-sort the dataframe '--
+            self.sorted_union_top5_coefs = \
+            sorted_union_top5_coefs = spec_coefs.loc[union_top5_coefs].sort_values('absmean', ascending=False).index.tolist()
+
+            # Also check the simple regression coefs, for inconsistencies
+            self.spec_simple_coefs = \
+            spec_simple_coefs = pd.concat([all_coeffs[anc][['Simple regression coef']] for anc in ordered_simii_anc_byage],
+                                    keys=ordered_simii_anc_byage, axis=1, join='outer', sort=False)\
+                          .set_axis(ordered_simii_anc_byage, axis=1, inplace=False)\
+                          .assign(absmean=lambda df: df.abs().mean(axis=1))\
+                          .sort_values('absmean', ascending=False)
+            #sorted_features = spec_coefs.index.tolist()
+            hr.html(spec_simple_coefs.style.bar(align='zero')\
+                        .set_caption('Top coefficients from simple regressions'
+                                     '(sorted by absmean)')\
+                        .set_table_styles([dict(selector='caption',
+                                               props=[('caption-side', 'top')])
+                                         ])
+                        )
+                        #.set_table_attributes(title=))
+            
+            # Paper figures: top coefficients
+            hr.print('## Top 5 coefficients, sorted by their mean absolute value across ancestors')
+
+            plotdata = spec_coefs.loc[union_top5_coefs].drop('absmean', 1) #.rename(renames)
+        #def plot_anc_coeffs(plotdata, ncoefs=8, startcoef=0, ncols=2,
+                             #plotdata_simple=None):
+            
+            # The error bars for the barplot:
+            spec_conf_int = pd.concat(
+                                [self.all_coeffs[anc][['[0.025', '0.975]']]
+                                 for anc in ordered_simii_anc_byage],
+                                axis=1, sort=False, keys=ordered_simii_anc_byage, verify_integrity=True)
+            # -> index: coefficients
+            # -> columns: MultiIndex(( anc, inf/sup ))
+            if ncoefs is None:
+                ncoefs = len(sorted_union_top5_coefs)
+            nrows = ncoefs // ncols + (ncoefs % ncols >0)
+            fig, axes = plt.subplots(nrows, ncols,
+                                     figsize=(ncols*5, 2+nrows*1.5), sharex=True, sharey=True,
+                                     gridspec_kw={'hspace': 0}, squeeze=False)
+            n_anc = len(ordered_simii_anc)
+            cmap = plt.get_cmap('tab20b', n_anc)  # 'set3', 'viridis'
+            barcolors = [cmap(i) for i in range(n_anc)]
+
+            x = np.arange(n_anc)
+            for ax, coef in zip(axes.flat, sorted_union_top5_coefs[startcoef:]):
+                heights = plotdata.loc[coef, ordered_simii_anc_byage]
+                yerr = np.abs(spec_conf_int.loc[coef].unstack(level=-1).values.T - heights.values)
+                ax.bar(x, heights, color=barcolors, width=0.9, yerr=yerr,
+                       capsize=2, error_kw=dict(elinewidth=1, alpha=0.5))
+                ax.set_ylabel('\n'.join(textwrap.wrap(renames.get(coef, coef), width=25, break_long_words=False))
+                             , rotation='horizontal', ha='right', va='center')
+                ax.yaxis.set_ticks_position('right')
+                ax.grid(True, axis='y')
+                ax.grid(False, axis='x')
+            ax.set_xticks(x)
+
+            #x_shared_group = axes[-1, -1].get_shared_x_axes()
+            for i, ax in enumerate(axes[-1]):
+                if i >= (ncoefs % ncols) > 0:
+                    # Nothing was plotted: remove the axis
+                    ax.axis('off')
+                    #x_shared_group.remove(ax)
+                    ax = axes[-2, i]
+                    ax.tick_params('x', labelbottom=True)
+                ax.set_xticklabels(ordered_simii_anc_byage, rotation=45, va='top', ha='right');
+
+            fig.tight_layout()
+            #return fig
+
+            if False:
+                for ext in ('pdf', 'png'):
+                    fig.savefig('../fig/speciations_coefs-top5_%s_%s_ylab-h-%d-%d.%s'
+                                % (dataset_to_pipeline[self.dataset].replace(',','+'),
+                                   self.description, startcoef+1, startcoef+ncoefs, ext),
+                                bbox_inches='tight')
+            hr.show(fig)
+            plt.close(fig)
+
+            #fig.savefig('../fig/speciations_coefs-top5_fsahmmc+mpl_ylab-h-8first.pdf', bbox_inches='tight')
+            #fig.savefig('../fig/speciations_coefs-top5_fsahmmc+mpl_ylab-h-8first.png', bbox_inches='tight')
+
+            hr.print('Top 5 coefficients, from the multiple VS simple regression')
+            plotdata2 = spec_simple_coefs.loc[union_top5_coefs].drop('absmean', 1) #.rename(renames)
+
+            # -> index: coefficients
+            # -> columns: MultiIndex(( anc, inf/sup ))
+
+            nrows = ncoefs // ncols + (ncoefs % ncols >0)
+            fig, axes = plt.subplots(nrows, ncols,
+                                     figsize=(ncols*5, 2+nrows*1.5), sharex=True, sharey=True,
+                                     gridspec_kw={'hspace': 0}, squeeze=False)
+            n_anc = len(ordered_simii_anc)
+            cmap = plt.get_cmap('tab20b', n_anc)  # 'set3', 'viridis'
+            barcolors = [cmap(i) for i in range(n_anc)]
+
+            x = np.arange(n_anc)
+            for ax, coef in zip(axes.flat, sorted_union_top5_coefs[startcoef:]):
+                yerr = np.abs(spec_conf_int.loc[coef].unstack(level=-1).values.T - heights.values)
+                heights = plotdata.loc[coef, ordered_simii_anc_byage]
+                ax.bar(x, heights, color=barcolors, width=-0.4, align='edge',
+                       yerr=yerr, capsize=2, error_kw=dict(elinewidth=1, alpha=0.5))
+                heights2 = plotdata2.loc[coef, ordered_simii_anc_byage]
+                # Err bars of simple regressions not available in full_dating_regression, s'ry.
+                ax.bar(x, heights2, color='gray', width=0.4, align='edge')
+                
+                ax.set_ylabel('\n'.join(textwrap.wrap(renames.get(coef, coef), width=25, break_long_words=False))
+                             , rotation='horizontal', ha='right', va='center')
+                ax.yaxis.set_ticks_position('right')
+                ax.grid(True, axis='y')
+                ax.grid(False, axis='x')
+            ax.set_xticks(x)
+
+            #x_shared_group = axes[-1, -1].get_shared_x_axes()
+            for i, ax in enumerate(axes[-1]):
+                if i >= (ncoefs % ncols) > 0:
+                    # Nothing was plotted: remove the axis
+                    ax.axis('off')
+                    #x_shared_group.remove(ax)
+                    ax = axes[-2, i]
+                    ax.tick_params('x', labelbottom=True)
+                ax.set_xticklabels(ordered_simii_anc_byage, rotation=45, va='top', ha='right');
+                    
+            fig.tight_layout()
+            if False:
+                for ext in ('pdf', 'png'):
+                    fig.savefig('../fig/speciations_simple+multiple_coefs-top5_%s_%s_ylab-h-%d-%d.%s'
+                                % (dataset_to_pipeline[self.dataset].replace(',','+'),
+                                   self.description, startcoef+1, startcoef+ncoefs, ext),
+                                bbox_inches='tight')
+            hr.show(fig)
+            plt.close(fig)
 
 
 
