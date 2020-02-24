@@ -19,10 +19,12 @@ import statsmodels.api as sm
 from datasci.graphs import scatter_density, brokenAxes
 from datasci.routines import test_transforms
 from datasci.dataframe_recipees import bounded_background_gradient
-from datasci.savior import HtmlReport, css_dark_style, reroute_loggers, generate_slideshow
+from datasci.savior import HtmlReport, css_dark_style, reroute_loggers, \
+                           generate_slideshow, slideshow_generator
 
 from duprates.optim_gamma import inverse_scale #, gamma_negloglikelihood
 from codeml.analyse.regress_dating_errors import *
+import codeml.analyse.regress_dating_errors as aregr
 
 
 float_ = np.longdouble  # Global precision set here.
@@ -42,15 +44,6 @@ import seaborn as sb
 mpl.rcParams['figure.figsize'] = (12,7)
 myslideshow_js = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.js') 
 myslideshow_css = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.css') 
-
-
-if __name__ == '__main__':
-    try:
-        from UItools import colorlog
-        colorlog.install(logger)
-    except ImportError:
-        logging.basicConfig()
-    logger.setLevel(logging.INFO)
 
 
 continuous_distribs = [d for dname, d in sorted(vars(st).items())
@@ -138,9 +131,7 @@ def fit_distribs(distribs, df, x=None, nbins=100, stream=None):
 
 
 def load_generax_familyrates():
-    #workdir = op.expanduser('~/ws7/DUPLI_data93/alignments_analysis/duprates')
     #infile = op.join(workdir, 'familyrates.txt')
-    workdir = Path.home().joinpath('ws7', 'DUPLI_data93', 'alignments_analysis', 'duprates')
     infile = workdir / 'familyrates.tsv'
 
     df = pd.read_csv(str(infile), sep='\t', index_col=0, header=None,
@@ -335,27 +326,107 @@ def analysis_2_alldistribs():
     fit_stats.to_csv('distrib_fits_duploss.csv', sep='\t')
     #TODO: analyse the eventCounts as well.
 
-def analysis_3_alldistribs():
+common_info = ['genetree']
+
+stat_params = dict(
+    al=["ingroup_glob_len", "ingroup_mean_GC", "ingroup_mean_N",
+        "ingroup_mean_gaps", "ingroup_mean_CpG", "ingroup_std_len",
+        "ingroup_std_GC",  "ingroup_std_N",  "ingroup_std_gaps",
+        "ingroup_std_CpG", "ingroup_nucl_entropy_mean",
+        "ingroup_nucl_entropy_median", "ingroup_nucl_entropy_std",
+        "ingroup_nucl_parsimony_mean", "ingroup_nucl_parsimony_median",
+        "ingroup_nucl_parsimony_std", "ingroup_codon_entropy_mean",
+        "ingroup_codon_entropy_median", "ingroup_codon_entropy_std",
+        "ingroup_codon_parsimony_mean", "ingroup_codon_parsimony_median",
+        "ingroup_codon_parsimony_std"],
+    tree=["root_location", "really_robust", "nodes_robust", "single_child_nodes",
+          "aberrant_dists", "rebuilt_topo", "unlike_clock",
+          "consecutive_zeros", "sister_zeros", "triplet_zeros",
+          "bootstrap_min", "bootstrap_mean"],  #, "root2tip_mean", "root2tip_sd"  (Already in cl_params)
+    cl=["ls", "ns", "Nbranches", "NnonsynSites", "NsynSites",
+        "kappa", "prop_splitseq", "codemlMP", "convergence_warning",
+        "treelen", #"dN_treelen", "dS_treelen",
+        "brOmega_mean", "brOmega_std", "brOmega_med", "brOmega_skew",
+        "consecutive_zeros_t", "sister_zeros_t", "triplet_zeros_t",
+        "consecutive_zeros_dS","sister_zeros_dS", "triplet_zeros_dS",
+        "consecutive_zeros_dN", "sister_zeros_dN", "triplet_zeros_dN",
+        "lnL", "Niter", "seconds"] \
+       + ['r2t_%s_%s' %(m,s) for m in ('t', 'dS', 'dN')
+          for s in ('mean', 'std')],
+    cleaning=["gb_Nblocks", "gb_percent", "hmmc_propseqs", "hmmc_max"], #, "hmmc_mean_onlycleaned"]
+    chronos=['%s_%s' % (method, info)
+             for method in ('P1', 'P100', 'P10000', 'R1', 'R100', 'R10000', 'C')
+             for info in ('message', 'ploglik', 'loglik', 'PHIIC')]
+    )
+stat_params['alfsahmmc'] = stat_params['alfsa'] = stat_params['al']
+stat_params['codemlfsahmmc'] = stat_params['codemlfsa'] = stat_params['codeml'] = stat_params['cl']
+stat_params['cleaningfsa'] = stat_params['cleaning']
+
+dataset_params = ["freq_null_dist", "freq_null_t", "freq_null_dS", "freq_null_dN",
+                  "null_dist_before", "null_t_before", "null_dS_before", "null_dN_before",
+                  "null_dist_after", "null_t_after", "null_dS_after", "null_dN_after"]
+                 # + ["Ndup", "Nspe"] 
+rate_params = [statname % m for statname in ('%s_rate', '%s_rate_std') for m in MEASURES]
+dataset_params_dS = ['freq_null_dS', 'null_dS_before', 'null_dS_after']
+rate_params_dS = ['dS_rate_local', 'dS_rate_std_local', 'dS_rate_nonlocal', 'dS_rate_std_nonlocal']
+
+
+def analysis_3_regress_duprates():
     """2020/02/24"""
-    with HtmlReport(str(workdir / 'familyrates_correlates.html'),
-                    style=css_dark_style, css=[myslideshow_css],
-                    scripts=[myslideshow_js]) as hr:
+    with reroute_loggers(
+            HtmlReport(str(workdir / 'familyrates_correlates.html'),
+                       style=css_dark_style, css=[myslideshow_css],
+                       scripts=[myslideshow_js]),
+            loggers) as hr:
         df = filter_invalid_generax(load_generax_familyrates(), out=hr)
-        stattypes = ('tree', 'al', 'codeml', 'cleaning', 'alfsa',
-                     'codemlfsa', 'cleaningfsa', 'beastS', 'alfsahmmc', 'codemlfsahmmc')
+
+        all_stattypes = ('tree', 'al', 'codeml', 'cleaning', 'alfsa',
+                         'codemlfsa', 'cleaningfsa', 'beastS', 'alfsahmmc', 'codemlfsahmmc')
+        stattypes = ('tree', 'alfsa', 'codemlfsa', 'cleaningfsa')
+        #TODO: run codeml and cleaning for non-robusts.
         ss = load_subtree_stats(
                 "../subtrees_stats/subtreesGoodQualO2_{stattype}stats-Simiiformes.tsv",
                 stattypes=stattypes)
         check_subtree_stats(list(zip(stattypes, ss)))
-        hr.show()
-        plt.close()
+        hr.show(); plt.close()
 
-        reg = fullRegression()
+        features = [ft for stype, sdata in zip(stattypes, ss)
+                    for ft in stat_params.get(stype,
+                                              sdata.drop(common_info, 1).columns.tolist())]
 
-
+        reg = fullRegression(
+                pd.concat(([df.set_index('subgenetree')]
+                           + [sdata[stat_params.get(stype,
+                                          sdata.columns.difference(common_info))]
+                              for stype, sdata in zip(stattypes, ss)]),
+                axis=1, join='inner', sort=False, verify_integrity=True),
+                ['duprate', 'lossrate'],
+                features,
+                ref_suggested_transform=None,
+                impose_transform=aregr._must_transform,
+                must_drop_features=aregr._must_drop_features,
+                to_decorr=aregr._must_decorr,
+                protected_features=aregr._protected_features,
+                must_drop_data=aregr._must_drop_data,
+                out=hr,
+                logger=loggers[0],
+                widget=slideshow_generator(hr)
+                )
+        coefs = reg.do()
 
 
 
 if __name__ == '__main__':
+    try:
+        from UItools import colorlog
+        colorlog.ColoredFormatter.install(logger)
+    except ImportError:
+        logging.basicConfig()
+    logger.setLevel(logging.INFO)
+
+    #workdir = op.expanduser('~/ws7/DUPLI_data93/alignments_analysis/duprates')
+    workdir = Path.home().joinpath('ws7', 'DUPLI_data93', 'alignments_analysis', 'duprates')
+
     #analysis_1_generax_withgamma()
-    analysis_2_alldistribs()
+    #analysis_2_alldistribs()
+    analysis_3_regress_duprates()
