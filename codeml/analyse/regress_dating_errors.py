@@ -1718,9 +1718,9 @@ def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
     #sms.linear_harvey_collier(fit)
     return fitlasso, fit, pslopes, preslopes
 
+
 class fullRegression(object):
-    init_vars = [
-                 'same_alls',
+    init_vars = ['same_alls',
                  'responses',
                  'features',
                  'ref_suggested_transform',
@@ -1729,7 +1729,7 @@ class fullRegression(object):
                  'must_drop_features',  # global _must_drop_features
                  'protected_features',  # global _protected_features
                  'must_drop_data',      # global _must_drop_data
-                 'out', 'logger']
+                 'out', 'logger']  #, 'widget'
 
     init_defaults = {'ref_suggested_transform': dict,
                      'impose_transform': dict,
@@ -1738,178 +1738,9 @@ class fullRegression(object):
                      'protected_features': set,
                      'must_drop_data': dict}
 
-
-_must_transform = dict(
-        ingroup_nucl_entropy_median=binarize,
-        #ingroup_nucl_parsimony_median=binarize, #constant
-        ingroup_codon_entropy_median=binarize,
-        ingroup_codon_parsimony_median=binarize,
-        ingroup_nucl_entropy_mean=sqrt,
-        ingroup_nucl_entropy_std=sqrt,  # Should be the same because of decorrelation.
-        ingroup_nucl_parsimony_mean=log,
-        ingroup_nucl_parsimony_std=log,
-        rebuilt_topo=binarize,
-        consecutive_zeros=binarize, # - triplet_zeros
-        sister_zeros=binarize,      # - triplet_zeros
-        triplet_zeros=binarize,
-        bootstrap_min=notransform,
-        prop_splitseq=binarize,
-        convergence_warning=binarize,  # notransform
-        codemlMP=notransform,
-        consecutive_zeros_dS=binarize,
-        sister_zeros_dS=binarize,
-        triplet_zeros_dS=binarize,
-        consecutive_zeros_dN=binarize,
-        sister_zeros_dN=binarize,
-        triplet_zeros_dN=binarize,
-        r2t_dN_mean=make_best_logtransform,  # This one should be called on the data first.
-        gb_Nblocks=notransform,
-        hmmc_propseqs=notransform,
-        freq_null_dS=binarize,
-        null_dist_before=binarize,
-        null_dS_before=binarize,
-        null_dN_before=binarize,
-        null_dist_after=binarize,
-        null_dS_after=binarize,
-        null_dN_after=binarize,
-        #null_dN_before=sqrt
-        **{'dN_rate'+('_'+setting if setting else ''): make_best_logtransform
-           for setting in ('', 'global', 'local', 'nonlocal', 'global_approx',
-                           'local_approx', 'global_beastS')#self.rate_settings
-          }
-       )
-
-# Example parametrisation (seemed reasonable for most regressions so far)
-_must_drop_features = {"ls", "seconds",  # ~ ingroup_glob_len
-                       "ingroup_std_gaps", # ~ ingroup_std_len
-                       "dS_treelen",       # ~dS_rate
-                       "dN_treelen",
-                       "treelen",
-                       "ingroup_nucl_entropy_mean", # ~ ingroup_nucl_parsimony_mean
-                       "ingroup_nucl_entropy_std",  # 
-                       "ingroup_nucl_parsimony_median",  # 
-                       "ingroup_codon_entropy_std",   # ~ ingroup_nucl_parsimony_std
-                       "Ringroup_codon_entropy_std",   # ~ ingroup_nucl_parsimony_std
-                       "ingroup_codon_entropy_mean",
-                       "ingroup_codon_entropy_median",  # ~ ingroup_nucl_entropy_median
-                       "ingroup_codon_parsimony_mean",
-                       "ingroup_codon_parsimony_median",
-                       "ingroup_codon_parsimony_std",
-                       "Ringroup_codon_parsimony_std",
-                       "r2t_t_mean", "r2t_dS_mean", "r2t_dN_mean",
-                       "r2t_t_std",  "r2t_dS_std",  "r2t_dN_std",
-                       "bootstrap_mean",  # ~ bootstrap_min
-                       "brOmega_skew",
-                       "ingroup_std_N",
-                       "ingroup_std_CpG",  # ~ ingroup_std_GC
-                       "NnonsynSites",  # ~ ls/3 - NsynSites
-                       # decorrelated:
-                       "ingroup_mean_CpG",
-                       # "ingroup_codon_parsimony_std",
-                       # "NnonsynSites", "Nsynsites", "brOmega_std",
-                       # "ingroup_mean_CpG", "ingroup_std_N", "lnL",
-                       # "dS_rate_std", "t_rate_std", "dN_rate_std", "dist_rate_std"
-                       # BeastS
-                       "treeL_12_med", #~mean
-                       "birthRateY_med",
-                       "ucldMean_12_med",
-                       "ucldStdev_12_med",
-                       "ucldMean_3_med",
-                       "TreeHeight_med",
-                       "rate_12_mean_med",
-                       "gammaShape_med",
-                       "rateAG_med"}
-
-def renorm_logsqdecorr(y, x):
-    return zscore(y - 2*x)
-
-# if data is log, equivalent to log(ey/(ex)**2)
-
-_must_decorr = {
-    renorm_logdecorrelate: Args(
-# FIXME: only if the variable was log-transformed!
-        ('brOmega_std', 'brOmega_mean'),
-         #('ingroup_std_N', 'ingroup_mean_N')]
-          # Normalise the rate deviations by the rate mean.
-        ('treeL_3_stddev', 'treeL_3_med'),
-        ('treeL_12_stddev', 'treeL_12_med'),
-        *(('%s_rate_std%s' %(m, ('_'+setting if setting else '')),
-            '%s_rate%s' %(m, ('_'+setting if setting else '')))
-          for setting in ('', 'global', 'local', 'nonlocal', 'global_approx',
-                           'local_approx', 'global_beastS')#self.rate_settings
-          for m in MEASURES),
-        RsynSites=('NsynSites',    'ls'),
-        RnonsynSites=('NnonsynSites', 'ls')  # But this one should be removed.
-    ),
-    renorm_decorrelate: Args(
-        sitelnL=('lnL', 'ingroup_glob_len')
-    ),
-    logdecorrelate: Args(
-        #[('%s_zeros%s' %(how, ('' if m=='dist' else '_'+m)),
-        #  'triplet_zeros'+('' if m=='dist' else '_'+m))
-        # for m in MEASURES
-        # for how in ('sister', 'consecutive')],
-        #[],  # No need anymore since this is now handled in treestats.
-        #{}
-    ),
-    renorm_unregress: Args(
-         ('ingroup_nucl_parsimony_std', 'ingroup_nucl_parsimony_mean'),
-         ('ingroup_nucl_entropy_std', 'ingroup_nucl_entropy_mean'),
-         ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean'),
-         ('ingroup_codon_entropy_std', 'ingroup_codon_entropy_mean'),
-        )#,
-    #renorm_logsqdecorr = Args(
-    #     CpG_odds=('ingroup_mean_CpG', 'ingroup_mean_GC')
-    #    )
-    }
-
-# variable name, variable values. Dropped by .isin()
-# Must be the decorr variable name.
-_must_drop_data = dict(prop_splitseq=(1,),
-                       **{'null_%s_%s' % (m,where): (1,)
-                          for m in MEASURES
-                          for where in ('before', 'after')},
-                       **{'%s_zeros%s' %(what,('' if m=='dist' else '_'+m)): (1,)
-                          for m in MEASURES
-                          for what in ('triplet', 'Rsister', 'sister',
-                                       'Rconsecutive', 'consecutive')})
-
-_protected_features = {'RdS_rate_std', 'dS_rate_std',
-                       'RdS_rate_std_local', 'dS_rate_std_local',
-                       'RdS_rate_std_nonlocal', 'dS_rate_std_nonlocal',
-                       'RbeastS_rate_std', 'beastS_rate_std',
-                       'ingroup_glob_len'}
-
-# anc = 'Catarrhini'
-# param = 'um1.new'
-# nsCata = age_analyses[anc][param].ns
-class full_dating_regression(fullRegression):
-
-    init_vars = ['data',  # Not in fullRegression
-                 'same_alls',  # Not in fullRegression (alls instead)
-                 'dataset_params',  # Not in fullRegression
-                 'responses',
-                 'features',
-                 'measures',  # Not in fullRegression. measures of branch lengths and ages.
-                 'ref_suggested_transform',
-                 'impose_transform',    # global _must_transform
-                 'to_decorr',           # global _must_decorr
-                 'must_drop_features',  # global _must_drop_features
-                 'protected_features',  # global _protected_features
-                 'must_drop_data',      # global _must_drop_data
-                 'out', 'logger', 'widget']
-
-    init_defaults = {'ref_suggested_transform': dict,
-                     'impose_transform': dict,
-                     'must_drop_features': set,
-                     'to_decorr': Args,
-                     'protected_features': set,
-                     'must_drop_data': dict}
-
-    def __init__(self, data, same_alls, dataset_params, responses, features,
-                 measures=MEASURES, ref_suggested_transform=None,
-                 impose_transform=None, must_drop_features=None,
-                 to_decorr=None,
+    def __init__(self, same_alls, responses, features,
+                 ref_suggested_transform=None, impose_transform=None,
+                 must_drop_features=None, to_decorr=None,
                  protected_features=None, must_drop_data=None,
                  out=None, logger=None, widget=None):
         for k,v in locals().items():
@@ -1955,30 +1786,6 @@ class full_dating_regression(fullRegression):
         self.set_output()
         return self
 
-    def do_rates(self, unnamed_rate_setting=None, **named_rate_settings):
-        # Compute cs_rates
-        dist_measures = ['branch_'+m for m in self.measures]
-        if unnamed_rate_setting is not None:
-            named_rate_settings[''] = unnamed_rate_setting
-        self.rate_settings = named_rate_settings
-
-        toconcat = []
-        for setting, rate_args in named_rate_settings.items():
-            print('### Compute rates with setting %r and measures %s.'
-                    % (setting, ','.join(self.measures)), file=self.out)
-            kwargs = {'branchtime': 'median_brlen_dS',
-                      'taxon_age': 'median_age_dS',  # defaults kwargs
-                      **rate_args}
-        #display_html('<h3>Compute rates</h3>', raw=True)
-            cs_rates = compute_branchrate_std(self.data.ages_controled,
-                                              dist_measures, **kwargs)
-            if setting:
-                cs_rates.rename(columns=lambda c: c+'_'+setting, inplace=True)
-            toconcat.append(cs_rates)
-
-        self.cs_rates = pd.concat(toconcat, axis=1,
-                                  sort=False, verify_integrity=True)
-        #self.features.extend(self.cs_rates.columns)
 
     @property  #@dependency
     def suggested_transform(self):
@@ -2047,36 +1854,11 @@ class full_dating_regression(fullRegression):
 
 
     def prepare_design_matrix(self):
-        cs_rates = self.cs_rates
-
-        data = self.data
-        same_alls = self.same_alls
-        dataset_params = self.dataset_params
-        responses = self.responses
-
-        print('\n# Merge features', file=self.out)
-        self.alls = alls = pd.concat((data.mean_errors,
-                                      data.ns[dataset_params],
-                                      cs_rates,
-                                      same_alls),
-                                     axis=1, join='inner', sort=False,
-                                     verify_integrity=True)
-
-        if alls.shape[0] == 0:
-            msg = ('NULL inner join from:\nmean_errors\n------\n'
-                         + str(mean_errors.iloc[:5, :5]) + '\n'
-                         '\ndata.ns[dataset_params]\n------\n'
-                         + str(data.ns[dataset_params].iloc[:5, :5]) + '\n'
-                         '\ncs_rates\n------\n'
-                         + str(cs_rates.iloc[:5, :5]) + '\n'
-                         '\nsame_alls\n------\n'
-                         + str(same_alls.iloc[:5, :5]) + '\n'
-                         )
-            raise RuntimeError(msg)
+        """This method should be overriden for additional design matrix preprocessing."""
+        self.alls = self.same_alls.copy()
 
 
     def do(self):
-        """Run self.do_rates() first."""
         logger = self.logger
 
         features = self.features
@@ -2436,7 +2218,6 @@ class full_dating_regression(fullRegression):
         self.displayed.append(fig)
         self.show(); plt.close()
 
-
     #def do_fit(self):
         print('\n### Fit of less colinear features (after internal decorrelation)', file=self.out)
 
@@ -2457,10 +2238,9 @@ class full_dating_regression(fullRegression):
 
 
         reslopes2 = self.do_bestfit()
-        self.do_worsttrees()
+        self.do_extreme_points()
 
         return reslopes2
-
 
     @property
     def suggest_multicolin(self):
@@ -2709,10 +2489,6 @@ class full_dating_regression(fullRegression):
 
         return reslopes2
 
-    def do_worsttrees(self):
-        print('\n### Investigate the worst trees', file=self.out)
-        self.display_html(self.alls.sort_values(self.responses[0], ascending=False).head(50))
-
     def show(self):
         for out in self.outputs:
             if isinstance(out, (pd.Series, pd.DataFrame, pd.io.formats.style.Styler)):
@@ -2721,6 +2497,245 @@ class full_dating_regression(fullRegression):
                 self.display(out)
             else:
                 print(out, file=self.out)
+
+    def do_extreme_points(self):
+        print('\n### Investigate the data points with highest %s' % self.responses[0],
+              file=self.out)
+        self.display_html(self.alls.sort_values(self.responses[0], ascending=False).head(50))
+        print('\n### Investigate the data points with lowest %s' % self.responses[0],
+              file=self.out)
+        self.display_html(self.alls.sort_values(self.responses[0], ascending=True).head(50))
+
+
+_must_transform = dict(
+        ingroup_nucl_entropy_median=binarize,
+        #ingroup_nucl_parsimony_median=binarize, #constant
+        ingroup_codon_entropy_median=binarize,
+        ingroup_codon_parsimony_median=binarize,
+        ingroup_nucl_entropy_mean=sqrt,
+        ingroup_nucl_entropy_std=sqrt,  # Should be the same because of decorrelation.
+        ingroup_nucl_parsimony_mean=log,
+        ingroup_nucl_parsimony_std=log,
+        rebuilt_topo=binarize,
+        consecutive_zeros=binarize, # - triplet_zeros
+        sister_zeros=binarize,      # - triplet_zeros
+        triplet_zeros=binarize,
+        bootstrap_min=notransform,
+        prop_splitseq=binarize,
+        convergence_warning=binarize,  # notransform
+        codemlMP=notransform,
+        consecutive_zeros_dS=binarize,
+        sister_zeros_dS=binarize,
+        triplet_zeros_dS=binarize,
+        consecutive_zeros_dN=binarize,
+        sister_zeros_dN=binarize,
+        triplet_zeros_dN=binarize,
+        r2t_dN_mean=make_best_logtransform,  # This one should be called on the data first.
+        gb_Nblocks=notransform,
+        hmmc_propseqs=notransform,
+        freq_null_dS=binarize,
+        null_dist_before=binarize,
+        null_dS_before=binarize,
+        null_dN_before=binarize,
+        null_dist_after=binarize,
+        null_dS_after=binarize,
+        null_dN_after=binarize,
+        #null_dN_before=sqrt
+        **{'dN_rate'+('_'+setting if setting else ''): make_best_logtransform
+           for setting in ('', 'global', 'local', 'nonlocal', 'global_approx',
+                           'local_approx', 'global_beastS')#self.rate_settings
+          }
+       )
+
+# Example parametrisation (seemed reasonable for most regressions so far)
+_must_drop_features = {"ls", "seconds",  # ~ ingroup_glob_len
+                       "ingroup_std_gaps", # ~ ingroup_std_len
+                       "dS_treelen",       # ~dS_rate
+                       "dN_treelen",
+                       "treelen",
+                       "ingroup_nucl_entropy_mean", # ~ ingroup_nucl_parsimony_mean
+                       "ingroup_nucl_entropy_std",  # 
+                       "ingroup_nucl_parsimony_median",  # 
+                       "ingroup_codon_entropy_std",   # ~ ingroup_nucl_parsimony_std
+                       "Ringroup_codon_entropy_std",   # ~ ingroup_nucl_parsimony_std
+                       "ingroup_codon_entropy_mean",
+                       "ingroup_codon_entropy_median",  # ~ ingroup_nucl_entropy_median
+                       "ingroup_codon_parsimony_mean",
+                       "ingroup_codon_parsimony_median",
+                       "ingroup_codon_parsimony_std",
+                       "Ringroup_codon_parsimony_std",
+                       "r2t_t_mean", "r2t_dS_mean", "r2t_dN_mean",
+                       "r2t_t_std",  "r2t_dS_std",  "r2t_dN_std",
+                       "bootstrap_mean",  # ~ bootstrap_min
+                       "brOmega_skew",
+                       "ingroup_std_N",
+                       "ingroup_std_CpG",  # ~ ingroup_std_GC
+                       "NnonsynSites",  # ~ ls/3 - NsynSites
+                       # decorrelated:
+                       "ingroup_mean_CpG",
+                       # "ingroup_codon_parsimony_std",
+                       # "NnonsynSites", "Nsynsites", "brOmega_std",
+                       # "ingroup_mean_CpG", "ingroup_std_N", "lnL",
+                       # "dS_rate_std", "t_rate_std", "dN_rate_std", "dist_rate_std"
+                       # BeastS
+                       "treeL_12_med", #~mean
+                       "birthRateY_med",
+                       "ucldMean_12_med",
+                       "ucldStdev_12_med",
+                       "ucldMean_3_med",
+                       "TreeHeight_med",
+                       "rate_12_mean_med",
+                       "gammaShape_med",
+                       "rateAG_med"}
+
+def renorm_logsqdecorr(y, x):
+    return zscore(y - 2*x)
+
+# if data is log, equivalent to log(ey/(ex)**2)
+
+_must_decorr = {
+    renorm_logdecorrelate: Args(
+# FIXME: only if the variable was log-transformed!
+        ('brOmega_std', 'brOmega_mean'),
+         #('ingroup_std_N', 'ingroup_mean_N')]
+          # Normalise the rate deviations by the rate mean.
+        ('treeL_3_stddev', 'treeL_3_med'),
+        ('treeL_12_stddev', 'treeL_12_med'),
+        *(('%s_rate_std%s' %(m, ('_'+setting if setting else '')),
+            '%s_rate%s' %(m, ('_'+setting if setting else '')))
+          for setting in ('', 'global', 'local', 'nonlocal', 'global_approx',
+                           'local_approx', 'global_beastS')#self.rate_settings
+          for m in MEASURES),
+        RsynSites=('NsynSites',    'ls'),
+        RnonsynSites=('NnonsynSites', 'ls')  # But this one should be removed.
+    ),
+    renorm_decorrelate: Args(
+        sitelnL=('lnL', 'ingroup_glob_len')
+    ),
+    logdecorrelate: Args(
+        #[('%s_zeros%s' %(how, ('' if m=='dist' else '_'+m)),
+        #  'triplet_zeros'+('' if m=='dist' else '_'+m))
+        # for m in MEASURES
+        # for how in ('sister', 'consecutive')],
+        #[],  # No need anymore since this is now handled in treestats.
+        #{}
+    ),
+    renorm_unregress: Args(
+         ('ingroup_nucl_parsimony_std', 'ingroup_nucl_parsimony_mean'),
+         ('ingroup_nucl_entropy_std', 'ingroup_nucl_entropy_mean'),
+         ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean'),
+         ('ingroup_codon_entropy_std', 'ingroup_codon_entropy_mean'),
+        )#,
+    #renorm_logsqdecorr = Args(
+    #     CpG_odds=('ingroup_mean_CpG', 'ingroup_mean_GC')
+    #    )
+    }
+
+# variable name, variable values. Dropped by .isin()
+# Must be the decorr variable name.
+_must_drop_data = dict(prop_splitseq=(1,),
+                       **{'null_%s_%s' % (m,where): (1,)
+                          for m in MEASURES
+                          for where in ('before', 'after')},
+                       **{'%s_zeros%s' %(what,('' if m=='dist' else '_'+m)): (1,)
+                          for m in MEASURES
+                          for what in ('triplet', 'Rsister', 'sister',
+                                       'Rconsecutive', 'consecutive')})
+
+_protected_features = {'RdS_rate_std', 'dS_rate_std',
+                       'RdS_rate_std_local', 'dS_rate_std_local',
+                       'RdS_rate_std_nonlocal', 'dS_rate_std_nonlocal',
+                       'RbeastS_rate_std', 'beastS_rate_std',
+                       'ingroup_glob_len'}
+
+# anc = 'Catarrhini'
+# param = 'um1.new'
+# nsCata = age_analyses[anc][param].ns
+class full_dating_regression(fullRegression):
+
+    init_vars = ['data',  # Not in fullRegression
+                 'dataset_params',  # Not in fullRegression
+                 'measures']  # Not in fullRegression. measures of branch lengths and ages.
+    init_vars += fullRegression.init_vars
+    #            ['same_alls',
+    #             'responses',
+    #             'features',
+    #             'ref_suggested_transform',
+    #             'impose_transform',    # global _must_transform
+    #             'to_decorr',           # global _must_decorr
+    #             'must_drop_features',  # global _must_drop_features
+    #             'protected_features',  # global _protected_features
+    #             'must_drop_data',      # global _must_drop_data
+    #             'out', 'logger', 'widget']
+
+    #init_defaults = {'ref_suggested_transform': dict,
+    #                 'impose_transform': dict,
+    #                 'must_drop_features': set,
+    #                 'to_decorr': Args,
+    #                 'protected_features': set,
+    #                 'must_drop_data': dict}
+
+    def __init__(self, data, same_alls, dataset_params, responses, features,
+                 measures=MEASURES, *args, **kwargs):
+        super().__init__(same_alls, responses, features, *args, **kwargs)
+        self.data = data
+        self.dataset_params = dataset_params
+        self.measures = measures
+
+    def do_rates(self, unnamed_rate_setting=None, **named_rate_settings):
+        # Compute cs_rates
+        dist_measures = ['branch_'+m for m in self.measures]
+        if unnamed_rate_setting is not None:
+            named_rate_settings[''] = unnamed_rate_setting
+        self.rate_settings = named_rate_settings
+
+        toconcat = []
+        for setting, rate_args in named_rate_settings.items():
+            print('### Compute rates with setting %r and measures %s.'
+                    % (setting, ','.join(self.measures)), file=self.out)
+            kwargs = {'branchtime': 'median_brlen_dS',
+                      'taxon_age': 'median_age_dS',  # defaults kwargs
+                      **rate_args}
+        #display_html('<h3>Compute rates</h3>', raw=True)
+            cs_rates = compute_branchrate_std(self.data.ages_controled,
+                                              dist_measures, **kwargs)
+            if setting:
+                cs_rates.rename(columns=lambda c: c+'_'+setting, inplace=True)
+            toconcat.append(cs_rates)
+
+        self.cs_rates = pd.concat(toconcat, axis=1,
+                                  sort=False, verify_integrity=True)
+        #self.features.extend(self.cs_rates.columns)
+
+
+    def prepare_design_matrix(self):
+        """Run self.do_rates() first."""
+        cs_rates = self.cs_rates
+
+        data = self.data
+        same_alls = self.same_alls
+        dataset_params = self.dataset_params
+        responses = self.responses
+
+        print('\n# Merge features', file=self.out)
+        self.alls = alls = pd.concat((data.mean_errors,
+                                      data.ns[dataset_params],
+                                      cs_rates,
+                                      same_alls),
+                                     axis=1, join='inner', sort=False,
+                                     verify_integrity=True)
+
+        if alls.shape[0] == 0:
+            msg = ('NULL inner join from:\nmean_errors\n------\n'
+                         + str(mean_errors.iloc[:5, :5]) + '\n'
+                         '\ndata.ns[dataset_params]\n------\n'
+                         + str(data.ns[dataset_params].iloc[:5, :5]) + '\n'
+                         '\ncs_rates\n------\n'
+                         + str(cs_rates.iloc[:5, :5]) + '\n'
+                         '\nsame_alls\n------\n'
+                         + str(same_alls.iloc[:5, :5]) + '\n'
+                         )
+            raise RuntimeError(msg)
 
 
 # Convert original code names to names displayed in the paper (see fig.1).
