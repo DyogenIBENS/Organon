@@ -212,7 +212,11 @@ def test_transforms(alls, variables, figsize=(14, 5), out=None, widget=None):
         if var.dtype != float:
             print("Variable %r not continuous: %s" % (ft, var.dtype), file=out)
             if var.dtype != int:
-                print("Variable %r does not seem to be numeric. Skipping" % ft, file=out)
+                if var.dtype == bool:
+                    print("Boolean variable %r interpreted as numeric" % ft, file=out)
+                    suggested_transform[ft] = binarize
+                else:
+                    print("Variable %r does not seem to be numeric/bool. Skipping" % ft, file=out)
                 continue
         if var.min() == var.max():
             print("Variable %r is constant. Skipping." % ft, file=out)
@@ -261,11 +265,13 @@ def test_transforms(alls, variables, figsize=(14, 5), out=None, widget=None):
         # Plot log-transformed distribution
         with warnings.catch_warnings(record=True) as w:
             logtransformed_var = np.log10(var)
-            if w:
-                assert issubclass(w[-1].category, RuntimeWarning)
-                assert "divide by zero encountered in log10" in str(w[-1].message)
+        if w:
+            if (issubclass(w[-1].category, RuntimeWarning)
+                and "divide by zero encountered in log10" in str(w[-1].message)):
                 zero_vals = True
                 n_zero_vals = (var == 0).sum()
+            else:
+                warnings.warn(w[-1].category(w[-1].message))
 
         # Not defined for log.
         n_infinite_vals = (~np.isfinite(logtransformed_var)).sum()
@@ -660,7 +666,6 @@ def loop_leave1out(features, func, criterion='min', nloops=None, stop_criterion=
                 def is_stopped(values, i): return values[i] < stop_criterion
             elif criterion == 'max':
                 def is_stopped(values, i): return values[i] > stop_criterion
-
         else:
             stop_comp, stop_val = stop_reg.match(stop_criterion).groups()
             stop_comp = symbol_to_operator[stop_comp]
@@ -672,6 +677,9 @@ def loop_leave1out(features, func, criterion='min', nloops=None, stop_criterion=
         def is_stopped(values, i): return getattr(values[i], stop_comp)(stop_val)
 
     dropped_features = []
+    if is_stopped([func(features)], 0):
+        return dropped_features, outputs
+
     next_features = [ft for ft in features]
     for k in widget(range(nloops)):
         left1out_k = leave1out_eval(next_features, func)

@@ -529,7 +529,7 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
                 (~ns.Ndup.isna()).sum(), (~ns.Nspe.isna()).sum(),
                 ages_treestats.shape)
     logger.info('merge types:\n%s',
-                ages_treestats._merge.value_counts())
+                ages_treestats._merge.value_counts(dropna=False))
 
     return ages_treestats, ns
     #return ages_p, ns
@@ -1633,6 +1633,65 @@ def display_errors(params, control='timetree', age_col='age_dS',
             pd.DataFrame(asymscaled_std_abs_errors, index=ordered_simii_anc, columns=params))
 
 
+def check_nan(df, description=None, out=None):
+    if description is None: description = ''
+    print('%s -> Any NA: %s' % (description, df.isna().sum(axis=0).any()), file=out)
+    print('%s -> *All* NA: %s' % (description, df.columns[df.isna().all()]), file=out)
+    print('Shape %s: %s' % (description, df.shape), file=out)
+    na_rows = df.isna().any(axis=1)
+    if na_rows.any():
+        print(('%d NA rows' % na_rows.sum()) +
+              (' (%s)' % description if description else ''), file=out)
+        print('Columns with NA%s:\n%s'
+              % ((' (%s)' % description if description else ''),
+                 df.isna().sum().sort_values(ascending=False).head()), file=out)
+        #self.a_t.dropna(inplace=True)
+    return na_rows
+
+def check_inf(df, description=None, out=None):
+    if description is None: description = ''
+    dfn = df.select_dtypes(np.number)  # Numeric columns only.
+    inf_rows = np.isinf(dfn).any(axis=1)
+    if inf_rows.any():
+        print('%s -> %d Inf rows' % (description, inf_rows.sum()), file=out)
+        print('Data with Inf: columns %s' % dfn.columns[np.isinf(dfn).any()], file=out)
+    return inf_rows
+
+def check_nonnumeric(df, description=None, out=None):
+    non_numbool = df.select_dtypes(exclude=['number', 'bool'])
+    if non_numbool.shape[1]:
+        print('Non numeric/bool dtypes (please validate):', non_numbool.dtypes, file=out)
+        print(non_numbool.head(), file=out)
+
+def check_dupindex(df, description=None, out=None):
+    if df.index.has_duplicates or df.columns.has_duplicates:
+        n_dup_rows = df.index.duplicated().sum()
+        dup_cols = df.columns[df.columns.duplicated()]
+        logger.warning('df has duplicates in index: %d, columns: %d (%s)',
+                       n_dup_rows, len(dup_cols), dup_cols.tolist())
+
+def check_constants(df, description=None, out=None):
+    with warnings.catch_warnings(record=True) as ws:
+        constant_vars = df.columns[(df.agg(np.ptp) == 0)].tolist()
+    for w in ws:
+        if not (issubclass(w.category, FutureWarning)
+                and ("Method .ptp is deprecated and will be removed"
+                     in str(w.message))):
+            # Then resend the warning
+            warnings.warn(w.category(w.message))
+    if constant_vars:
+        logger.warning('Constant features: %s', ' '.join(constant_vars))
+    return constant_vars
+
+
+def sanity_check(df, description=None, out=None):
+    check_dupindex(df, description, out)
+    check_nonnumeric(df, description, out)
+    check_inf(df, description, out)
+    check_nan(df, description, out)
+    #check_constants(df, description, out)
+
+
 def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
                           L1_wt=1, cov_type='HC1', out=None, **psummary_kw):
     exog = sm.add_constant(a[features])
@@ -1903,21 +1962,12 @@ class fullRegression(object):
         alls_transformed = alls.replace([-np.Inf, np.Inf], np.NaN).transform(suggested_transform)
 
         #print('transformed scalar types:', alls_transformed.iloc[0].map(type).tolist(), file=self.out)
-        non_numbool = alls_transformed.select_dtypes(exclude=['number', 'bool'])
-        print('Non numeric/bool dtypes (please validate):', non_numbool.dtypes, file=self.out)
-        print(non_numbool.head(), file=self.out)
-        print('transformed -> Any NA:', alls_transformed.isna().sum(axis=0).any(), file=self.out)
-        print('transformed -> *All* NA:', alls_transformed.columns[alls_transformed.isna().all()], file=self.out)
-        print('transformed shape:', alls_transformed.shape, file=self.out)
+        check_nonnumeric(alls_transformed, 'after transform', self.out)
 
         self.a_t = a_t = alls_transformed
 
-        self.na_rows_t = na_rows_t = a_t.isna().any(axis=1)
-        if na_rows_t.any():
-            print('%d NA rows (after transform).' % na_rows_t.sum(), file=self.out)
-            print('Columns with NA (after transform):\n',
-                    a_t.isna().sum().sort_values(ascending=False).head(), file=self.out)
-            #self.a_t.dropna(inplace=True)
+        self.na_rows_t = check_nan(a_t, 'after transform', out=self.out)
+        self.inf_rows_t = check_inf(a_t, 'after transform', out=self.out)
 
     #def do_norm(self):
         logger.debug('Will Z-score: from %r a_t %s %s', type(a_t), a_t.shape,
@@ -1928,12 +1978,8 @@ class fullRegression(object):
         # Also tried: zscore(df) but specifically fails on a_t.
         # Also tried .apply(zscore, raw=True, result_type='broadcast')
         # Back to good ol' numpy:
-        # Ok, the problem was duplicates in index.
-        if a_t.index.has_duplicates or a_t.columns.has_duplicates:
-            n_dup_rows = a_t.index.duplicated().sum()
-            dup_cols = a_t.columns[a_t.columns.duplicated()]
-            logger.warning('a_t has duplicates in index: %d, columns: %d (%s)',
-                           n_dup_rows, len(dup_cols), dup_cols.tolist())
+        # Ok, the problem was duplicates in index. Well no.
+        check_dupindex(a_t, 'after transform', self.out)
         def zscore_dataframe(df):
             #a = np.divide(
             #    np.subtract(df.values, np.nanmean(df.values, axis=0), axis=1),
@@ -1945,6 +1991,7 @@ class fullRegression(object):
                 raise ValueError("Non-numeric columns can't be zscored (=>dropped): %s"
                                  % (df.columns.difference(dfnum.columns)))
                 #df = dfnum
+
             dfmean = df.mean()
             assert isinstance(dfmean, pd.Series), type(dfmean)
             assert (dfmean.index is df.columns), df.columns.difference(dfmean.index)
@@ -1960,13 +2007,23 @@ class fullRegression(object):
             assert isinstance(dfstd, pd.Series), type(dfstd)
             assert (dfstd.index is df.columns), dfstd.index
             assert not dfstd.index.has_duplicates
+            if (dfstd == 0).any():
+                logger.warning('std = 0 at: %s', dfstd.index[dfstd==0].tolist())
 
             return dfcentered.div(dfstd, axis=1)
 
+        constant_vars_bin = check_constants(a_t[bin_features], 'binary features', self.out)
         a_n = zscore_dataframe(a_t[[ft for ft in responses+features
                                     if ft not in bin_features]])\
-                 .join(alls_transformed[bin_features])
+                 .join(a_t[bin_features])
         #a_n = pd.concat()
+        self.na_rows_n = na_rows_n = check_nan(a_n, 'after zscore', out=self.out)
+
+        print('Check a_n.head():', file=self.out)
+        self.display_html(a_n.head())
+        if na_rows_n.any():
+            print('Drop %d NA rows (after zscoring)' % na_rows_n.sum(), file=self.out)
+            a_n.dropna(inplace=True)
 
         print('\nResponse transforms and normalisations:\n'
                 + '\n'.join('%s -> %s : Mean=%.4f Std=%.4f'
@@ -1974,17 +2031,8 @@ class fullRegression(object):
                               a_t[r].mean(), a_t[r].std())
                           for r in responses), file=self.out)
 
-        print(a_n.shape, file=self.out)
-        print('normed -> Any NA:', a_n.columns.values[a_n.isna().any(axis=0)], file=self.out)
-        print('Check a_n.head():', file=self.out)
-        self.display_html(a_n.head())
-        self.na_rows_n = na_rows_n = a_n.isna().any(axis=1)
-        if na_rows_n.any():
-            print('Drop %d NA rows (after zscoring)' % na_rows_n.sum(), file=self.out)
-            a_n.dropna(inplace=True)
-
         a_nn = a_n.select_dtypes(np.number)  # Numeric columns only.
-        inf_rows = np.isinf(a_nn).any(axis=1)
+        inf_rows = np.isinf(a_nn).any(axis=1) # = check_inf(a_n, '', self.out)
         if inf_rows.any():
             print('Drop %d Inf rows' % inf_rows.sum(), file=self.out)
             print('Data with Inf: column %s:\n%s' % (
@@ -1992,10 +2040,9 @@ class fullRegression(object):
                         alls[~na_rows_n][inf_rows].head(10)), file=self.out)
             a_n = a_n[~inf_rows].copy(deep=False)
         
-        constant_vars = a_n.columns[(a_n.agg(np.ptp) == 0)].tolist()
+        constant_vars = check_constants(a_n, '', self.out)
         if constant_vars:
-            logger.warning('Introduced constant features (**DROPPING NOW**): %s', 
-                           ' '.join(constant_vars))
+            logger.warning('**DROPPING** constant features')
             a_n.drop(columns=constant_vars, inplace=True)
             self.features = features = [ft for ft in features if ft not in constant_vars]
         self.a_n = a_n
@@ -2148,7 +2195,9 @@ class fullRegression(object):
         for decorr_func, decorr_args in to_decorr.items():
             a_n_inde = decorr_args(decorr_func, a_n_inde, a_t[~na_rows_n])
         # special_decorr
-        a_n_inde['CpG_odds'] = zscore(log(alls.ingroup_mean_CpG / (alls.ingroup_mean_GC**2)))[~na_rows_n]
+        CpG_odds = (alls.ingroup_mean_CpG / (alls.ingroup_mean_GC**2))[~na_rows_n]
+        CpG_odd_transform = make_best_logtransform(CpG_odds)
+        a_n_inde['CpG_odds'] = zscore(CpG_odd_transform(CpG_odds))
         print('%d independent features (%d rows)' % a_n_inde.shape[::-1], file=self.out)
 
         inde_features = [ft for ft in features if ft in a_n_inde]
@@ -2185,9 +2234,10 @@ class fullRegression(object):
         self.a_n_inde = a_n_inde
         self.inde_features = inde_features
 
-        na_rows_decorr = a_n_inde.isna().any(axis=1)
-        if na_rows_decorr.any():
-            print('%d NA rows after decorr!' % na_rows_decorr.sum(), file=self.out)
+        na_rows_decorr = check_nan(a_n_inde, 'after decorr', self.out)
+        check_inf(a_n_inde, 'after decorr', self.out)
+        #if na_rows_decorr.any():
+        #    print('%d NA rows after decorr!' % na_rows_decorr.sum(), file=self.out)
 
         #ft_pca_inde, ft_pca_inde_outputs = detailed_pca(a_n_inde, inde_features, out=self.out)
         self.ft_pca_inde = ft_pca_inde = PCA(n_components=15)
@@ -2301,7 +2351,7 @@ class fullRegression(object):
                 missing_bad_props.add(badp)
                 continue
             print('\n--------\n#', badp, file=self.out)
-            vcounts = a_n_inde[badp].value_counts()
+            vcounts = a_n_inde[badp].value_counts(dropna=False)
             if vcounts.shape[0] > 2:
                 logger.warning('%r not binary.', badp)
             print('\n'.join(str(vcounts).split('\n')[:-1]), file=self.out)
@@ -2514,8 +2564,8 @@ _must_transform = dict(
         ingroup_codon_parsimony_median=binarize,
         ingroup_nucl_entropy_mean=sqrt,
         ingroup_nucl_entropy_std=sqrt,  # Should be the same because of decorrelation.
-        ingroup_nucl_parsimony_mean=log,
-        ingroup_nucl_parsimony_std=log,
+        ingroup_nucl_parsimony_mean=make_best_logtransform, # log (generates Inf for few data)
+        ingroup_nucl_parsimony_std=make_best_logtransform,  # log
         rebuilt_topo=binarize,
         consecutive_zeros=binarize, # - triplet_zeros
         sister_zeros=binarize,      # - triplet_zeros

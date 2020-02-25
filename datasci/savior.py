@@ -228,6 +228,7 @@ class HtmlReport(Report):
             div>table[class="dataframe"]+p {
               font-family: monospace;
               font-size: small;
+              text-align: center;
             }
 ''')
         return default_styles
@@ -252,27 +253,27 @@ class HtmlReport(Report):
 
         self.external_content = external_content
         if external_content:
-            self.content_dir = op.splitext(self.filename)[0]
+            # Dir content relative to the Html file.
+            self.content_dir = op.basename(op.splitext(self.filename)[0])
             self.figcounter = 0
             def format_fig(fig, format='png', bare=False, **kwargs):
                 self.figcounter += 1
                 # if fig._suptitle is not None:
                 figfile = op.join(self.content_dir, '%03d.%s' %(self.figcounter, format))
-                format_fig_extern(fig, figfile, bare=bare, **kwargs)
+                return format_fig_extern(fig, figfile, bare=bare, **kwargs)
             self.format_fig = format_fig
             # TODO: external CSS as well.
         else:
             self.format_fig = format_fig_embed
 
         default_styles = False
+        self.default_css = None  # External file (embed by default).
         if style is not False:
             # Default styling
             default_styles = self.get_default_styles()
             if external_content:
-                default_css = op.join(self.content_dir, 'default.css')
-                with open(default_css, 'w') as css_f:
-                    css_f.write('\n'.join(default_styles) + '\n')
-                css.insert(0, default_css)
+                self.default_css = op.join(self.content_dir, 'default.css')
+                css.insert(0, self.default_css)
 
         styles = []
         if style and style is not True:
@@ -282,7 +283,7 @@ class HtmlReport(Report):
             ['<!DOCTYPE html>', '<html>', '<head>',
              '<title>%s</title>' if title else ''] +
             ['<meta %s />' % m for m in metas] +
-            (['<style>\n%s\n</style>' % '\n'.join(default_styles)] if default_styles else []) +
+            (['<style>\n%s\n</style>' % '\n'.join(default_styles)] if default_styles and not self.default_css else []) +
             ['<link rel="stylesheet" type="text/css" href="%s" />' % c for c in css] +
             (['<script type="text/javascript" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/latest.js?config=TeX-MML-AM_CHTML"></script>'] if mathjax else []) +
             ['<script type="text/javascript" src="%s" async></script>' % s for s in scripts] +
@@ -305,7 +306,10 @@ class HtmlReport(Report):
         self.closed = False
         if self.external_content:
             # Filename should not be None
-            os.mkdir(self.content_dir)
+            os.makedirs(self.content_dir, exist_ok=True)
+            if self.default_css:
+                with open(self.default_css, 'w') as css_f:
+                    css_f.write('\n'.join(self.get_default_styles()) + '\n')
 
         logger.debug('Opened %s(filename=%r, mode=%r) -> closed=%s, handle=%r',
                      self.__class__.__name__, self.filename, mode, self.closed,

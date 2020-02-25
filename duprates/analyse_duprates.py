@@ -144,6 +144,8 @@ def load_generax_familyrates():
                             'S': int, 'SL': int, 'D': int, 'T': int, 'TL': int,
                             'Leaf': int, 'Invalid': int})
     logger.info('Loaded data (shape %s)', df.shape)
+    df['duprate_nonzero'] = (df.duprate.dropna()>1e-7)
+    df['generax_robust'] = ~(df[['SL', 'D', 'T', 'TL']].dropna().any(axis=1))
     return df
 
 
@@ -373,16 +375,17 @@ rate_params_dS = ['dS_rate_local', 'dS_rate_std_local', 'dS_rate_nonlocal', 'dS_
 
 def analysis_3_regress_duprates():
     """2020/02/24"""
+    loggers[0].setLevel(logging.DEBUG)
     with reroute_loggers(
-            HtmlReport(str(workdir / 'familyrates_correlates.html'),
+            HtmlReport(str(workdir / 'familyrates_correlates-tree-al.html'),
                        style=css_dark_style, css=[myslideshow_css],
-                       scripts=[myslideshow_js]),
+                       scripts=[myslideshow_js], external_content=True),
             loggers) as hr:
         df = filter_invalid_generax(load_generax_familyrates(), out=hr)
 
         all_stattypes = ('tree', 'al', 'codeml', 'cleaning', 'alfsa',
                          'codemlfsa', 'cleaningfsa', 'beastS', 'alfsahmmc', 'codemlfsahmmc')
-        stattypes = ('tree', 'alfsa', 'codemlfsa', 'cleaningfsa')
+        stattypes = ('tree', 'alfsa') #, 'codemlfsa', 'cleaningfsa')
         #TODO: run codeml and cleaning for non-robusts.
         ss = load_subtree_stats(
                 "../subtrees_stats/subtreesGoodQualO2_{stattype}stats-Simiiformes.tsv",
@@ -394,25 +397,47 @@ def analysis_3_regress_duprates():
                     for ft in stat_params.get(stype,
                                               sdata.drop(common_info, 1).columns.tolist())]
 
-        reg = fullRegression(
-                pd.concat(([df.set_index('subgenetree')]
+        # I just need Ndup and Nspe
+        #for fsa, there are only the robust...
+        #ages_file = '../ages/Simiiformes-robusts_m1w04-fsa_ages.subtreesGoodQualO2-ci-um1.tsv.bz2'
+        ages_file = '../ages/Simiiformes_m1w04_ages.subtreesGoodQualO2-ci-um1.tsv.bz2'
+        ages_treestats, ns = load_prepare_ages(ages_file, ss[0], measures=['dS'])
+        #features.append('Ndup')
+
+        alls = pd.concat(([df.set_index('subgenetree'), ns[['Ndup', 'Nspe']]]
                            + [sdata[stat_params.get(stype,
                                           sdata.columns.difference(common_info))]
                               for stype, sdata in zip(stattypes, ss)]),
-                axis=1, join='inner', sort=False, verify_integrity=True),
-                ['duprate', 'lossrate'],
-                features,
-                ref_suggested_transform=None,
-                impose_transform=aregr._must_transform,
-                must_drop_features=aregr._must_drop_features,
-                to_decorr=aregr._must_decorr,
-                protected_features=aregr._protected_features,
-                must_drop_data=aregr._must_drop_data,
-                out=hr,
-                logger=loggers[0],
-                widget=slideshow_generator(hr)
-                )
-        coefs = reg.do()
+                          axis=1, join='outer', sort=False, verify_integrity=True)
+        
+        features.remove('really_robust')
+        features.remove('nodes_robust')
+        hr.html(alls.groupby(['duprate_nonzero', 'really_robust'])\
+                .size().unstack()) #.style.caption('Comparison between generax and treebest robustness.'))
+        hr.html(alls.assign(Ndup_nonzero=(alls.Ndup.dropna()>0))\
+                .groupby(['duprate_nonzero', 'Ndup_nonzero'])\
+                .size().unstack()) #.style.caption('Comparison between generax and treebest duplications.'))
+
+        hr.mkd('# Regression')
+        try:
+            reg = fullRegression(
+                    alls,
+                    ['duprate', 'lossrate'],
+                    features,
+                    ref_suggested_transform=None,
+                    impose_transform=aregr._must_transform,
+                    must_drop_features=aregr._must_drop_features.union(
+                        ('single_child_nodes',)),
+                    to_decorr=aregr._must_decorr,
+                    protected_features=aregr._protected_features,
+                    must_drop_data=aregr._must_drop_data,
+                    out=hr,
+                    logger=loggers[0],
+                    widget=slideshow_generator(hr)
+                    )
+            coefs = reg.do()
+        finally:
+            return reg
 
 
 
@@ -429,4 +454,4 @@ if __name__ == '__main__':
 
     #analysis_1_generax_withgamma()
     #analysis_2_alldistribs()
-    analysis_3_regress_duprates()
+    reg = analysis_3_regress_duprates()
