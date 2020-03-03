@@ -24,7 +24,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sb
 
-from objectools import Args
+from objectools import Args, as_args, generic_update, generic_remove_items
 from seqtools.compo_freq import weighted_std
 from dendro.bates import dfw_pairs_generalized, dfw_pairs
 from datasci.graphs import scatter_density, \
@@ -1916,8 +1916,22 @@ class fullRegression(object):
         """This method should be overriden for additional design matrix preprocessing."""
         self.alls = self.same_alls.copy()
 
+    #def fix_decorr(self):
+    #    """This method should be overriden for case-by-case customisation of the instance:
+    #    from types import MethodType
+    #    fullreg.fix_decorr = MethodType(mynewfixdecorr)
+    #    """
+    #    pass
 
     def do(self):
+        self.do_undecorred_fit()
+        # You can fix the decorrelation inbetween these steps
+        self.do_decorred_fit()
+        reslopes2 = self.do_bestfit()
+        self.do_extreme_points()
+        return reslopes2
+
+    def do_undecorred_fit(self):
         logger = self.logger
 
         features = self.features
@@ -2192,6 +2206,13 @@ class fullRegression(object):
 
         #a_n_inde = logdecorrelate(a_n_inde, a_t[~na_rows_n], *zeros_to_decorrelate)
 
+        
+        decorr_names = {renorm_decorrelatelogs: 'renorm_decorrelatelogs',
+                        decorrelatelogs: 'decorrelatelogs',
+                        renorm_decorrelate: 'renorm_decorrelate',
+                        decorrelate: 'decorrelate',
+                        renorm_unregress: 'renorm_unregress',
+                        renorm_unregress0: 'renorm_unregress0'}
         for decorr_func, decorr_args in to_decorr.items():
             a_n_inde = decorr_args(decorr_func, a_n_inde, a_t[~na_rows_n])
         # special_decorr
@@ -2200,12 +2221,19 @@ class fullRegression(object):
         a_n_inde['CpG_odds'] = zscore(CpG_odd_transform(CpG_odds))
         print('%d independent features (%d rows)' % a_n_inde.shape[::-1], file=self.out)
 
-        inde_features = [ft for ft in features if ft in a_n_inde]
-        #print('inde_features', len(inde_features), file=self.out)
-        inde_features += [colname for colname in a_n_inde.columns.difference(a_n.columns)]
-        print('inde_features', len(inde_features), file=self.out)
+        #TODO: fix decorrs
+        #self.fix_decorr()
 
-        new_inde_features = set(inde_features) - set(features)
+        to_decorr_iter_args = [(decorr_func, *item)
+                               for decorr_func, decorr_args in to_decorr.items()
+                               for item in decorr_args.items()]
+        to_decorr_iter_args.append(('CpG/GC^2', 'CpG_odds', ('ingroup_mean_CpG', 'ingroup_mean_GC')))
+        if self.widget:
+            to_decorr_iter_args = self.widget(to_decorr_iter_args)
+        for decorr_func, *decorr_item in to_decorr_iter_args:
+            fig = display_decorrelate(decorr_item, alls, a_t, a_n_inde, color_var=y)
+            fig.suptitle('%s: %s ~ %s' %(decorr_names.get(decorr_func, decorr_func), *decorr_item[1]))
+            self.show(fig); plt.close(fig)
 
         # Description of the transformation for the user.
         #self.decorr = {'R'+var1: ('-', var2) for var1, var2 
@@ -2228,11 +2256,24 @@ class fullRegression(object):
                              for k, (var1, var2) in decorr_args.items())
         self.decorred.update(
                 CpG_odds=('ingroup_mean_CpG', '/', 'ingroup_mean_GC^2'))
+        self.a_n_inde = a_n_inde
+        return
+
+    def do_decorred_fit(self):
+        logger = self.logger
         self.decorr_source = {key: (key[1:] if len(tup)==2 else tup[0])
                               for key, tup in self.decorred.items()}
 
-        self.a_n_inde = a_n_inde
+        a_n_inde = self.a_n_inde  # Could make this a property, triggering do_undecorred_fit.
+        inde_features = [ft for ft in self.features if ft in a_n_inde]
+        #print('inde_features', len(inde_features), file=self.out)
+        inde_features += [colname for colname in a_n_inde.columns.difference(self.a_n.columns)]
+        print('inde_features', len(inde_features), file=self.out)
+
+        new_inde_features = set(inde_features) - set(features)
         self.inde_features = inde_features
+
+        y = self.responses[0]
 
         na_rows_decorr = check_nan(a_n_inde, 'after decorr', self.out)
         check_inf(a_n_inde, 'after decorr', self.out)
@@ -2268,7 +2309,6 @@ class fullRegression(object):
         self.displayed.append(fig)
         self.show(); plt.close()
 
-    #def do_fit(self):
         print('\n### Fit of less colinear features (after internal decorrelation)', file=self.out)
 
         self.fitlasso, self.fit, pslopes, preslopes = lassoselect_and_refit(
@@ -2286,11 +2326,6 @@ class fullRegression(object):
         except joblib.externals.loky.process_executor.TerminatedWorkerError:
             logger.error("Can't compute RFcrossval_r2 from random forest due to parallel error (TerminatedWorkerError)")
 
-
-        reslopes2 = self.do_bestfit()
-        self.do_extreme_points()
-
-        return reslopes2
 
     @property
     def suggest_multicolin(self):
@@ -2539,7 +2574,8 @@ class fullRegression(object):
 
         return reslopes2
 
-    def show(self):
+
+    def reshow(self):
         for out in self.outputs:
             if isinstance(out, (pd.Series, pd.DataFrame, pd.io.formats.style.Styler)):
                 self.display_html(out)
@@ -2547,6 +2583,7 @@ class fullRegression(object):
                 self.display(out)
             else:
                 print(out, file=self.out)
+
 
     def do_extreme_points(self):
         print('\n### Investigate the data points with highest %s' % self.responses[0],
@@ -2557,6 +2594,8 @@ class fullRegression(object):
         self.display_html(self.alls.sort_values(self.responses[0], ascending=True).head(50))
 
 
+# full_dating_regression init parameters:
+# tailored for the Simiiformes *robust* trees dataset!
 _must_transform = dict(
         ingroup_nucl_entropy_median=binarize,
         #ingroup_nucl_parsimony_median=binarize, #constant
@@ -2698,6 +2737,7 @@ _protected_features = {'RdS_rate_std', 'dS_rate_std',
                        'RbeastS_rate_std', 'beastS_rate_std',
                        'ingroup_glob_len'}
 
+
 # anc = 'Catarrhini'
 # param = 'um1.new'
 # nsCata = age_analyses[anc][param].ns
@@ -2794,6 +2834,33 @@ dataset_to_pipeline = {'fsahmmc': 'fsa+cleaned,branchMPL',   # (6)
                        'fsa': 'fsa,branchMPL', # (5)
                        'beastS': 'fsa,Beast'}  # (7)
 
+
+def fix_decorr(reg):
+    var, corrvar = 'dS_rate_std_local', 'dS_rate_local'
+    logger.info('Fixing decorr: %s ~ %s (renorm_bestlog_and_divide)', var, corrvar)
+    reg.a_n_inde = check_decorrelator(renorm_bestlog_and_divide, reg.a_n_inde,
+                                      reg.alls[~reg.na_rows_n & ~reg.inf_rows_n],
+                                              (var, corrvar))
+    fig = display_decorrelate((0, (var, corrvar)), reg.alls, reg.a_t, reg.a_n_inde,
+                              reg.responses[0])
+    fig.suptitle('Fixed decorrelation %s ~ %s' % (var, corrvar))
+    reg.decorred['RdS_rate_std_local'] = ('divided(bestlogs)', 'dS_rate_local')
+    reg.show(fig); plt.close()
+
+
+def fix_decorr2(reg):
+    var, corrvar = 'dS_rate_std_local', 'dS_rate_local'
+    logger.info('Fixing decorr: %s ~ %s (renorm_bestlog_and_unregress)', var, corrvar)
+    reg.a_n_inde = check_decorrelator(renorm_bestlog_and_unregress, reg.a_n_inde,
+                                      reg.alls[~reg.na_rows_n & ~reg.inf_rows_n],
+                                              (var, corrvar))
+    fig = display_decorrelate((0, (var, corrvar)), reg.alls, reg.a_t, reg.a_n_inde,
+                              reg.responses[0])
+    fig.suptitle('Fixed decorrelation %s ~ %s' % (var, corrvar))
+    reg.decorred['RdS_rate_std_local'] = ('unregressed(bestlogs)', 'dS_rate_local')
+    reg.show(fig); plt.close()
+
+
 # How many layers of parametrisation can I stack?
 class regressAncs(object):
     """
@@ -2806,37 +2873,34 @@ class regressAncs(object):
     + this class allow any rate reparametrisation
     + control over the protected variables.
     + automatically perform the post-regression joint analysis (display R², plot coeffs).
-    
-    Other core params (as of 2020/02/21) are left as is (e.g, _must_decorr).
+
     """
     # I make it a class, so that internal variables may be retrieved, even if it crashes.
 
+    # "Patching" some of full_dating_regression functionalities
+    # or adding some functionality for a set of regressions.
     param_keys = ['rate_settings',
                   'ref_suggested_transform_anc', # = 'Catarrhini'
                   'rate_reprocess', # = dict(newname=<function(cs_rates)>)
-                  'add_to_drop_features',  # = <set>
-                  'add_to_protect', # = <set>
-                  'deprotect',      # = <set>
-                  'add_to_drop_data', # = <dict>
-                  'add_to_must_transform'] # = <dict>
-    param_defaults = {'rate_settings': dict,
+                  'fix_decorr']     # = <function(full_dating_reg)>
+    param_defaults = {'rate_settings': dict,  #(lambda: {'local': local_rate_args_weighted, 'nonlocal':})
                   'ref_suggested_transform_anc': (lambda: 'Catarrhini'),
                   'rate_reprocess': dict, # = dict(newname=<function(cs_rates)>)
-                  'add_to_drop_features': set,
-                  'add_to_protect': set,
-                  'deprotect':      set,
-                  'add_to_drop_data': dict,
-                  'add_to_must_transform': dict}
+                  'fix_decorr': (lambda: (lambda reg: None))} #sorry.
     # Attributes added by `do()` (not created during __init__)
     todo = ['ref_suggested_transform', 'reports', 'all_reports', 'all_adjR2', 'spec_coefs',
             'union_top5_coefs', 'union_top3_coefs', 'sorted_union_top5_coefs',
-            'spec_simple_coefs']
+            'spec_simple_coefs', 'ref_anc', 'ref_anc_i', 'other_ancs']
+
+    def __getitem__(self, anc):
+        return self.all_regressions[anc]
 
     def __init__(self, description,
                  out_template='outputs/Regression_{anc}_{desc}.html',
                  **full_dating_kwargs):
         self.description = description
-        self.parametrisation = {}  # It's actually a reparametrisation, or param update.
+        self.parametrisation = {k: self.param_defaults.get(k, lambda: None)()
+                                for k in self.param_keys}  # It's actually a reparametrisation, or param update.
         # {'rate_settings': } #ref_suggested_transform_anc = 'Catarrhini'
         self.all_regressions = {}
         self.all_coeffs = {}
@@ -2844,36 +2908,109 @@ class regressAncs(object):
         self.logger_states = {}  # Hold the current handlers
         self.dataset = 'fsahmmc'  # fsa+cleaned
 
+        #default_full_dating_args = Args(
         default_full_dating_kwargs = dict(
                                     #age_analyses[anc][self.dataset],
-                                    alls=same_alls_fsahmmc,
-                                    dataset_params=dataset_params_dS,
+                                    same_alls=same_alls_fsahmmc, #.copy()
+                                    dataset_params=list(dataset_params_dS),
                                     responses=['abs_dev_age_dS', 'abs_dev_brlen_dS'],
-                                    features=features,
+                                    features=list(features),
                                     measures=['dS'],
-                                    impose_transform={**_must_transform},
+                                    impose_transform=deepcopy(_must_transform),
                                     must_drop_features=_must_drop_features.union(
                                             ('gb_percent', 'gb_Nblocks')),
-                                    to_decorr={**_must_decorr},
-                                    protected_features=_protected_features,
-                                    must_drop_data={**_must_drop_data})
+                                    to_decorr=dict((k, as_args(args)) for k,args in _must_decorr.items()),
+                                    protected_features=set(_protected_features),
+                                    must_drop_data=deepcopy(_must_drop_data),
+                                    logger=logger)
         self.full_dating_kwargs = {**default_full_dating_kwargs,
                                    **full_dating_kwargs}
+        self.added_to_params = {'to_decorr': {}}
+        self.removed_from_params = {'to_decorr': {}}
 
     @classmethod
     def from_other(cls, other):
-        new = cls(other.description, other.out_template)
+        new = cls(other.description, other.out_template, **other.full_dating_kwargs)
         for attr in ('parametrisation', 'all_regressions', 'all_coeffs',
-                'logger_states', 'dataset', 'ref_suggested_transform'):
+                'logger_states', 'dataset', 'ref_suggested_transform',
+                'added_to_params', 'removed_from_params'):
             setattr(new, attr, getattr(other, attr))
         for attr in cls.todo:
-            setattr(new, attr, getattr(other, attr, None))
+            try:
+                setattr(new, attr, getattr(other, attr))
+            except AttributeError:
+                pass
         return new
 
     def parametrise(self, **kwargs):
         for k in self.param_keys:
-            self.parametrisation[k] = kwargs.pop(k, self.param_defaults[k]())
+            try:
+                self.parametrisation[k] = kwargs.pop(k)
+            except KeyError:
+                pass
+        deprecated_reparams = ('add_to_drop_features', 'add_to_decorr', 'add_to_protect', 'deprotect', 'add_to_drop_data', 'add_to_must_transform')
+        if set(kwargs).intersection(deprecated_reparams):
+            warnings.warn(DeprecationWarning("Deprecated parametrisation keys: "
+                                             + ' '.join(deprecated_reparams)))
+        if set(kwargs).difference(deprecated_reparams):
+            logger.warning('Unknown parametrisation keys: %s' % set(kwargs).difference(deprecated_reparams))
         self.parametrisation.update(**kwargs)
+
+        #self.add_to_params(features=list(self.parametrisation['rate_reprocess']))
+
+    def add_to_param(self, **kwargs):
+        """Update/union any valid full_dating_regression parameter."""
+        for k,v in kwargs.items():
+            try:
+                current = self.full_dating_kwargs[k]
+            except KeyError:
+                raise ValueError('Invalid parameter for full_dating_regression: %r' % k)
+
+            if k == 'to_decorr':
+                added_to_decorr = self.added_to_params[k]
+                for decorrfunc, decorr_args in v.items():
+                    current_decorr_args = current.setdefault(decorrfunc, Args())
+                    generic_update(current_decorr_args, decorr_args)
+                    # Register the additions:
+                    added_decorr_args = added_to_decorr.setdefault(decorrfunc, Args())
+                    generic_update(added_decorr_args, decorr_args)
+            else:
+                generic_update(current, v)
+                # Register the additions
+                try:
+                    generic_update(self.added_to_params[k], v)
+                except KeyError:
+                    self.added_to_params[k] = v  # copy?
+
+
+    def remove_from_param(self, **kwargs):
+        for k,v in kwargs.items():
+            try:
+                current = self.full_dating_kwargs[k]
+            except KeyError:
+                raise ValueError('Invalid parameter for full_dating_regression: %r' % k)
+            if k == 'to_decorr':
+                removed_from_decorr = self.removed_from_params[k]
+                for decorrfunc, decorr_args in v.items():
+                    current_decorr_args = current.setdefault(decorrfunc, Args())
+                    for decorr_item in decorr_args.items():
+                        try:
+                            current_decorr_args.remove_item(decorr_item)
+                        except ValueError as err:
+                            err.args += (str(current_decorr_args), current.keys())
+                            raise
+                    # Register the removals
+                    removed_decorr_args = removed_from_decorr.setdefault(decorrfunc, Args())
+                    generic_update(removed_decorr_args, decorr_args)
+            else:
+                # Remove keys from dict, values from set/list, items from Args.
+                generic_remove_items(current, v)
+                # Register the removals
+                try:
+                    generic_update(self.removed_from_params[k], v)
+                except KeyError:
+                    self.removed_from_params[k] = v  # copy?
+
 
     def print_parametrisation(self, file=None):
         def fmt_dict(d, valfunc=type):
@@ -2887,6 +3024,12 @@ class regressAncs(object):
             print('%25s:\t%s\n' % (p, self.parametrisation[p]), file=file)
         for p in sorted(set(self.parametrisation).difference(self.param_keys)):
             print('[Extra] %25s:\t%s\n' % (p, self.parametrisation[p]), file=file)
+        print('## Added to full_dating_regression parameters', file=file)
+        for p, v in self.added_to_params.items():
+            print('%s: %s' % (p,v), file=file)
+        print('## Removed from full_dating_regression parameters', file=file)
+        for p, v in self.removed_from_params.items():
+            print('%s: %s' % (p,v), file=file)
         print('## Global variables\n', file=file)
         print('ordered_simii_anc = [%s]\n' % ' '.join(ordered_simii_anc), file=file)
         print('loggers (name) = %s\n' % [lgr.name for lgr in loggers], file=file)
@@ -2904,11 +3047,12 @@ class regressAncs(object):
         ref_anc = self.parametrisation['ref_suggested_transform_anc']
         ref_anc_i = ordered_simii_anc.index(ref_anc)
         other_ancs = ordered_simii_anc[:ref_anc_i] + ordered_simii_anc[(ref_anc_i+1):]
+        self.ref_anc, self.ref_anc_i, self.other_ancs = ref_anc, ref_anc_i, other_ancs
 
         self.ref_suggested_transform = None
         self.all_reports = dict()
-        self.all_reports.update(**{(anc, filename): t for (anc, filename, t) in
-                                   getattr(self, 'reports', [])})
+        self.all_reports.update({(anc, filename): t for (anc, filename, t) in
+                                 getattr(self, 'reports', [])})
         self.reports = []  # (anc, <html filename>, <timestamp>).
         
         try:
@@ -2924,47 +3068,43 @@ class regressAncs(object):
                             HtmlReport(reportfile,
                                        css=[myslideshow_css], scripts=[myslideshow_js]),
                             loggers) as hr:
-                        # I currently need this hack to display the slideshow:
-                        #def show_bare(fig=None, **kw):
-                        #    HtmlReport.show(hr, fig=None, bare=True, **kw)
-                        #setattr(hr, 'show', show_bare)
+
+                        # Add a header information with link to previous/next file
+                        try:
+                            prev_anc, prev_report, _ = self.reports[anc_i-1]
+                        except IndexError:
+                            prev_anc = 'allspeciations'
+                            prev_report = self.out_template.format(anc=prev_anc,
+                                                                desc=self.description)
+                        try:
+                            next_anc = other_ancs[anc_i]
+                        except IndexError:
+                            prev_anc = 'allspeciations'
+                        next_report = self.out_template.format(anc=next_anc,
+                                                            desc=self.description)
+
+                        hr.begin('header')
+                        #hr.cols()
+                        hr.raw('<a href="%s">Previous: %s</a><br />' %
+                                (op.basename(prev_report), prev_anc))
+                        hr.raw('<a href="%s">Next: %s</a><br />' %
+                                (op.basename(next_report), next_anc))
+                        hr.end('header')
 
                         self.all_regressions[anc] = \
                         reg = full_dating_regression(
                                         age_analyses[anc][self.dataset],
-                                        same_alls_fsahmmc,
-                                        dataset_params_dS,
-                                        ['abs_dev_age_dS', 'abs_dev_brlen_dS'],
-                                        features+list(self.parametrisation['rate_reprocess']),
-                                        measures=['dS'],
-                                        ref_suggested_transform=self.ref_suggested_transform,
-                                        impose_transform={**_must_transform,
-                                                **self.parametrisation['add_to_must_transform']},
-                                        must_drop_features=_must_drop_features.union(
-                                                ('gb_percent', 'gb_Nblocks')).union(
-                                                    self.parametrisation['add_to_drop_features']),
-                                        to_decorr=_must_decorr,
-                                        protected_features=_protected_features.union(
-                                                self.parametrisation['add_to_protect']).difference(
-                                                self.parametrisation['deprotect']),
-                                        must_drop_data={**_must_drop_data,
-                                                **self.parametrisation['add_to_drop_data']},
-                                        out=hr, logger=logger, widget=slideshow_generator(hr))
-                        # for update_key, (attr, update) in self.parametrisation.values():
-                        #    reg_value = deepcopy(getattr(reg, attr))
-                        #    if isinstance(update, set):
-                        #       if update_key.startswith('add_to'):
-                        #           reg_value |= update
-                        #       else:
-                        #           reg_value -= update
-                        #   elif isinstance(update, dict):
-                        #       reg_value.update(update)
-                        #   setattr(reg, attr, reg_value)
+                                        out=hr, widget=slideshow_generator(hr),
+                                        **self.full_dating_kwargs)
                         reg.do_rates(**self.parametrisation['rate_settings'])
                         old_rate_shape = reg.cs_rates.shape
                         reg.cs_rates = reg.cs_rates.assign(**self.parametrisation['rate_reprocess'])
                         hr.print('cs_rates.shape: %s -> %s' % (old_rate_shape, reg.cs_rates.shape))
-                        coeffs = reg.do()
+                        reg.do_undecorred_fit()
+                        self.parametrisation['fix_decorr'](reg)
+                        reg.do_decorred_fit()
+                        coeffs = reg.do_bestfit()
+                        reg.do_extreme_points()
                         if anc == ref_anc:
                             self.ref_suggested_transform = reg.suggested_transform
 
@@ -2982,7 +3122,7 @@ class regressAncs(object):
 
 
     def summarize(self, ncoefs=8,  # No more than 8 in the main text.
-                  startcoef=0, ncols=2):
+                  startcoef=0, ncols=2, save=False):
         reportfile = self.out_template.format(anc='allspeciations', desc=self.description)
         self.reports.append(('allspeciations', reportfile, dt.now()))
         self.all_reports[('allspeciations', reportfile)] = self.reports[-1][-1]
@@ -2991,6 +3131,17 @@ class regressAncs(object):
                 HtmlReport(reportfile,
                            css=[myslideshow_css], scripts=[myslideshow_js]),
                 loggers) as hr:
+
+            prev_anc = self.other_ancs[-1]
+            prev_report = op.basename(self.out_template.format(anc=prev_anc, desc=self.description))
+            hr.begin('header')
+            #hr.cols()
+            hr.raw('<a href="%s">Previous: %s</a><br />' % (prev_report, prev_anc))
+            hr.raw('<a href="%s">Next: %s</a><br />' % (
+                   op.basename(self.out_template.format(anc=self.ref_anc,
+                                                        desc=self.description)),
+                   self.ref_anc))
+            hr.end('header')
 
             hr.print('\n# adjusted R²\n')
             self.all_adjR2 = pd.Series([self.all_regressions[anc].refitlasso2.rsquared_adj
@@ -3052,10 +3203,9 @@ class regressAncs(object):
             # Paper figures: top coefficients
             hr.print('## Top 5 coefficients, sorted by their mean absolute value across ancestors')
 
+            if ncoefs is None:
+                ncoefs = len(sorted_union_top5_coefs)
             plotdata = spec_coefs.loc[union_top5_coefs].drop('absmean', 1) #.rename(renames)
-        #def plot_anc_coeffs(plotdata, ncoefs=8, startcoef=0, ncols=2,
-                             #plotdata_simple=None):
-            
             # The error bars for the barplot:
             spec_conf_int = pd.concat(
                                 [self.all_coeffs[anc][['[0.025', '0.975]']]
@@ -3063,8 +3213,7 @@ class regressAncs(object):
                                 axis=1, sort=False, keys=ordered_simii_anc_byage, verify_integrity=True)
             # -> index: coefficients
             # -> columns: MultiIndex(( anc, inf/sup ))
-            if ncoefs is None:
-                ncoefs = len(sorted_union_top5_coefs)
+
             nrows = ncoefs // ncols + (ncoefs % ncols >0)
             fig, axes = plt.subplots(nrows, ncols,
                                      figsize=(ncols*5, 2+nrows*1.5), sharex=True, sharey=True,
@@ -3099,7 +3248,7 @@ class regressAncs(object):
             fig.tight_layout()
             #return fig
 
-            if False:
+            if save:
                 for ext in ('pdf', 'png'):
                     fig.savefig('../fig/speciations_coefs-top5_%s_%s_ylab-h-%d-%d.%s'
                                 % (dataset_to_pipeline[self.dataset].replace(',','+'),
@@ -3112,6 +3261,9 @@ class regressAncs(object):
             #fig.savefig('../fig/speciations_coefs-top5_fsahmmc+mpl_ylab-h-8first.png', bbox_inches='tight')
 
             hr.print('Top 5 coefficients, from the multiple VS simple regression')
+        #def plot_anc_coeffs(plotdata, ncoefs=8, startcoef=0, ncols=2,
+                             #plotdata_simple=None):
+            
             plotdata2 = spec_simple_coefs.loc[union_top5_coefs].drop('absmean', 1) #.rename(renames)
 
             # -> index: coefficients
@@ -3127,8 +3279,8 @@ class regressAncs(object):
 
             x = np.arange(n_anc)
             for ax, coef in zip(axes.flat, sorted_union_top5_coefs[startcoef:]):
-                yerr = np.abs(spec_conf_int.loc[coef].unstack(level=-1).values.T - heights.values)
                 heights = plotdata.loc[coef, ordered_simii_anc_byage]
+                yerr = np.abs(spec_conf_int.loc[coef].unstack(level=-1).values.T - heights.values)
                 ax.bar(x, heights, color=barcolors, width=-0.4, align='edge',
                        yerr=yerr, capsize=2, error_kw=dict(elinewidth=1, alpha=0.5))
                 heights2 = plotdata2.loc[coef, ordered_simii_anc_byage]
@@ -3153,7 +3305,7 @@ class regressAncs(object):
                 ax.set_xticklabels(ordered_simii_anc_byage, rotation=45, va='top', ha='right');
                     
             fig.tight_layout()
-            if False:
+            if save:
                 for ext in ('pdf', 'png'):
                     fig.savefig('../fig/speciations_simple+multiple_coefs-top5_%s_%s_ylab-h-%d-%d.%s'
                                 % (dataset_to_pipeline[self.dataset].replace(',','+'),
@@ -3829,5 +3981,5 @@ if __name__ == '__main__':
     print(ages_PL1_best.shape)
 
 
-
-
+#for k in _must_decorr.keys():
+#    print('** 0x%x %s' % (id(k), k))
