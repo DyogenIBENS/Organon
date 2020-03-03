@@ -187,7 +187,7 @@ def ordered_boxplot(df, x, y, order=None, **kwds):
 
 # TODO:
 def stackedbar(x, arr, ax=None, zero=0, **kwds):
-    assert isinstance(arr, np.ndarray)
+    arr = np.asarray(arr)
     if kwds.get('orientation', None) == 'horizontal':
         bar = plt.barh if ax is None else ax.barh
         base = 'left'
@@ -390,6 +390,7 @@ def scatter_density(x, y, data=None, cmap='viridis', scale=None, ax=None, **kwar
     if scale is not None:
         ax.set_xscale(scale)
         ax.set_yscale(scale)
+    # All this superfluous code should be in a 'ax_decorrate' function
     if isinstance(x, str):
         xlabel = x
     elif isinstance(x, int):
@@ -1139,7 +1140,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     else:
         ax.yaxis.tick_right()
         ax.tick_params('y', which='both', right=False)
-    print('new tickpositions:', tickpositions)
+    #print('new tickpositions:', tickpositions)
     ax.set_yticks(tickpositions)
     #ax.set_yticks(np.linspace(0, (len(ticklabels)-1)*yscale, num=len(ticklabels)))
     if label_params is None: label_params = {}

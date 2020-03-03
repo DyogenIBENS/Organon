@@ -66,6 +66,7 @@ logneg.__name__ = "-log10(-%s)"
 def sqrtneg(x):
     return -sqrt(-x)
 
+# These should be classes, with attributes mainfunc, inc, offset, neg, and a __call__ method.
 def make_sqrtpostransform(inc=0):
     sqrtinc = lambda x: sqrt(x - x.min() + inc)
     sqrtinc.__name__ = "sqrt(%g-min+%%s)" % inc
@@ -119,12 +120,19 @@ def binarize(x):
 def zscore(x, ddof=1):
     return (x - x.mean()) / x.std(ddof=ddof) # if x.std() else 1) )
 
+def standardize(x, ddof=1):
+    """Rescale a feature to have std=1. Use this instead of zscore for binary features."""
+    return x/x.std(ddof=ddof)
 
 def unregress(y, x):
     """Return the residuals of Y from the linear regression (with Intercept)
     against X"""
     return sm.OLS(y, sm.add_constant(x)).fit().resid
 
+def unregress0(y, x):
+    """Return the residuals of Y from the linear regression (with Intercept 0)
+    against X"""
+    return sm.OLS(y, x).fit().resid
 
 def decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
     """
@@ -161,17 +169,76 @@ def check_decorrelator(decorrfunc, data, src_data=None, *args, **kwargs):
                            old_r, new_r)
     return decorrelated
 
+# These should be classes
+class Decorrelator(object):
+    def __init__(self, decorrfunc):
+        self.decorrfunc = decorrfunc
+    def __call__(self, data, src_data=None, *args, **kwargs):
+        if src_data is None:
+            src_data = data
 
-decorrelate = partial(check_decorrelator, np.divide)
-logdecorrelate = partial(check_decorrelator, np.subtract)
+        kwargs.update({'R%s' % v[0]: v for v in args})
+
+        return data.assign(**{newvar: self.decorrfunc(src_data[var],src_data[corrvar])
+                              for newvar, (var, corrvar) in kwargs.items()})\
+                   .drop([var for newvar, (var,_) in kwargs.items()
+                          if newvar != var],
+                         axis=1, errors='ignore')
+    def __str__(self):
+        return '%s(%s)' % (self.__class__.__name__,
+                getattr(self.decorrfunc, '__name__', str(self.decorrfunc)))
+    def __repr__(self):
+        return '<%s at 0x%x>' % (str(self), id(self))
+
+class checkDecorrelator(Decorrelator):
+    def __call__(self, data, src_data=None, *args, **kwargs):
+        decorrelated = super().__call__(data, src_data, *args, **kwargs)
+        if src_data is None:
+            src_data = data
+        kwargs.update({'R%s' % v[0]: v for v in args})
+
+        # Display the Old VS New correlation coefficient.
+        for newvar, (var, corrvar) in kwargs.items():
+            old_r, old_pval = stats.spearmanr(src_data[var], src_data[corrvar])
+            new_r, new_pval = stats.spearmanr(decorrelated[newvar], src_data[corrvar])
+            if abs(old_r) <= abs(new_r):
+                logger.warning('Did not decrease correlation: %s / %s: '
+                               'abs(Spearman R) %.4f -> %.4f', var, corrvar,
+                               old_r, new_r)
+        return decorrelated
+    
+
+decorrelate = partial(check_decorrelator, np.divide)        # = checkDecorrelator(np.divide)
+decorrelatelogs = partial(check_decorrelator, np.subtract)  # = checkDecorrelator(np.subtract)
 
 def zscore_divide(v, cv): return zscore(np.divide(v,cv))
 def zscore_subtract(v, cv): return zscore(np.subtract(v,cv))
+def standardize_subtract(v, cv): return standardize(np.subtract(v,cv))
 def zscore_unregress(v, cv): return zscore(unregress(v,cv))
+def zscore_unregress0(v, cv): return zscore(unregress0(v,cv))
 
-renorm_decorrelate = partial(check_decorrelator, zscore_divide)
-renorm_logdecorrelate = partial(check_decorrelator, zscore_subtract)
+renorm_decorrelate = partial(check_decorrelator, zscore_divide)  # = checkDecorrelator(zscore_divide)
+renorm_decorrelatelogs = partial(check_decorrelator, zscore_subtract)
 renorm_unregress = partial(check_decorrelator, zscore_unregress)
+renorm_unregress0 = partial(check_decorrelator, zscore_unregress0)
+
+
+def renorm_bestlog_and_divide(v1, v2):
+    tr_v1 = make_best_logtransform(v1)
+    tr_v2 = make_best_logtransform(v2)
+    if not (tr_v1.__name__.startswith('log10(0+') and
+            tr_v2.__name__.startswith('log10(0+')):
+        logger.info('Transforms: %s, %s', tr_v2.__name__, tr_v2.__name__)
+    return zscore(tr_v1(v1) / tr_v2(v2))
+
+
+def renorm_bestlog_and_unregress(v1, v2):
+    tr_v1 = make_best_logtransform(v1)
+    tr_v2 = make_best_logtransform(v2)
+    if not (tr_v1.__name__.startswith('log10(0+') and
+            tr_v2.__name__.startswith('log10(0+')):
+        logger.info('Transforms: %s, %s', tr_v2.__name__, tr_v2.__name__)
+    return zscore(unregress(tr_v1(v1), tr_v2(v2)))
 
 
 def test_transforms(alls, variables, figsize=(14, 5), out=None, widget=None):
@@ -498,7 +565,7 @@ def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
 
 # Functions for checking colinearity between variables
 
-def display_decorrelate(var, correlated_var, data, logdata=None):
+def display_decorrelate_attempts(var, correlated_var, data, logdata=None):
     nrows = 2
     ncols = 1 if logdata is None else 2
     fig = plt.figure()
@@ -553,6 +620,104 @@ def display_decorrelate(var, correlated_var, data, logdata=None):
               stats.pearsonr(logdecor_var, logdata[correlated_var])[0]))
 
 
+def display_decorrelate(decorr_item, data_raw, data_transformed, data_decorred,
+                        color_var=None, decorred_corrvar=None, alpha=0.4):
+    if color_var is None:
+        def scatter(corrvar, yvar, data, ax):
+            return scatter_density(corrvar, yvar, data=data, ax=ax, alpha=alpha)
+    else:
+        #cnorm = mpl.colors.Normalize(data_raw[color_var].min(), data_raw[color_var].max())
+        # No, different data have different transforms.
+        def scatter(corrvar, yvar, data, ax):
+            data_s = data.sort_values(color_var)  # for plotting order same as value
+            return ax.scatter(corrvar, yvar, data=data_s, c=color_var, alpha=alpha,
+                              label=None)
+    k, (var, corrvar) = decorr_item
+    fig, axes = plt.subplots(ncols=3)
+    for ax, data, desc in zip(axes, (data_raw, data_transformed, data_decorred),
+                              ('raw', 'transformed', 'decorred')):
+        if desc=='decorred':
+            #FIXME: This will raise errors if no decorrelation was done!
+            # Alt solution: provide k == yvar
+            if yvar not in data:
+                yvar = 'R'+var if isinstance(k, int) else k
+            else:
+                logger.warning('%r was not decorred!', yvar)
+
+            if decorred_corrvar is None:
+                # The correlated variable was left unchanged.
+                data = data.assign(**{corrvar: data_transformed[corrvar]})
+            else:
+                # The correlated variable was also decorred against another one!
+                # It's the last data, so we can update corrvar:
+                corrvar = decorred_corrvar
+
+        else:
+            yvar = var
+        points = scatter(corrvar, yvar, data, ax)
+        fit = sm.OLS(data[yvar], sm.add_constant(data[corrvar])).fit()
+        if desc=='raw':
+            # xlims are set to large
+            xmin, xmax = data[corrvar].min(), data[corrvar].max()
+            xrng = xmax - xmin
+            xmin, xmax = xmin - xrng*0.05, xmax + xrng*0.05
+            ax.set_xlim(xmin, xmax)
+            ymin, ymax = data[var].min(), data[var].max()
+            yrng = ymax - ymin
+            ax.set_ylim(ymin - yrng*0.05, ymax + yrng*0.05)
+        else:
+            xmin, xmax = ax.get_xbound()
+        x = np.linspace(xmin, xmax, 2)
+        a, b = fit.params
+        r2, pval = fit.rsquared, fit.f_pvalue
+        ax.plot(x, a + b*x, '--', alpha=alpha,
+                label='a=%g b=%g\nR²=%g P-v=%g' % (a, b, r2, pval))
+        ax.legend()
+        ax.set_title(desc)
+        ax.set_xlabel(corrvar)
+        ax.set_ylabel(yvar)
+        if color_var is not None:
+            fig.colorbar(points, ax=ax, orientation='horizontal').set_label(color_var) #fraction=0.05, aspect=30
+    #fig.tight_layout()  # tight layout often goes havoc with colorbars.
+    return fig
+
+def bootreg(y, x, data, n=100, model=sm.OLS, fitmethod="fit", add_const=True, **fitkw):
+    #data = fit.model.data
+    if isinstance(x, str):
+        x = [x]
+    if add_const:
+        data = sm.add_constant(data)  # Check 'const' is in x
+        if 'const' not in x:
+            x.append('const')
+    coeffs = np.empty((len(x), n))
+    for i in range(n):
+        newdata = data.sample(frac=1, replace=True)
+        reg = model(newdata[y], newdata[x], hasconst=True)
+        fit = getattr(reg, fitmethod)(**fitkw)
+        # WARNING: because of sampling with replacement, X might not be invertible
+        #print(
+        coeffs[:,i] = fit.params.values
+    return coeffs
+
+def bootreg_summary(coeffs, alpha=0.05):
+    return (coeffs.mean(axis=1),
+            coeffs.std(ddof=0, axis=1),
+            np.percentile(coeffs, [alpha/2., 1-alpha/2.], axis=1))
+
+
+def bootreg_fromfit(fit, n=100):
+    y = fit.model.endog_names
+    x = fit.model.exog_names
+    model = type(fit.model)
+    raise NotImplementedError
+    #if isinstance(fit, statsmodels.base.elastic_net.RegularizedResultsWrapper):
+    #    fitmethod = 'fit_regularized'
+    #else:
+    #    fitmethod = 'fit'
+    #return bootreg(y, x,
+
+
+
 def pairwise_regress_stats(data, features):
     """Return R², intercept, slope, Pval."""
     N = len(features)
@@ -596,7 +761,8 @@ symbol_to_operator = {'<=': '__le__',
 stop_reg = re.compile(r'(' + r'|'.join(symbol_to_operator) + r')\s*(.*)')
 
 def loop_leave1out(features, func, criterion='min', nloops=None, stop_criterion=None,
-                   protected=None, format_df='matplotlib', na_equiv='nan',
+                   protected=None, start_value=None,
+                   na_equiv='nan', format_df='matplotlib',
                    widget=None, out=None):
     """
     `criterion`: how to select what to *drop* ("min"/"max").
@@ -677,7 +843,7 @@ def loop_leave1out(features, func, criterion='min', nloops=None, stop_criterion=
         def is_stopped(values, i): return getattr(values[i], stop_comp)(stop_val)
 
     dropped_features = []
-    if is_stopped([func(features)], 0):
+    if is_stopped([start_value if start_value is not None else func(features)], 0):
         return dropped_features, outputs
 
     next_features = [ft for ft in features]
@@ -731,7 +897,7 @@ def lm_summary(lm, features, response, data):
 PVAL_REGEX = re.compile(r'p>\|z\||p-?val(ue)?', re.I)
 
 
-def sm_pretty_slopes(olsfit, join=None, renames=None, bars=['coef']):
+def sm_pretty_slopes(olsfit, join=None, renames=None, bars=['coef'], bars_mid=None):
     """Nicer look for a StatsModels OLS fit (sorted features by slope)."""
     try:
         summary = olsfit.summary()
@@ -763,7 +929,10 @@ def sm_pretty_slopes(olsfit, join=None, renames=None, bars=['coef']):
                      .style.bar(
                         subset=pd.IndexSlice[param_names, bars],
                         axis=0,
-                        align="zero")
+                        align='zero')
+    if bars_mid:
+        r_coefs_styled = r_coefs_styled.bar(subset=pd.IndexSlice[param_names, bars_mid],
+                                            axis=0, align='mid')
     pval_columns = [col for col in r_coefs.columns if PVAL_REGEX.search(col)]
     if pval_columns:
         r_coefs_styled = r_coefs_styled.applymap(
@@ -773,7 +942,8 @@ def sm_pretty_slopes(olsfit, join=None, renames=None, bars=['coef']):
     return r_coefs_styled
 
 
-def sm_pretty_summary(fit, join=None, renames=None, bars=['coef'], out=None):
+def sm_pretty_summary(fit, join=None, renames=None, bars=['coef'], bars_mid=None,
+                      out=None):
     try:
         summary = fit.summary()
     except NotImplementedError:
@@ -793,7 +963,7 @@ def sm_pretty_summary(fit, join=None, renames=None, bars=['coef'], out=None):
               '; Adj. R² =', adj_r_squared(fit.model.endog,
                                          fit.fittedvalues,
                                          len(fit.params)), file=out)
-    pretty_slopes = sm_pretty_slopes(fit, join, renames, bars)
+    pretty_slopes = sm_pretty_slopes(fit, join, renames, bars, bars_mid)
     #display_html(pretty_slopes)
     return pretty_slopes
 

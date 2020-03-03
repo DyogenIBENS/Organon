@@ -211,7 +211,18 @@ def partial_r_squared(fit, feature):
                          fit.model.data.orig_exog.drop(feature, axis=1)
                         ).fit(cov_type=fit.cov_type)
     reduced_R2 = reduced_fit.rsquared
-    return (reduced_R2 - fit.rsquared) / reduced_R2  #FIXME: Results seem wrong.
+    return (reduced_R2 - fit.rsquared) / reduced_R2
+
+
+def partial_r_squared_fromreduced(fit, somefeatures):
+    fitter = type(fit.model)
+    reduced_fit = fitter(fit.model.data.orig_endog,
+                         fit.model.data.orig_exog[somefeatures]
+                        ).fit(cov_type=fit.cov_type)
+    reduced_R2 = reduced_fit.rsquared
+    return (reduced_R2 - fit.rsquared) / reduced_R2
+
+
 
 def VIF(fit, feature):
     fitter = type(fit.model)
@@ -221,6 +232,7 @@ def VIF(fit, feature):
                          fit.model.data.orig_exog.drop(feature, axis=1)
                         ).fit(cov_type=fit.cov_type)
     return 1. / (1. - xi_fit.rsquared)
+
 
 def VIFs(fit):
     fitter = type(fit.model)
