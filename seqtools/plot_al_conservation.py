@@ -60,18 +60,19 @@ ext2fmt = {'.fa':    'fasta',
 
 
 # ~~> arrayal
-CODONS = [''.join(codon) for codon in product(*[nucleotides]*3)]
+STOPS = ['TAA', 'TAG', 'TGA']
+CODONS = [''.join(codon) for codon in product(*[nucleotides]*3)
+          if ''.join(codon) not in STOPS]
 NACODON = '---'
 #NCODONS = 
-CODON2INT = {codon:i for i,codon in enumerate([NACODON] + CODONS)}
+CODON2INT = {codon:i for i,codon in enumerate([NACODON] + CODONS + STOPS)}
 #NUCL2INT  = {'-': 0, 'A': 1, 'C': 2, 'G': 3, 'T': 4}
 NUCL2INT = {symbol: i for i, symbol in enumerate(gaps[0] + nucleotides)}
-STOPS = ['TAA', 'TAG', 'TGA']
 
 # Does not work...
 # Reading the alignment and issuing align[0][0] still yields a single nucleotide.
 codonalphabet = Alphabet.Alphabet()
-codonalphabet.letters = [NACODON] + CODONS
+codonalphabet.letters = [NACODON] + CODONS + STOPS
 codonalphabet.size = 3
 
 
@@ -83,22 +84,17 @@ def make_unif_codon_dist():
     Invalid codons (containing N nucleotides) as well.
     """
     all_values = [NACODON] + CODONS
-    size = len(all_values) + 1  # +1 because of invalid codons e.g 'NNN'
+    size = len(all_values) + len(STOPS) + 1  # +1 because of invalid codons e.g 'NNN'
     uniform_codon_dist = 1 - np.diagflat(np.ones(size))
-    for i,j in combinations(range(size - 1), 2):
+    for i,j in combinations(range(size - len(STOPS) - 1), 2):
         # sum of nucleotide differences
         cod0, cod1 = all_values[i], all_values[j]
         pair_dist = (np.array(list(cod0)) != np.array(list(cod1))).sum()
         uniform_codon_dist[i, j] = uniform_codon_dist[j, i] = pair_dist
     
-    for stop in STOPS:
-        stop_indices = all_values.index(stop)
-        uniform_codon_dist[:, stop_indices] = np.NaN
-        uniform_codon_dist[stop_indices, :] = np.NaN
-
-    # Any extra invalid codon gets a NaN distance (e.g codons containing N's).
-    uniform_codon_dist[:, size-1] = np.NaN
-    uniform_codon_dist[size-1, :] = np.NaN
+    # Stops and invalid codons (e.g codons containing N's) get a NaN distance.
+    uniform_codon_dist[:, -4:] = np.NaN
+    uniform_codon_dist[-4:, :] = np.NaN
 
     return uniform_codon_dist
 
@@ -165,7 +161,8 @@ def category2int(array, converter_dict, allow_N=False):
 # ~~> arrayal
 def count_matrix(vint, minlength=66):
     """column-wise matrix of counts of integers"""
-    assert vint.dtype == int
+    #assert np.issubdtype(vint.dtype, int  # 
+    assert vint.dtype in (int, np.int64, np.int32, np.int16)
     return np.stack([np.bincount(vint[:,i], minlength=minlength) \
                         for i in range(vint.shape[-1])], axis=-1)
 
@@ -299,8 +296,13 @@ def comp_parts(alint, compare_parts=None):
 
 
 # ~~> arrayal/evol
-def parsimony_score(alint, tree, seqlabels, minlength=66, get_children=None):
-    """Computes the column-wise parsimony score based on the provided tree."""
+def parsimony_score(alint, tree, seqlabels, minlength=66, get_children=None,
+                    parts=None):
+    """Computes the column-wise parsimony score based on the provided tree.
+    
+    parts: [tuples of indices] e.g. [(0,1,2)] represents leaves 0,1,2 as a clade.
+    The outgroup must NOT be added into parts.
+    """
 
     if get_children is None: get_children = lambda tree, node: node.clades
     try:
@@ -319,41 +321,105 @@ def parsimony_score(alint, tree, seqlabels, minlength=66, get_children=None):
 
     # column-wise parsimony score
     score = np.zeros(alint.shape[1], dtype=int)
+    
+    parts = [set(p) for p in parts] if parts is not None else []
+    node_to_part = {leaf_n: i for i,p in enumerate(parts)
+                    for leaf_n in p}
+    merged_parts = [dict() for _ in parts]  # {node: set(seen_part_leaves)}
+    part_scores = [score.copy() for p in parts]
+    part_branch_nbs = [0] * len(parts)
+    # When merged_parts[i][node] == parts[i]: we found the MRCA of part.
 
     branch_nb = 0
     for parent, children in iter_tree:
-        #print('*', parent, children)
+        logger.debug('* %r -> %s', parent, children)
         if len(children) > 2:
-            logger.warning("More than 2 children at %s", parent.name)
+            logger.warning("%d > 2 children at %r", len(children), parent)
         if not children:
             # Parent is a leaf. Obtain the sequence.
             assert parent.name == seqlabels[leaf_nb], \
                 "The alignment is not ordered as the tree. Seq %d: %s != leaf %s" \
                     % (leaf_nb, seqlabels[leaf_nb], parent.name)
             process_sequences[parent] = presence_matrix(alint[np.newaxis,leaf_nb,:], minlength)
+            try:
+                p = node_to_part[parent] = node_to_part[leaf_nb]
+                merged_parts[p][parent] = set((leaf_nb,))
+                logger.info('Assigned leaf %d %r to part %d', leaf_nb, parent, p)
+            except KeyError:  # When there is no part for this leaf.
+                pass
+
             leaf_nb -= 1
         else:
-            branch_nb += len(children)
             # .pop(ch) ?
             try:
                 children_seqs = [process_sequences[ch] for ch in children]
             except KeyError as err:
-                err.args += (process_sequences, leaf_nb)
+                #logger.debug('Processed sequences:\n%s',
+                #             '\n'.join('%r: %s' % (node, pseq.astype(np.int32))
+                #                       for node, pseq in process_sequences.items()))
+                logger.error('parent = %r; leaf_nb = %s', parent, leaf_nb)
                 raise
             children_inter = reduce(np.logical_and, children_seqs)
             children_union = reduce(np.logical_or, children_seqs)
             #print(children_inter, children_union, sep='\n')
             # Add one to each column where a substitution is needed
             empty_inter = ~children_inter.any(axis=0)
-            score += empty_inter
+
             # The new nucleotide set is the intersection if it's not empty,
             # otherwise the union
             process_sequences[parent] = children_inter
             process_sequences[parent][:, empty_inter] = children_union[:, empty_inter]
+            #process_sequences[parent] = np.where(empty_inter,
+            #                                     children_union,
+            #                                     children_inter)
+
+            if parts:
+                children_parts = list(set((node_to_part.get(ch) for ch in children)))
+                if len(children_parts) == 1:
+                    # Still inside the same clade. This must be exclusive (monophyletic).
+                    #assert all descendant leaves are in the same part.
+                    p = children_parts[0]
+                    try:
+                        merged_parts[p][parent] = set.union(*(merged_parts[p][ch] for ch in children))
+                        node_to_part[parent] = p
+                        logger.info('Assigned node %r to part %d', parent, p)
+                        # Just update the intra-clade score.
+                        part_scores[p] += empty_inter
+                        part_branch_nbs[p] += len(children)
+                        # Still inside one clade, so skip updating the *global* score.
+                        continue
+                    except TypeError:
+                        # When p is None
+                        pass  # So we update the outgroup score...
+                else:
+                    # We leave out one or more clades. Assert at least one is monophyletic.
+                    part_oldest_node = []
+                    for ch in children:
+                        try:
+                            p = node_to_part[ch]
+                        except KeyError:
+                            continue
+                        if merged_parts[p][ch] == parts[p]:
+                            # The child is the MRCA.
+                            # We will update the score.
+                            part_oldest_node.append(ch)
+
+                    if not part_oldest_node:
+                        raise ValueError("The given parts do not make monophyletic clades."
+                                         + ';'.join('(%s)' % (
+                                                 ','.join(seqlabels[i] for i in p))
+                                                 for p in parts))
+                    # Here, the current score will be updated (see just below)
+
+            branch_nb += len(children)  # Except if children & merged_parts
+            score += empty_inter
         #print(process_sequences[parent])
 
     # Number of branches of the **unrooted** tree:
     branch_nb -= 1
+
+    if parts:
+        return (score.astype(float), *part_scores), (branch_nb, *part_branch_nbs)
 
     return score.astype(float) / branch_nb
 
@@ -471,10 +537,13 @@ def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
 
 
 def annotate_summary(ax, values):
-    summary = 'Mean: %g\nMedian: %g\nStd-dev: %g' % (
-                np.nanmean(values),
-                np.nanmedian(values),
-                np.nanstd(values))
+    fmt = '%g' if len(np.asarray(values).shape) <= 1 else '%s'
+    with np.printoptions(precision=4):
+        summary = 'Mean: {0}\nMedian: {0}\nStd-dev: {0}'.format(fmt) % (
+                    np.nanmean(values, axis=-1),  # axis=-1
+                    np.nanmedian(values, axis=-1),
+                    np.nanstd(values, axis=-1))
+        #FIXME: no effect of precision when shape of arrays have dimension 1.
     ax.text(0.995, 0.99, summary, transform=ax.transAxes,
             verticalalignment='top', horizontalalignment='right')
 
@@ -482,11 +551,71 @@ def annotate_summary(ax, values):
 PLOTS = ['gap_prop', 'entropy', 'gap_entropy', 'al', 'sp_score']
 COMP_PLOTS = ['manhattan', 'pearson', 'split_pairs_score']
 
+def al_colorbar(ax, cax=None, orientation='vertical', **kwargs):
+    kwargs = {'shrink':0.05, **kwargs}
+    im = ax.images[-1]
+    cbar = plt.colorbar(im, ax=(ax if cax is None else None),
+                        cax=cax,
+                        orientation=orientation, extend='both', **kwargs)
+    if cax is not None and orientation == 'horizontal':
+        cax_pos = cax.get_position()
+        cax.set_position(cax_pos.shrunk_to_aspect(1/20))
+    cbar.set_label('residues')
+    #ticks = cbar.get_ticks()
+    #cbar.set_ticks()
+    #nticks = len(ticks)
+    logger.debug('cbar lim= %s; ylim= %s; xlim= %s', cbar.get_clim(),
+                 cbar.ax.get_ylim(), cbar.ax.get_xlim())
+    logger.debug('norm.vmax = %g; norm.N = %g; cmap.N = %g',
+                 im.norm.vmax, im.norm.N, im.cmap.N)
+    if im.norm.vmax > 5:
+        sep = '\n' if orientation=='horizontal' else ' '
+        cmax = im.cmap.N
+        ticklabels = []
+        prev_codon_col = im.cmap(im.norm(0))
+        ticks = []
+        logger.debug('codon_col 0: %s', prev_codon_col)
+        for i, codon in enumerate(CODONS+STOPS, start=1):  #CODON2INT.items()
+            codon_col = im.cmap(im.norm(i))
+            #logger.debug('codon %d %r col %s; != %s', i, codon, codon_col,
+            #             codon_col != prev_codon_col)
+            if codon_col == prev_codon_col:
+                ticklabels[-1].append(codon)
+            else:
+                ticks.append(i-1)
+                try:
+                    ticklabels[-1] = sep.join(ticklabels[-1])
+                except IndexError:
+                    pass
+                ticklabels.append([])
+                prev_codon_col = codon_col
+        ticks.append(i-1)
+        if not ticklabels[-1]:
+            ticklabels[-1].append(codon)
+        ticklabels[-1] = sep.join(ticklabels[-1])
+        logger.debug('Setting %d ticks %s, %d labels %s', len(ticks), ticks,
+                     len(ticklabels), ticklabels)
+        cbar.set_ticks(ticks)
+        cbar.set_ticklabels(ticklabels)  # [NACODON] + CODONS
+        logger.debug('cbar lim= %s; ylim= %s; xlim= %s', cbar.get_clim(),
+                     cbar.ax.get_ylim(), cbar.ax.get_xlim())
+        #TODO
+        cbar.ax.text(1, -0.05, gaps[0]*3, fontsize='x-small', clip_on=False) # under
+        #cbar.ax.annotate(gaps[0]*3, (1, -0.05), xytext=(2, 0),
+        #                 textcoords='offset points',
+        #                 fontsize='x-small', annotation_clip=False) # under
+    else:
+        cbar.set_ticks(np.arange(len(nucleotides))+0.5)
+        cbar.set_ticklabels(nucleotides)
+    cbar.ax.tick_params(labelsize='x-small')
+    return cbar
 
 class AlignPlotter(object):
 
     #colorcycle = plt.rcParams['axes.prop_cycle']
 
+    # FIXME: these should be instance attributes. Otherwise, when modified in 
+    # an instance, they are changed for each newly created instance...
     plot_properties = {'al': {'title': 'Global scoring (all sequences)'},
                               #'ylabel': 'Alignment'},
                        'gap': {'ylabel': 'Proportion of gaps\n(G)'},
@@ -499,16 +628,22 @@ class AlignPlotter(object):
                                 'ylabel': 'manhattan distance'},
                        'pearson': {'ylabel': "Pearson's correlation coefficient"},
                        'part_sp': {'ylabel': 'sum of pair differences'},
+                       'part_pars': {'ylabel': 'parsimony score between parts'},
                        'tree': {}}
 
     default_step = [('step', {'where': 'mid', 'alpha': 0.65})]
     default_bar = [('bar', {'width': 1})]
+    default_stacked = [(stackedbar, {'width': 1, 'edgecolor': 'none'})]
 
-    plot_funcs = {'al':          [('imshow', {'aspect': 'auto'})],
+    #from collections import namedtuple
+    #funcArgs = namedtuple('funcArgs', 'func args')
+
+    # { plot: [list of tuples(function, kwargs)] }
+    plot_funcs = {'al':          [('imshow', {'aspect': 'auto'})], #(al_colorbar, {})],
                   #'al':          [('pcolormesh',   {'edgecolors': 'None'}),
                   #                ('invert_yaxis', {})],
                   #'gap':         default_step, #default_bar, "stackplot"
-                  'gap':         [(stackedbar, {'width': 1, 'edgecolor': 'none'})],
+                  'gap':         default_stacked,
                   'pars':        default_bar + [(annotate_summary,)],
                   'entropy':     default_bar + [(annotate_summary,)],
                   'gap_entropy': default_bar + [(annotate_summary,)],
@@ -516,6 +651,7 @@ class AlignPlotter(object):
                   'manh':        default_step,
                   'pearson':     default_step,
                   'part_sp':     default_step,
+                  'part_pars':   default_stacked + [(annotate_summary,), ('legend',{})],
                   'tree':        [(plottree, {'get_items': get_items_biophylo,
                                               'get_label': get_label_biophylo,
                                               'label_params': {'fontsize': 'x-small'}}),
@@ -549,22 +685,25 @@ class AlignPlotter(object):
 
         #cmap_size = valid_range[1] - valid_range[0] # If len(valid_range) > 1
         # Dark2, tab20b, tab20, Set1
+        #FIXME: valid_range for codons should exclude the stops: (1,61)
         cmap = plt.get_cmap('tab20b', valid_range[1] - valid_range[0] + 1) #, cmap_size)
         cmap.set_over((0.2, 0.2, 0.2))
-        #cmap.set_under('k')
+        cmap.set_under('w')
         # a norm is needed to set bounds!!!
         
         # Directly use integer values to get colors in cmap: Same speed but less clear.
         #self.plotdata = {'al': (self.malint - valid_range[0],)} # With NoNorm
         #norm = mpl.colors.NoNorm(0, valid_range[1] - valid_range[0])
 
-        bounds = np.arange(valid_range[0]-0.5, valid_range[1] + 0.5)
+        bounds = np.arange(valid_range[0]-0.5, valid_range[1] + 0.6)
         norm = mpl.colors.BoundaryNorm(bounds, cmap.N)
+        # Maybe a ListedColormap is better.
         self.plot_funcs['al'][0][1].update(cmap=cmap, norm=norm)
         self.plot_properties['al']['yticks'] = np.arange(alint.shape[0])
         #TODO: Add the *last* xtick showing alignment length.
         #self.plot_properties['al']['xlim'] = (0, alint.shape[1]) #pcolormesh
         self.plot_properties['al']['xlim'] = (-0.5, alint.shape[1]-0.5) #imshow
+        #TODO: Add plt.colorbar for residue colors.
 
         if seqlabels is not None:
             self.plot_funcs['al'].append(('set_yticklabels',
@@ -691,22 +830,36 @@ class AlignPlotter(object):
                                                    get_children=get_children)
             self.plotlist.insert(1, 'pars')
             self.plotdata['pars'] = (self.x, self.parsimony_score)
-            self.plot_funcs['pars'][1] = self.plot_funcs['pars'][1] \
-                                         + ({'values': self.parsimony_score},) 
+            # annotate_summary:
+            self.plot_funcs['pars'][1] += ({'values': self.parsimony_score},)
 
 
     def annotate_parts(self, ax):
         """Draw arrows with annotation to show 'compare_parts' on the
         alignment plot."""
-        x0 = ax.get_xlim()[1]
-        xtext = x0 * 1.05
+        #x0, x1 = ax.get_xlim()
+        #xtext = x1 + (x1-x0) * 1.05
+        x1, xtext = 1, 1.05
+        hlines = []
         for part_number, part in enumerate(self.parts, start=1):
-            ytext = np.mean(part)
-            ax.annotate(str(part_number), xy=(x0, 0), xytext=(xtext, ytext))
+            ytext = np.mean(part) / self.alint.shape[0]
+            ax.annotate(str(part_number), xy=(x1, ytext), xytext=(xtext, ytext),
+                        xycoords='axes fraction', alpha=0.8)
             for row in part:
-                ax.annotate("", xy=(x0, row), xytext=(xtext, ytext),
-                            arrowprops={'arrowstyle': '->'})
-
+                ax.annotate("", xy=(x1, (row+0.5)/self.alint.shape[0]),
+                            xytext=(xtext, ytext),
+                            xycoords='axes fraction',
+                            arrowprops={'arrowstyle': '->', 'alpha':0.8},
+                            alpha=0.8)
+            # if part is contiguous:
+            row0, row_end = min(part), max(part)+1
+            if set(part) == set(range(row0, row_end)):
+                if row0 not in hlines:
+                    ax.axhline(row0-0.5, linestyle='--', color='#191919', alpha=0.5)
+                    hlines.append(row0)
+                if row_end not in hlines:
+                    ax.axhline(row_end-0.5, linestyle='--', color='#191919', alpha=0.5)
+                    hlines.append(row_end)
 
 
     def comp_parts(self, compare_parts):
@@ -731,6 +884,10 @@ class AlignPlotter(object):
         else:
             self.parts = compare_parts
 
+        if len(self.parts) == 1:
+            self.parts.append(list(set(range(self.alint.shape[0])).difference(
+                                   self.parts[0])))
+
         assert len(self.parts) == 2
 
         self.part_al = [np.stack([self.alint[i,:] for i in part]) \
@@ -750,6 +907,27 @@ class AlignPlotter(object):
 
         self.plot_funcs['al'].append((self.annotate_parts, {}))
 
+        if self.tree is not None: # and 'part_pars' in self.plotlist:
+            if hasattr(self.tree, 'children'):
+                get_children = lambda tree, node: node.children
+            else:
+                get_children = lambda tree, node: node.clades
+            self.part_pars_scores, part_branch_nbs = parsimony_score(self.alint, self.tree,
+                                                seqlabels=self.seqlabels,
+                                                minlength=(self.valid_range[1]+2),
+                                                get_children=get_children,
+                                                parts=self.parts)
+            logger.debug('Finished partial parsimony scores')
+            self.plotlist.append('part_pars')
+            #self.plotdata['part_pars'] = tuple((arr for p_sc in self.part_pars_scores
+            #                                    for arr in (self.x, p_sc)))
+            self.plotdata['part_pars'] = (self.x, self.part_pars_scores)
+
+            self.plot_funcs['part_pars'][0][1].update(alpha=0.6)
+            self.plot_funcs['part_pars'][2][1].update(labels=['outgroup']+
+                                                      list(range(1, 1+len(self.parts))))
+            self.plot_funcs['part_pars'][1] += ({'values': self.part_pars_scores},)
+
 
     def makefig(self, figwidth=16, plotlist=None):
 
@@ -765,7 +943,7 @@ class AlignPlotter(object):
             rows = nplots - 1
             cols = 5  # tree plot spans 1 col, alignment spans 4.
             colspan = cols - 1
-            gridspec_kw = {'width_ratios': [1, 4]}
+            gridspec_kw = {'width_ratios': [1, colspan]}
             # And hide alignment labels
             #self.plot_funcs['al'].append(('tick_params', {'label_left'}))
         else:
@@ -795,12 +973,18 @@ class AlignPlotter(object):
 
             plotfunc(*plotdata, **plot_kwargs)
 
-            for extrafuncname, extra_kwargs in self.plot_funcs[plot][1:]:
-                if isinstance(extrafuncname, str):
-                    extrafunc = getattr(ax, extrafuncname)
-                else:
-                    extrafunc = lambda **kw: extrafuncname(ax, **kw)
-                extrafunc(**extra_kwargs)
+            for i, (extrafunc, extra_kwargs) in enumerate(self.plot_funcs[plot][1:],
+                                                          start=1):
+                try:
+                    if isinstance(extrafunc, str):
+                        extrafunc = getattr(ax, extrafunc)
+                    else:
+                        extra_kwargs.update(ax=ax)
+                        #extrafunc = lambda **kw: extrafuncname(ax, **kw)
+                    extrafunc(**extra_kwargs)
+                except BaseException as err:
+                    err.args += ('extra func %d %r' % (i, extrafunc),)
+                    raise
 
             plot_prop = self.plot_properties[plot]
             ax.set(**plot_prop)
@@ -815,6 +999,11 @@ class AlignPlotter(object):
                 else:
                     #pos += 2 if 'tree' in plotlist else 1
                     #ax = fig.add_subplot(rows, cols, pos, sharex=ax)
+                    if plot == 'al' and rows>1 and cols>1:
+                        # Plot the colorbar below the tree
+                        cax = plt.subplot2grid((rows,cols),(pos[0]+1, 0), fig=fig,
+                                               aspect=20)
+                        al_colorbar(ax, cax)#, orientation='horizontal')
                     pos = (pos[0]+1, pos[1])
                     logger.debug('rows,cols: (%d,%d); pos: %s; colspan: %d',
                                  rows, cols, pos, colspan)
@@ -870,6 +1059,8 @@ def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
     align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, ungap,
                                        slice, records, recordsfile, treefile,
                                        topology_only)
+    if logger.getEffectiveLevel() <= logging.DEBUG:
+        del align_plot.plot_funcs['tree'][1]  # tickparams(labelright=False)
     if not compare_only:
         align_plot.measure()
     if compare_parts:
@@ -922,8 +1113,8 @@ if __name__ == '__main__':
                         help='Figure width (inches) [%(default)s]')
     parser.add_argument('-p', '--plotlist', default='al,gap,pars',
                         help='comma-sep list of plots. Valid values are: '\
-                             'al,gap,pars,entropy,gap_entropy,sp,manh,pearson,'
-                             'part_sp. [%(default)s]')
+                             'al,gap,pars,entropy,gap_entropy,sp,manh,pearson'
+                             'part_sp,part_pars. [%(default)s]')
     parser.add_argument('-v', '--verbose', action='count', default=0)
     
     args = parser.parse_args()
