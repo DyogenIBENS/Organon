@@ -611,53 +611,59 @@ def al_colorbar(ax, cax=None, orientation='vertical', **kwargs):
     cbar.ax.tick_params(labelsize='x-small')
     return cbar
 
+
 class AlignPlotter(object):
 
     #colorcycle = plt.rcParams['axes.prop_cycle']
 
     # FIXME: these should be instance attributes. Otherwise, when modified in 
     # an instance, they are changed for each newly created instance...
-    plot_properties = {'al': {'title': 'Global scoring (all sequences)'},
-                              #'ylabel': 'Alignment'},
-                       'gap': {'ylabel': 'Proportion of gaps\n(G)'},
-                               #'ylim': (-0.05,1.05)},
-                       'pars': {'ylabel': 'Parsimony score\n(min number of changes per branch)'},
-                       'entropy': {'ylabel': 'Entropy\n(H)'},
-                       'gap_entropy': {'ylabel': 'Gap-entropy score:\n(1-H)*(1-G)'},
-                       'sp': {'ylabel': 'SP score\n(Sum-of-pair differences)'},
-                       'manh': {'title': 'Difference scoring between parts',
-                                'ylabel': 'manhattan distance'},
-                       'pearson': {'ylabel': "Pearson's correlation coefficient"},
-                       'part_sp': {'ylabel': 'sum of pair differences'},
-                       'part_pars': {'ylabel': 'parsimony score between parts'},
-                       'tree': {}}
+    @classmethod
+    def set_plots(cls):
+        plot_properties = {'al': {'title': 'Global scoring (all sequences)'},
+                                  #'ylabel': 'Alignment'},
+                           'gap': {'ylabel': 'Proportion of gaps\n(G)'},
+                                   #'ylim': (-0.05,1.05)},
+                           'pars': {'ylabel': 'Parsimony score\n(min number of changes per branch)'},
+                           'entropy': {'ylabel': 'Entropy\n(H)'},
+                           'gap_entropy': {'ylabel': 'Gap-entropy score:\n(1-H)*(1-G)'},
+                           'sp': {'ylabel': 'SP score\n(Sum-of-pair differences)'},
+                           'manh': {'title': 'Difference scoring between parts',
+                                    'ylabel': 'manhattan distance'},
+                           'pearson': {'ylabel': "Pearson's correlation coefficient"},
+                           'part_sp': {'ylabel': 'sum of pair differences'},
+                           'part_pars': {'ylabel': 'parsimony score between parts'},
+                           'tree': {}}
 
-    default_step = [('step', {'where': 'mid', 'alpha': 0.65})]
-    default_bar = [('bar', {'width': 1})]
-    default_stacked = [(stackedbar, {'width': 1, 'edgecolor': 'none'})]
+        default_step = ('step', {'where': 'mid', 'alpha': 0.65})
+        default_bar = ('bar', {'width': 1})
+        default_stacked = (stackedbar, {'width': 1, 'edgecolor': 'none'})
 
-    #from collections import namedtuple
-    #funcArgs = namedtuple('funcArgs', 'func args')
+        #from collections import namedtuple
+        #funcArgs = namedtuple('funcArgs', 'func args')
 
-    # { plot: [list of tuples(function, kwargs)] }
-    plot_funcs = {'al':          [('imshow', {'aspect': 'auto'})], #(al_colorbar, {})],
-                  #'al':          [('pcolormesh',   {'edgecolors': 'None'}),
-                  #                ('invert_yaxis', {})],
-                  #'gap':         default_step, #default_bar, "stackplot"
-                  'gap':         default_stacked,
-                  'pars':        default_bar + [(annotate_summary,)],
-                  'entropy':     default_bar + [(annotate_summary,)],
-                  'gap_entropy': default_bar + [(annotate_summary,)],
-                  'sp':          default_bar,
-                  'manh':        default_step,
-                  'pearson':     default_step,
-                  'part_sp':     default_step,
-                  'part_pars':   default_stacked + [(annotate_summary,), ('legend',{})],
-                  'tree':        [(plottree, {'get_items': get_items_biophylo,
-                                              'get_label': get_label_biophylo,
-                                              'label_params': {'fontsize': 'x-small'}}),
-                                  ('tick_params', {'labelright': False}),
-                                  ('grid', {'b': False})]}
+        # { plot: [list of tuples(function, kwargs)] }
+        plot_funcs = {'al':          [('imshow', {'aspect': 'auto'})], #(al_colorbar, {})],
+                      #'al':          [('pcolormesh',   {'edgecolors': 'None'}),
+                      #                ('invert_yaxis', {})],
+                      #'gap':         default_step, #default_bar, "stackplot"
+                      'gap':         [default_stacked],
+                      'pars':        [default_bar, (annotate_summary,)],
+                      'entropy':     [default_bar, (annotate_summary,)],
+                      'gap_entropy': [default_bar, (annotate_summary,)],
+                      'sp':          [default_bar],
+                      'manh':        [default_step],
+                      'pearson':     [default_step],
+                      'part_sp':     [default_step],
+                      'part_pars':   [default_stacked,
+                                      (annotate_summary,),
+                                      ('legend', {'bbox_to_anchor': (0,0,0.5,1)})],
+                      'tree':        [(plottree, {'get_items': get_items_biophylo,
+                                                  'get_label': get_label_biophylo,
+                                                  'label_params': {'fontsize': 'x-small'}}),
+                                      ('tick_params', {'labelright': False}),
+                                      ('grid', {'b': False})]}
+        return plot_properties, plot_funcs
 
 
     def __init__(self, alint, seqlabels=None, valid_range=(1,64), tree=None,
@@ -667,6 +673,7 @@ class AlignPlotter(object):
         - alint: alignment provided as a numpy 2D array of integers.
         - tree: tree in Bio.Phylo format.
         """
+        self.plot_properties, self.plot_funcs = self.set_plots()
         self.alint = alint
         self.x = np.arange(self.alint.shape[1]) # X values for plotting
         logger.debug('Alignment shape: %s', alint.shape)
