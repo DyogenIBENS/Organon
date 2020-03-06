@@ -372,6 +372,7 @@ def find_ingroup_marked(tree, outgroupsize=2):
                         if not getattr(child, 'is_outgroup', 0)]
         except ValueError:
             # Unpacking error: this is either a leaf or all children are unmarked.
+            #logger.warning("No `is_outgroup` attribute found.")
             break
         found_outgroups.update(ingroup.get_sisters())
 
@@ -439,9 +440,12 @@ def count_zero_combinations(tree, exclusive=False):
         #        consecutive_zeros += (node.dist == 0 and node.up.dist == 0)
 
 
-    return (float(consecutive_zeros) / n_branches,
-            float(sister_zeros) / (n_nodes+1),
-            float(triplet_zeros) / n_nodes)
+    try:
+        return (float(consecutive_zeros) / n_branches,
+                float(sister_zeros) / (n_nodes+1),
+                float(triplet_zeros) / n_nodes)
+    except ZeroDivisionError:
+        return ('', '', '')  # set to NaN.
 
 
 
@@ -490,7 +494,6 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                 if ingroupmarked == tree:
                     logger.error('find_ingroup_marked:No outgroup found! %s',
                                  tree.name)
-
                 # Double-check:
                 ingroup, outgroups = find_ingroup(tree, ancestor, phyltree,
                                         ensembl_version,
@@ -503,10 +506,14 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                         if ingroupmarked == ingroup:
                             break
                     else:
-                        logger.warning(
-                                '%s: Found 2 ≠ ingroups with 2 methods: '
-                                'find_ingroup -> %r ≠ find_ingroup_mark: %r',
-                                subtree, ingroup.name, ingroupmarked.name)
+                        if not tree.search_nodes(is_outgroup=1):
+                            logger.warning("No mark 'is_outgroup' available. Use guessing solution.")
+                            ingroupmarked = ingroup  # Should I raise this?
+                        else:
+                            logger.warning(
+                                    '%s: Found 2 ≠ ingroups with 2 methods: '
+                                    'find_ingroup -> %r ≠ find_ingroup_mark: %r',
+                                    subtree, ingroup.name, ingroupmarked.name)
                         # This is ignored.
 
                 tree = ingroupmarked
@@ -514,15 +521,17 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
             else:
                 root_taxon, _ = split_species_gene(tree.name, all_ancgene2sp)
 
-            #logger.debug('Considered genetree root: %s; root taxon: %s; original: %s'
-            #      tree.name, root_taxon or ancestor, ancestor)
-            expected_species = phyltree.species[root_taxon or ancestor]
+            logger.debug('Considered genetree root: %s; root taxon: %s; original: %s',
+                  tree.name, ancestor if root_taxon is None else ancestor, ancestor)
+            expected_species = phyltree.species[ancestor if root_taxon is None else root_taxon]
             try:
                 leaves_robust, single_child_nodes = simple_robustness_test(tree,
                                                                 expected_species,
                                                                 ensembl_version)
             except KeyError as err:  # Error while converting genename to species
-                err.args += (subtreefile,)
+                missing_key = err.args[0]
+                if missing_key in phyltree.listSpecies:
+                    err.args = ('%r not in ingroup' % missing_key,)
                 raise
 
             root_to_tips = np.array([leafdist for _, leafdist in
@@ -555,7 +564,13 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                         B_values.append(int(node.B))
 
                 B_values = np.array(B_values)
-                output += (B_values.min(), B_values.mean())
+                try:
+                    output += (B_values.min(), B_values.mean())
+                except ValueError:
+                    if not B_values.size:
+                        output += ('', '')
+                    else:
+                        raise
                 output += count_zero_combinations(tree, exclusive=True)
             if ignore_outgroups:
                 output += (','.join(l.name for out in outgroups for l in out.iter_leaves()),)
@@ -986,7 +1001,7 @@ if __name__ == '__main__':
     logger.setLevel(logging.INFO)
     try:
         from UItools import colorlog
-        colorlog.install()
+        colorlog.ColoredFormatter.install()
     except ImportError:
         logging.basicConfig(format=logging.BASIC_FORMAT)
 
