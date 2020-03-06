@@ -677,7 +677,7 @@ def display_decorrelate(decorr_item, data_raw, data_transformed, data_decorred,
         ax.set_xlabel(corrvar)
         ax.set_ylabel(yvar)
         if color_var is not None:
-            fig.colorbar(points, ax=ax, orientation='horizontal').set_label(color_var) #fraction=0.05, aspect=30
+            fig.colorbar(points, ax=ax, orientation='horizontal', fraction=0.05).set_label(color_var) #aspect=30
     #fig.tight_layout()  # tight layout often goes havoc with colorbars.
     return fig
 

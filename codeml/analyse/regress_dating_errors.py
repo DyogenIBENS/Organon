@@ -569,7 +569,7 @@ def npraw_group_average_w0(gvalues):
     #values = np.ma.array(g[var].values, mask=g[var].isna().values)
     gv = gvalues[:,1:]
     gw = gvalues[:,0]
-    keep = ~np.isnan(gw)
+    keep = ~np.isnan(gw)  # What about isnan(gv) (when branch==0 and branchtime==0)
     return np.average(gv[keep], axis=0, weights=gw[keep])
 
 def group_average(g, var, weight_var):
@@ -688,6 +688,11 @@ def add_control_dates_lengths(ages, phyltree, control_ages_CI=None,
     for m,am in zip(measures, age_measures):
         ages_controled['approx_%s' %m] = (ages_controled[am+'_parent']
                                             - ages_controled[am])
+        # Also include an approx that can't be zero even with 0 substitutions:
+        #almost 0:
+        #min_val = ages_controled.loc[ages_controled['approx_%s' % m]>0, 'approx_%s' % m].min()
+        # Can be as low as 8e-19
+        #ages_controled['approx_%s_nonzero' % m] = ages_controled['approx_%s' % m].replace(0, 1e-19)
 
     # Resulting branch lengths
     branch_info = ["taxon_parent", "taxon"]
@@ -1118,7 +1123,7 @@ def compute_branchrate_std(ages_controled, dist_measures,
                            branchtime='median_brlen_dS', taxon_age=None,
                            mean_condition=None,
                            std_condition=None,
-                           weighted=False, poisson=True):
+                           weighted=False, poisson=True, debug=False):
     """
     Example filter_condition for approximated dS (nonlocal):
     '(calibrated==1) & (calibrated_parent==1)'
@@ -1130,6 +1135,7 @@ def compute_branchrate_std(ages_controled, dist_measures,
         groupby_cols.append(taxon_age)  ## "median_age"/"median_age_dS"
     #ages_controled["omega"] = ages_controled.branch_dN / ages_controled.branch_dS
 
+    ages_controled_full = ages_controled
     if mean_condition:
         ages_controled = ages_controled.query(mean_condition)
         if not ages_controled.shape[0]:
@@ -1141,6 +1147,10 @@ def compute_branchrate_std(ages_controled, dist_measures,
     ### Average (substitution) rates over the tree:
     #     sum of all branch values / sum of branch lengths
 
+    if debug:
+        print('%d rows queried for mean (ages_controled)' % ages_controled.shape[0])
+        check_nan(sgg[branchtime].sum(), 'sgg[branchtime].sum()')
+    
     # Sum aggregation + division broadcasted on columns
     # This is the maximum likelihood estimate for a constant Poisson rate.
     if poisson:
@@ -1158,10 +1168,29 @@ def compute_branchrate_std(ages_controled, dist_measures,
                         .div(sgg[branchtime].sum()**2, axis=0)
     #cs_rates["omega"] = (sgg.branch_dN / sgg.branch_dS).apply()
 
+    if debug:
+        check_nan(cs_rates, 'rate means')
+        check_inf(cs_rates, 'rate means')
+
     # This weird operation fills the subgenetree-mean-rate into each node name.
     aligned_csrates = ages_controled[['subgenetree']]\
                             .join(cs_rates, on='subgenetree', sort=False)\
                             .drop(columns='subgenetree')
+
+    if debug:
+        check_nan(cs_rates, 'rate means (aligned to ages_controled)')
+        check_inf(cs_rates, 'rate means (aligned to ages_controled)')
+    
+        diff_subgenetrees = set(ages_controled.subgenetree).difference(cs_rates.index)
+        if diff_subgenetrees:
+            logger.warning('%d unmatched subgenetrees in ages_controled: %s',
+                           len(diff_subgenetrees), ' '.join(diff_subgenetrees))
+            #The NaN should correspond to genetrees with zero node matching mean_condition?
+    if debug == 'aligned_csrates':
+        return aligned_csrates
+
+    #check_nan(cs_rates, 'rate means (aligned to ages_controled)')
+    #check_inf(cs_rates, 'rate means (aligned to ages_controled)')
 
     ### Weighted standard deviation of substitution rates among branches
     # the squared deviations from the mean rate:
@@ -1169,7 +1198,36 @@ def compute_branchrate_std(ages_controled, dist_measures,
                     .div(ages_controled[branchtime], axis=0)\
                     .sub(aligned_csrates, axis=0)**2)\
                 .join(ages_controled[['subgenetree', branchtime]], sort=False)
-    #logger.debug('rate_dev.shape = %s; columns = %s', rate_dev.shape, rate_dev.columns)
+    if debug:
+        age_measures = [dm.replace('branch_', 'age_') for dm in dist_measures]
+        debug_cols = (groupby_cols + age_measures +
+                      [v+'_parent' for v in dist_measures + age_measures])
+                      
+        #logger.debug('rate_dev.shape = %s; columns = %s', rate_dev.shape, rate_dev.columns)
+        rate_dev_na_rows = check_nan(rate_dev, 'rate_dev')
+        rate_dev_inf_rows = check_inf(rate_dev, 'rate_dev')
+        if rate_dev_na_rows.any() or rate_dev_inf_rows.any():
+            # Possible divisions 0/0
+            for dist_m in dist_measures:
+                div_0by0 = (ages_controled[[dist_m, branchtime]]==0).all(axis=1)
+                print('%s/%s -> %d divisions 0/0' % (dist_m, branchtime,
+                        div_0by0.sum()))
+                print('data 0/0:')
+                display_html(ages_controled.loc[div_0by0, debug_cols].head(20))
+
+                if (rate_dev_na_rows & ~div_0by0).any():
+                    print('%d Other NaN' % (rate_dev_na_rows & ~div_0by0).sum())
+                # Possible divisions by 0
+                div_by0 = (ages_controled[branchtime]==0) & ~div_0by0
+                if div_by0.any():
+                    print('%d divisions by 0 (by %s)' % (div_by0.sum(), branchtime))
+                    print('data /0:')
+                    display_html(ages_controled.loc[div_by0, debug_cols].head(20))
+                    if (rate_dev_inf_rows & ~div_by0).any():
+                        print('%d Other Inf' % (rate_dev_inf_rows & ~div_by0).sum())
+
+    if debug == 'rate_dev':
+        return rate_dev
 
     cs_rates.rename(columns=lambda d: d.replace('branch_', '')+'_rate', inplace=True)
     rate_measures = cs_rates.columns.tolist()  #[(m.replace('branch_', '') + '_rate') for m in dist_measures]
@@ -1197,6 +1255,7 @@ def compute_branchrate_std(ages_controled, dist_measures,
     #logger.debug('group 0 group_average = %s', npraw_group_average_w0(rsgg_g0.values))
 
     if weighted:
+        #NOTE: The applied function omits NaN values in weights, but propagates NaNs in rates.
         cs_stds = rsgg[[branchtime] + dist_measures]\
                         .apply(lambda g: pd.Series(np.sqrt(
                                                     npraw_group_average_w0(g.values)),
@@ -1636,6 +1695,8 @@ def display_errors(params, control='timetree', age_col='age_dS',
 
 def check_nan(df, description=None, out=None):
     if description is None: description = ''
+    if isinstance(df, pd.Series):
+        df = df.to_frame()
     print('%s -> Any NA: %s' % (description, df.isna().sum(axis=0).any()), file=out)
     print('%s -> *All* NA: %s' % (description, df.columns[df.isna().all()]), file=out)
     print('Shape %s: %s' % (description, df.shape), file=out)
@@ -1651,6 +1712,8 @@ def check_nan(df, description=None, out=None):
 
 def check_inf(df, description=None, out=None):
     if description is None: description = ''
+    if isinstance(df, pd.Series):
+        df = df.to_frame()
     dfn = df.select_dtypes(np.number)  # Numeric columns only.
     inf_rows = np.isinf(dfn).any(axis=1)
     if inf_rows.any():
