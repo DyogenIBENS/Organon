@@ -27,6 +27,7 @@ import seaborn as sb
 from objectools import Args, as_args, generic_update, generic_remove_items
 from seqtools.compo_freq import weighted_std
 from dendro.bates import dfw_pairs_generalized, dfw_pairs
+from dendro.framed import get_topo_time
 from datasci.graphs import scatter_density, \
                            plot_cov, \
                            heatmap_cov, \

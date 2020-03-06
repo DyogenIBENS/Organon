@@ -880,7 +880,7 @@ def rec_average_w(node, subtree, tmp_m='tmp_m', **kw):
     
     This operation must be repeated along the tree, from the leaves to the root
 
-    NOT NEEDED.
+    UNUSED.
     """
     # Array operation here: increment tmp_m with current measure.
     # One child per row.
@@ -1141,7 +1141,7 @@ def bound_average(fulltree, calibration, todate=isdup,
                 Takes 2 params: (node, subtree).
                 By default: check whether node is a duplication.
       - calib_selecter: the entries of `calibration`. Typically `taxon`.
-                   This is a field in node to search, or the attr from `node_attr_getter`.
+                   This is a node field to search, or the attr from `node_attr_getter`.
       - node_info: paired list of functions retrieving additional info
                     (ex: ("taxon", get_taxon). Tuple of length 1 will just use `getattr`)
       - node_feature_setter: can be used to set new features, possibly based on other parts

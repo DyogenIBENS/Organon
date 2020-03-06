@@ -3,10 +3,8 @@
 
 (ete3, LibsDyogen, scipy.hclust.linkage...)"""
 
-import numpy as np
-from .bates import rev_dfw_descendants, dfw_descendants_generalized
-import logging
-logger = logging.getLogger(__name__)
+
+from .bates import rev_dfw_descendants
 
 
 def get_data(tree, nodedist):
@@ -79,7 +77,7 @@ def PhylTree_to_ete3(phyltree, nosinglechild=False):
 def PhylTree_draw(phyltree, images=None):
     """Draw tree in a gui window using Ete3"""
     import ete3
-    ptree = phyltree.to_ete3()
+    ptree = PhylTree_to_ete3(phyltree)
     ts = ete3.TreeStyle()
     ts.scale = 2
     ts.show_branch_length = True
@@ -96,6 +94,7 @@ def PhylTree_draw(phyltree, images=None):
 
 def ete3_to_ete3(tree):
     return tree
+
 
 
 converterchoice = {'PhylTree': {'Ete3': PhylTree_to_ete3},
