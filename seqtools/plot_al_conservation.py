@@ -274,6 +274,7 @@ def pearson_coeff(X, Y, axis=0):
 
 
 def comp_parts(alint, compare_parts=None):
+    """DEPRECATED"""
     if compare_parts is None:
         return None
 
@@ -828,7 +829,7 @@ class AlignPlotter(object):
                                                    seqlabels=self.seqlabels,
                                                    minlength=(max_valid+2),
                                                    get_children=get_children)
-            self.plotlist.insert(1, 'pars')
+            self.plotlist.insert(self.plotlist.index('al')+1, 'pars')
             self.plotdata['pars'] = (self.x, self.parsimony_score)
             # annotate_summary:
             self.plot_funcs['pars'][1] += ({'values': self.parsimony_score},)
@@ -839,7 +840,7 @@ class AlignPlotter(object):
         alignment plot."""
         #x0, x1 = ax.get_xlim()
         #xtext = x1 + (x1-x0) * 1.05
-        x1, xtext = 1, 1.05
+        x1, xtext = 1, 1.02
         hlines = []
         for part_number, part in enumerate(self.parts, start=1):
             ytext = np.mean(part) / self.alint.shape[0]
@@ -871,34 +872,39 @@ class AlignPlotter(object):
         """
         ### TODO: add a parsimony comparison: 1 if null intersection.
         if isinstance(compare_parts, str):
-            self.parts = []
-            for part in compare_parts.split(';'):
-                part = part.rstrip(')').lstrip('(')
-                parti = []
-                for subpart in part.split(','):
+            compare_parts = [part.rstrip(')').lstrip('(').split(',')
+                             for part in compare_parts.split(';')]
+        # Convert to the proper type
+        self.parts = []
+        for part in compare_parts:
+            parti = []
+            for subpart in part:
+                try:
+                    parti.append(int(subpart))
+                except ValueError:
                     try:
-                        parti.append(int(subpart))
-                    except ValueError:
                         parti.extend(range(*(int(i) for i in subpart.split(':'))))
-                self.parts.append(parti)
-        else:
-            self.parts = compare_parts
+                    except ValueError:
+                        label_reg = re.compile(subpart)
+                        parti.extend((i for i,lab in enumerate(self.seqlabels)
+                                      if label_reg.match(lab)))
+            self.parts.append(parti)
 
-        if len(self.parts) == 1:
-            self.parts.append(list(set(range(self.alint.shape[0])).difference(
-                                   self.parts[0])))
+        # The complementary sequences.
+        out_part = list(set(range(self.alint.shape[0]))
+                        .difference(set().union(*(self.parts))))
+        all_parts = self.parts + [out_part]
 
-        assert len(self.parts) == 2
+        #assert len(self.parts) == 2
 
-        self.part_al = [np.stack([self.alint[i,:] for i in part]) \
-                        for part in self.parts]
+        self.part_al = [self.alint[part,:] for part in all_parts[:2]]
 
         self.part_freqs = fmat1, fmat2  = [freq_matrix(alpart) for alpart in self.part_al]
         self.part_counts = cmat1, cmat2 = [count_matrix(alpart) for alpart in self.part_al]
 
         self.part_manh_dist = np.abs(fmat1 - fmat2).sum(axis=0)
         self.part_pearson_c = pearson_coeff(cmat1, cmat2, axis=0)
-        self.part_sp_score = part_sp_score(self.alint, self.parts)
+        self.part_sp_score = part_sp_score(self.alint, all_parts[:2])
 
         self.plotlist.extend(('manh', 'pearson', 'part_sp'))
         self.plotdata.update(manh=(self.x, self.part_manh_dist,),
@@ -923,17 +929,17 @@ class AlignPlotter(object):
             #                                    for arr in (self.x, p_sc)))
             self.plotdata['part_pars'] = (self.x, self.part_pars_scores)
 
-            self.plot_funcs['part_pars'][0][1].update(alpha=0.6)
+            #self.plot_funcs['part_pars'][0][1].update(alpha=0.6)
             self.plot_funcs['part_pars'][2][1].update(labels=['outgroup']+
                                                       list(range(1, 1+len(self.parts))))
             self.plot_funcs['part_pars'][1] += ({'values': self.part_pars_scores},)
 
 
-    def makefig(self, figwidth=16, plotlist=None):
+    def makefig(self, plotlist=None, figwidth=16, plotheight=4):
 
         plotlist = plotlist if plotlist is not None else self.plotlist
         nplots = len(plotlist)
-        fig = plt.figure(figsize=(figwidth, 4*nplots))
+        fig = plt.figure(figsize=(figwidth, plotheight*nplots))
 
         logger.debug('Nplots: %s, %s', nplots, plotlist)
         #fig, axes = plt.subplots(nplots, sharex=True,
@@ -1022,13 +1028,13 @@ class AlignPlotter(object):
         self.fig, self.axes = fig, axes
 
 
-    def display(self, outfile=None):
+    def display(self, outfile=None, **kwargs):
         logger.debug('Displaying')
         if outfile is None:
             plt.show(block=True)
             #print(clock())
         else:
-            self.fig.savefig(outfile, bbox_inches='tight')
+            self.fig.savefig(outfile, bbox_inches='tight', **kwargs)
 
 
 
@@ -1048,13 +1054,10 @@ def main_old(infile, outfile=None, format=None, nucl=False, allow_N=False,
     plot_al_stats(gap_prop, al_entropy, alint, dist_array, seqlabels, outfile)
 
 
-def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
+def plot_al_conservation(infile, format=None, nucl=False, allow_N=False,
          ungap=True, records=None, recordsfile=None, treefile=None, slice=None,
          topology_only=False, compare_parts=None,
-         compare_only=False, figwidth=16, plotlist=None):
-    
-    if not outfile:
-        plt.switch_backend('TkAgg')
+         compare_only=False, plotlist=None, figwidth=16, plotheight=4):
 
     align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, ungap,
                                        slice, records, recordsfile, treefile,
@@ -1067,17 +1070,17 @@ def main(infile, outfile=None, format=None, nucl=False, allow_N=False,
         align_plot.comp_parts(compare_parts)
     if plotlist is not None:
         plotlist = plotlist.split(',')
-        if 'pars' in plotlist or 'tree' in plotlist:
+        if set(plotlist).intersection(('pars', 'tree', 'part_pars')):
             assert treefile is not None, \
                     "A treefile must be given to compute parsimony score or plot a tree."
             # plotlist.remobe('pars') ## 'tree'
             if 'tree' not in plotlist and 'al' in plotlist:
                 plotlist.insert(plotlist.index('al'), 'tree')
-    align_plot.makefig(figwidth, plotlist)
-    align_plot.display(outfile)
+    align_plot.makefig(plotlist, figwidth, plotheight)
+    return align_plot
 
 
-if __name__ == '__main__':
+def main():
     logging.basicConfig(format="%(levelname)s:%(funcName)s:%(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('infile', nargs='?', default=stdin,
@@ -1111,6 +1114,8 @@ if __name__ == '__main__':
                         help='Do not display global scores')
     parser.add_argument('-w', '--figwidth', default=16, type=float,
                         help='Figure width (inches) [%(default)s]')
+    parser.add_argument('-h', '--plotheight', default=1.8, type=float,
+                        help='Individual plot height (inches) [%(default)s]')
     parser.add_argument('-p', '--plotlist', default='al,gap,pars',
                         help='comma-sep list of plots. Valid values are: '\
                              'al,gap,pars,entropy,gap_entropy,sp,manh,pearson'
@@ -1125,4 +1130,13 @@ if __name__ == '__main__':
         logger.setLevel(logging.INFO)
     delattr(args, 'verbose')
 
-    main(**vars(args))
+    outfile = args.outfile
+    delattr(args, 'outfile')
+    if not outfile:
+        plt.switch_backend('TkAgg')
+
+    plot_al_conservation(**vars(args)).display(outfile)
+
+
+if __name__ == '__main__':
+    main()
