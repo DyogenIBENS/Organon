@@ -31,6 +31,7 @@ def roll_rootwards_indices(df, parent_column='parent', type_column=None, node_co
             logger.error('Should not index forest with duplicated node names.')
 
     sister_groups = df.groupby(parent_column).groups
+    logger.debug('%d node groups.', len(sister_groups))
     # Find leaves:
     if type_column is None:
         # this could be done using:
@@ -41,13 +42,15 @@ def roll_rootwards_indices(df, parent_column='parent', type_column=None, node_co
     # You only want to fetch those parents whose subtrees have been visited.
     # Therefore, visited nodes will be set as leaves as we go rootwards.
     max_iter = df.shape[0]
-    max_iter *= (max_iter - 1)/2
+    max_iter *= (max_iter - 1)/2.
     i = 0
     while sister_groups and i <= max_iter:
         # suboptimal
         # Worst case scenario: with dataframe of N rows:
         # one single caterpillar tree, and the cherry is the last encountered sister_group.
-        # Will iterate N*(N-1)/2
+        # Will iterate N*(N-1)/2 times
+        logger.debug('rootwards: iteration #%d (%d groups, %d leaves remaining)',
+                     i, len(sister_groups), len(leaves))
         for parent, children in list(sister_groups.items()):
             i += 1
             if children.difference(leaves).empty:
@@ -158,14 +161,14 @@ def parentdata_to_ete3(df, dist_column='dist', root_value=None): #, parent_colum
     return roots
 
 
-def get_topo_time(df):
+def get_topo_time(df, **kwargs):
     """Set arbitrary branch lengths: a parent node is at distance 1 of the
     closest child, and all leaves are at age 0."""
     topo = pd.DataFrame(columns=['topo_age', 'topo_brlen'],
                         index=df.index)
     is_leaf = df['type'] == 'leaf'
     topo.loc[is_leaf, 'topo_age'] = 0
-    for parent, children in roll_rootwards_indices(df, type_column='type'):
+    for parent, children in roll_rootwards_indices(df, type_column='type', **kwargs):
         topo.loc[parent, 'topo_age'] = topo.loc[children, 'topo_age'].max() + 1
         topo.loc[children, 'topo_brlen'] = topo.loc[parent, 'topo_age'] - topo.loc[children, 'topo_age']
         logger.debug('parent %r age=%s, children %s ages=%s', parent,

@@ -2348,7 +2348,8 @@ class fullRegression(object):
         self.a_n_inde = a_n_inde
         return
 
-    def do_decorred_fit(self):
+    # Could be: @property(inde_features)
+    def do_decorr(self):
         logger = self.logger
         self.decorr_source = {key: (key[1:] if len(tup)==2 else tup[0])
                               for key, tup in self.decorred.items()}
@@ -2361,8 +2362,6 @@ class fullRegression(object):
 
         new_inde_features = set(inde_features) - set(features)
         self.inde_features = inde_features
-
-        y = self.responses[0]
 
         na_rows_decorr = check_nan(a_n_inde, 'after decorr', self.out)
         check_inf(a_n_inde, 'after decorr', self.out)
@@ -2398,10 +2397,16 @@ class fullRegression(object):
         self.displayed.append(fig)
         self.show(); plt.close()
 
+
+    def do_decorred_fit(self):
+        logger = self.logger
+        self.do_decorr()  # This creates the attribute inde_features
+        y = self.responses[0]
+
         print('\n### Fit of less colinear features (after internal decorrelation)', file=self.out)
 
         self.fitlasso, self.fit, pslopes, preslopes = lassoselect_and_refit(
-                                a_n_inde, y, inde_features, atol=1e-2,
+                                self.a_n_inde, y, self.inde_features, atol=1e-2,
                                 method='elastic_net', L1_wt=1, cov_type='HC1', out=self.out) #**psummary_kw
         self.slopes = pslopes.data
         self.reslopes = preslopes.data
@@ -2457,9 +2462,13 @@ class fullRegression(object):
             return self._suggest_multicolin2
 
 
-    def do_bestfit(self):
-
-    #def do_dropcolinear(self):
+    def do_drop_bad(self):
+        """
+        Drop colinear features (auto selection) and bad properties:
+            
+        - colinear features in columns;
+        - bad properties in rows.
+        """
         logger = self.logger
         a_n_inde = self.a_n_inde
         inde_features = self.inde_features
@@ -2532,31 +2541,31 @@ class fullRegression(object):
         print("New shape after removing bad data:", a_n_inde2.shape, file=self.out)
         print("New Mean,SD of response: %g; %g" % (
                 a_n_inde2[y].mean(), a_n_inde2[y].std()), file=self.out)
-        inde_features2 = [ft for ft in inde_features
+        good_features = [ft for ft in inde_features
                                                 if ft not in set(bad_props)]
 
-        constant_vars = a_n_inde2[inde_features2].agg(np.ptp)
+        var_ranges = a_n_inde2[good_features].agg(np.ptp)
         
+        #check_constants(a_n_inde2[inde_features2])
         print('Check for newly introduced constant variables:\n',
-              constant_vars.sort_values(), file=self.out)
+              var_ranges.sort_values(), file=self.out)
         self.inde_features2, constant_varnames = [], []
-        for ft in inde_features2:
-            if constant_vars[ft]>0:
+        for ft in good_features:
+            if var_ranges[ft]>0:
                 self.inde_features2.append(ft)
             else:
                 constant_varnames.append(ft)
-        inde_features2 = self.inde_features2
 
         # Removing bad data probably shifted Y. We need to re-center and standardize.
         continuous_inde_features2 = []
         bin_inde_features2 = []
-        for ft in (self.responses+inde_features2):
+        for ft in (self.responses+self.inde_features2):
             if self.suggested_transform[self.decorr_source.get(ft, ft)].__name__ == 'binarize':
                 bin_inde_features2.append(ft)
             else:
                 continuous_inde_features2.append(ft)
 
-        self.a_n_inde2 = a_n_inde2 = a_n_inde2.assign(
+        self.a_n_inde2 = a_n_inde2.assign(
             **dict(
                 a_n_inde2[continuous_inde_features2].transform(zscore)  #.apply(zscore, raw=True, result_type='broadcast')
                   ),
@@ -2568,19 +2577,25 @@ class fullRegression(object):
 
         print('Check multi-colinearity post-removal of bad data:', file=self.out)
         print(self.suggest_multicolin2, file=self.out)
-        self.inde_features2 = inde_features2 = [ft for ft in inde_features2
+
+    def do_bestfit(self):
+        self.do_drop_bad()  # Generates a_n_inde2, inde_features2 and suggest_multicolin2
+        a_n_inde2 = self.a_n_inde2
+        self.inde_features2 = inde_features2 = [ft for ft in self.inde_features2
                                                 if ft not in self.suggest_multicolin2]
+        y = self.responses[0]
+
         #print('\n##### OLS fit (2)', file=self.out)
         #self.fit2 = fit2 = ols.fit()
         #fit2.summary()
         ##display_html(sm_pretty_slopes(fit2), file=self.out)
         #display_html(fit2.summary(), file=self.out)
-        
+
         print('\n##### LASSO fit (2)', file=self.out)
         inde_features2_source = [self.decorr_source.get(ft, ft) for ft in inde_features2]
         param_info = pd.concat((
                         pd.Series([self.suggested_transform[sft].__name__
-                                    for sft in inde_features2_source],
+                                   for sft in inde_features2_source],
                                   index=inde_features2,
                                   name='transform'),
                         self.a_t[inde_features2_source].agg(['mean', 'std'])\
@@ -2696,6 +2711,121 @@ class fullRegression(object):
               file=self.out)
         self.display_html(self.alls.sort_values(self.responses[0], ascending=True).head(50))
 
+    
+    def predicted_extreme_values(self, percent=10):
+        print('\n### Predicted extreme values', file=self.out)
+        y = responses[0]
+        N = self.a_n_inde2.shape[0]
+        #print(N)
+        sorted_fit = reg.refitlasso2.fittedvalues.sort_values()
+        n = N * percent // 100
+        fitted_lowest = sorted_fit.head(n).index  # Lowest error
+        fitted_highest = sorted_fit.tail(n).index
+        top_features = self.slopes2.index[1:11].tolist()
+        for decorred_ft in set(top_features).intersection(self.decorr_source):
+            print('Decorred %r: %s' % (decorred_ft, ' '.join(self.decorred[decorred_ft])),
+                  file=self.out)
+            
+        top_features = [self.decorr_source.get(ft, ft) for ft in top_features]
+        try:
+            response_transform = self.suggested_transform[y].__name__
+        except KeyError:
+            response_transform = 'notransform'
+
+        if response_transform == 'notransform':
+            retro_trans = notransform
+        elif response_transform == 'log10':
+            def retro_trans(x): return 10**x
+        elif response_transform == '-log10(-%s)':
+            def retro_trans(x): return -10**(-x)
+        elif response_transform.startswith('log10('):
+            if response_transform.endswith('-min+%s)'):
+                inc = float(response_transform.replace('log10(', '').replace('-min+%s)', ''))
+                miny = self.alls[y].min()
+                def retro_trans(x):
+                    return 10**x + miny + inc
+            elif response_transform.endswith('+%s)'):
+                inc = float(response_transform.replace('log10(', '').replace('+%s)', ''))
+                def retro_trans(x): return 10**x - inc
+            elif response_transform.endswith('-%s)'):
+                inc = float(response_transform.replace('log10(', '').replace('-%s)', ''))
+                def retro_trans(x): return -10**(x) - inc
+        elif response_transform == 'sqrt':
+            def retro_trans(x): return x*x
+        elif response_transform == 'sqrtneg':
+            def retro_trans(x): return -x*x
+        elif response_transform.startswith('sqrt('):
+            if response_transform.endswith('-min+%s)'):
+                miny = self.alls[y].min()
+                inc = float(response_transform.replace('sqrt(', '').replace('-min+%s)', ''))
+                def retro_trans(x):
+                    return x*x + miny + inc
+        else:
+            logger.error('No reverse transformation known for %r' % response_transform)
+            retro_trans = notransform
+                    
+        #tr_mean, tr_std = self.reslopes2.loc[y,
+        #                            ['transformed mean', 'transformed std']]
+        #FIXME: don't remember if it's after dropping bad properties.
+        tr_mean, tr_std = (self.a_t.loc[self.a_n_inde2.index, y].mean(),
+                           self.a_t.loc[self.a_n_inde2.index, y].std())
+
+        fitted_lowest_max = sorted_fit[fitted_lowest[-1]]
+        fitted_highest_min = sorted_fit[fitted_highest[0]]
+        print(('\n#### %g%% lowest *fitted* %s: <= %g\n'
+                 '     %g%% Highest >= %g\n'
+                 '#### In transformed scale: <= %g / >= %g\n'
+                 '#### In original scale:     %g / %g [undoing %r]\n') % (
+              percent, y, fitted_lowest_max,
+              percent, fitted_highest_min,
+              fitted_lowest_max*tr_std + tr_mean,
+              fitted_highest_min*tr_std + tr_mean,
+              retro_trans(fitted_lowest_max*tr_std + tr_mean),
+              retro_trans(fitted_highest_min*tr_std + tr_mean),
+              response_transform),
+              file=self.out)
+
+        print('\n#### Original data:')
+        summary_lowest = self.alls.loc[fitted_lowest,
+                                    [y] + top_features
+                                  ].agg(['median', 'mean', 'std'])
+        summary_highest = self.alls.loc[fitted_highest,
+                                    [y] + top_features
+                                  ].agg(['median', 'mean', 'std'])
+        idx = pd.IndexSlice
+        self.display(pd.concat((summary_lowest, summary_highest),
+                               keys=['Predicted %s%% lowest' % percent,
+                                     'Predicted %s%% highest' % percent],
+                               verify_integrity=True, sort=False, copy=False)\
+                               .style.format('{:g}'))#\
+                               #.format('±{:g}', subset=idx[idx[:,'std'], [y]+top_features]))
+        iter_features = top_features if self.widget is None else self.widget(top_features)
+        for ft in iter_features:
+            colored = pd.Series('#7f7f7f', index=self.a_n_inde2.index, name='color')
+            colored[fitted_highest] = '#991009'
+            colored[fitted_lowest] = '#202099'
+            fig, ax = plt.subplots()
+            ax.scatter(ft, y, color='color', data=self.alls.join(colored, how='right'),
+                       alpha=0.4, linewidths=0, edgecolors='none')
+            ax.set_ylabel(y)
+            ax.set_xlabel(ft)
+            self.show(fig)
+
+
+    def predict(self, new_alls):
+        selected_features = self.reslopes2.index[1:].tolist()
+        ### Apply all the transforms + decorrelations
+        self.prediction = prediction = full_dating_regression.from_other(self)
+        prediction.alls = new_alls
+        prediction.do_decorr()
+        prediction.do_drop_bad()
+        #pred_reslopes2 = prediction.do_bestfit()
+        return self.refitlasso2.predict(
+                    sm.add_constant(
+                        prediction.a_n_inde2[prediction.inde_features2]))
+
+
+
 
 # full_dating_regression init parameters:
 # tailored for the Simiiformes *robust* trees dataset!
@@ -2792,6 +2922,7 @@ _must_decorr = {
           # Normalise the rate deviations by the rate mean.
         ('treeL_3_stddev', 'treeL_3_med'),
         ('treeL_12_stddev', 'treeL_12_med'),
+        *(('r2t_%s_std' % m, 'r2t_%s_mean' % m) for m in MEASURES),
         RsynSites=('NsynSites',    'ls'),
         RnonsynSites=('NnonsynSites', 'ls')  # But this one should be removed.
     ),

@@ -79,6 +79,8 @@ def make_logtransform_inc(inc=0):
 
 def make_lognegtransform_inc(inc=0):
     logneginc = lambda x: np.log10(-x + inc)
+    #FIXME: should be
+    #logneginc = lambda x: -np.log10(-x + inc)
     logneginc.__name__ = "log10(%g-%%s)" % inc
     return logneginc
 
