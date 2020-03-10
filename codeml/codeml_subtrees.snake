@@ -7,7 +7,7 @@ import bz2
 
 import os
 print("'codeml_subtrees' working dir: %s; snakefile dir: %s" % (
-         os.getcwd(), workflow.basedir)) 
+         os.getcwd(), workflow.basedir), file=sys.stderr) 
 
 ruleorder: codeml_condor > codeml
 #ruleorder: make_ctl_realigned > make_ctl
@@ -48,6 +48,7 @@ else:
 			file=sys.stderr)
 	sys.exit(1)
 
+STARTING_DATA = config.setdefault('starting_data', 'subtree')  # Value in 'subtree'/'alignment'
 #rule one_subtree:
 #    input: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.ctl"
 
@@ -78,7 +79,7 @@ def get_subalignments(wildcards):
 	else:
 		mainpattern = '{{0}}/{subtreedir}/{ancestor}{{0}}*_{alignment}.fa'.format(**vars(wildcards))
 
-		print("Search on pattern: %r" % mainpattern, file=sys.stderr)
+		print("Search *alignments* on pattern: %r" % mainpattern, file=sys.stderr)
 		patterns = [mainpattern.format(genetree) for genetree in GENETREES]
 		#discarded = 0
 		#discarded_codeml = 0
@@ -117,7 +118,7 @@ def get_subtrees_ancestor(wildcards):
 	else:
 		mainpattern = '{{0}}/{subtreedir}/{ancestor}{{0}}*.nwk'.format(**vars(wildcards))
 
-		print("Search on pattern: %r" % mainpattern, file=sys.stderr)
+		print("Search *trees* on pattern: %r" % mainpattern, file=sys.stderr)
 		patterns = [mainpattern.format(genetree) for genetree in GENETREES]
 		#discarded = 0
 		#discarded_codeml = 0
@@ -146,7 +147,7 @@ def get_subtrees_ancestor(wildcards):
 		#	  end=' ', file=sys.stderr)
 
 def get_ctl_ancestor_pre(wildcards):
-	print("get_ctl_ancestor_pre...", file=sys.stderr)
+	print("get_ctl_ancestor_pre... (from %ss)" % STARTING_DATA, file=sys.stderr)
 	# Do not yield if there is a codeml result file already
 	#r = [f.replace('.nwk', '.ctl') for f in get_subtrees_ancestor(wildcards) \
 	#		if not os.path.isfile(f.replace('.nwk', '.mlc'))]
@@ -155,17 +156,23 @@ def get_ctl_ancestor_pre(wildcards):
 	count = 0
 	ctl_suffix = (wildcards.model if wildcards.alignment == 'genes' else
 				  wildcards.model + '-' + wildcards.alignment)
-	#for count, f in enumerate(get_subtrees_ancestor(wildcards), start=1):
-	for count, f in enumerate(get_subalignments(wildcards), start=1):
-		#expected_mlc = f.replace('.nwk', '_%s.mlc' % ctl_suffix)
-		expected_mlc = f.replace('_%s.fa' % wildcards.alignment,
-								 '_%s.mlc' % ctl_suffix)
+	if STARTING_DATA == 'subtree':
+		for count, f in enumerate(get_subtrees_ancestor(wildcards), start=1):
+			expected_mlc = f.replace('.nwk', '_%s.mlc' % ctl_suffix)
+			if REDO or not os.path.isfile(expected_mlc):
+				r.append(f.replace('.nwk', '_%s.ctl' % ctl_suffix))
+	elif STARTING_DATA == 'alignment':
+		for count, f in enumerate(get_subalignments(wildcards), start=1):
+			expected_mlc = f.replace('_%s.fa' % wildcards.alignment,
+									 '_%s.mlc' % ctl_suffix)
 
-		if REDO or not os.path.isfile(expected_mlc):
-			#expected_ctl = f.replace('.nwk', '_%s.ctl' % ctl_suffix)
-			expected_ctl = f.replace('_%s.fa' % wildcards.alignment,
-									 '_%s.ctl' % ctl_suffix)
-			r.append(expected_ctl)
+			if REDO or not os.path.isfile(expected_mlc):
+				#expected_ctl = f.replace('.nwk', '_%s.ctl' % ctl_suffix)
+				expected_ctl = f.replace('_%s.fa' % wildcards.alignment,
+										 '_%s.ctl' % ctl_suffix)
+				r.append(expected_ctl)
+	else:
+		raise ValueError('Expect starting data in (subtree|alignment)')
 	todo = len(r)
 	print("To include: %d ; already done: %d files." % (todo, count-todo),
 			file=sys.stderr)
@@ -231,6 +238,15 @@ rule list_tree_labels:
 	# evosite3d/extract_sequences.py fails if there are no labels)
 	shell: "nw_labels -I '{input}' | perl -pe 'chomp if eof' > '{output}'"
 
+rule rm_seq_not_in_tree:
+	input:
+		labels=rules.list_tree_labels.output,  #"{genetree}_labels.txt",
+		al    =rules.prot2gene_in_align.output #"{genetree}_genes.fa"
+	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_genes.fa"
+	shell:
+		"~glouvel/scripts/evosite3d/extract_sequences.py '{input.labels}' "\
+		"'{input.al}' > '{output}'"
+
 rule reshape_tree:
 	# /!\ Cyclic rule!
 	# nw_topology -bI: remove inner node labels (but keep branch lengths)
@@ -242,18 +258,9 @@ rule reshape_tree:
 	shell:
 		"~glouvel/scripts/codeml/reshape_tree.py '{input}' '{output}'"
 
-rule rm_seq_not_in_tree:
-	input:
-		labels=rules.list_tree_labels.output,  #"{genetree}_labels.txt",
-		al    =rules.prot2gene_in_align.output #"{genetree}_genes.fa"
-	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_genes.fa"
-	shell:
-		"~glouvel/scripts/evosite3d/extract_sequences.py '{input.labels}' "\
-		"'{input.al}' > '{output}'"
-
-#subworkflow realign:
-#	workdir: os.getcwd()  # != "." which is `workflow.basedir` (the snakefile directory)
-#	snakefile: "../seqtools/realign.snake"
+subworkflow realign:
+	workdir: os.getcwd()  # != "." which is `workflow.basedir` (the snakefile directory)
+	snakefile: "../seqtools/realign.snake"
 
 #rule fasta2phylip_realign:
 #	input:  realign("{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.fa")
@@ -264,9 +271,9 @@ rule rm_seq_not_in_tree:
 
 
 rule fasta2phylip:
+	input:  realign("{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.fa")
+	#input:  "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.fa"
 	#input:  rules.rm_seq_not_in_tree.output #"{ancestorgenetreesuffix}_genes.fa"
-	#input:  realign("{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.fa")
-	input:  "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.fa"
 	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.phy"
 	shell:
 		"/users/ldog/glouvel/scripts/evosite3d/convert_fasta2phylip.py "\
@@ -289,22 +296,22 @@ rule make_ctl_realigned:
 			with open(input.ctl) as IN:
 				out.write(IN.read())
 
-#rule make_ctl:
-#	input:
-#		#ctl="base0.ctl",
-#		ctl="ctl/{model}.ctl",
-#		phy=rules.fasta2phylip.output,
-#		tree=rules.reshape_tree.output
-#	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.ctl"
-#	run:
-#		with open(output[0], 'w') as out:
-#			# Write paths relatively to the directory of the .ctl file!
-#			out.write(
-#				("seqfile  = {ancestorgenetreesuffix}_genes.phy\n"
-#				 "treefile = {ancestorgenetreesuffix}_codeml.nwk\n"
-#				 "outfile  = {ancestorgenetreesuffix}_{model}.mlc\n").format(**vars(wildcards)))
-#			with open(input.ctl) as IN:
-#				out.write(IN.read())
+rule make_ctl:
+	input:
+		#ctl="base0.ctl",
+		ctl="ctl/{model}.ctl",
+		phy="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_genes.phy",
+		tree=rules.reshape_tree.output
+	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.ctl"
+	run:
+		with open(output[0], 'w') as out:
+			# Write paths relatively to the directory of the .ctl file!
+			out.write(
+				("seqfile  = {ancestorgenetreesuffix}_genes.phy\n"
+				 "treefile = {ancestorgenetreesuffix}_codeml.nwk\n"
+				 "outfile  = {ancestorgenetreesuffix}_{model}.mlc\n").format(**vars(wildcards)))
+			with open(input.ctl) as IN:
+				out.write(IN.read())
 
 rule codeml:
 	input:

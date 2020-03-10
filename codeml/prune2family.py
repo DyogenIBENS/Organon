@@ -1068,7 +1068,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
 
     if outsub:
         def format_outdir(treefile):
-            return outdir.format(''.join(op.basename(treefile).split(outsub)[:-1]))
+            return outdir.format(op.basename(treefile).rsplit(outsub, 1)[0])
 
     else:
         def format_outdir(treefile):
@@ -1123,8 +1123,10 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
         matching_inputs += bool(outtrees)  # +1 if not empty.
 
     logger.info("\nFinished processing %d/%d input trees.\n"
-                "Output %d trees found in %d input trees.",
-                progress, n_input, len(all_outtrees), matching_inputs)
+                "Output %d trees found in %d input trees%s%s.",
+                progress, n_input, len(all_outtrees), matching_inputs,
+                ' [DRY-RUN]' if dry_run else '',
+                ' [ignore errors]' if ignore_errors else '')
     return all_outtrees
 
 

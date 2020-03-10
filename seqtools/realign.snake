@@ -1,8 +1,9 @@
 
+import sys
 import re
 from glob import iglob
 
-import os; print("'realign' working dir: %s; snakefile dir: %s" % (os.getcwd(), workflow.basedir)) 
+import os; print("'realign' working dir: %s; snakefile dir: %s" % (os.getcwd(), workflow.basedir), file=sys.stderr) 
 
 SUBTREEDIR = config.setdefault('subtreedir', 'subtreesGoodQualO2')
 ANCESTOR = config.setdefault('ancestor', 'Simiiformes')
@@ -17,22 +18,49 @@ LEADING_DOTDIR = re.compile(r'^\./')
 
 def generate_outputs(wildcards):
     if OUTPUTLIST:
-        print('Reading output list from file...')
+        print('Reading output list from file...', file=sys.stderr)
         with open(OUTPUTLIST) as s:
             outputs = [LEADING_DOTDIR.sub('', line.rstrip()) for line in s]
     else:
-        print('Globbing subtree alignment files...')
+        print('Globbing subtree alignment files...', file=sys.stderr)
         outputs = [f[:-9] + '_fsa.OK' for f in iglob('{genetree}/{subtreedir}/{ancestor}{genetree}*_genes.fa'.format(**config))]
 
-    print(('%d Outputs:\n' % len(outputs)) + '\n'.join(outputs[:5]) + '\n...')
+    print(('%d Outputs:\n' % len(outputs)) + '\n'.join(outputs[:5]) + '\n...',
+          file=sys.stderr)
     return outputs
+
+
 
 # outdir would typically be "realigned"
 rule all:
     input: generate_outputs
 
+#subworkflow codeml_subtrees:
+#    workdir: os.getcwd()  # != "." which is `workflow.basedir` (the snakefile directory)
+#    snakefile: "../codeml/codeml_subtrees.snake"  # Circular import..
+
+#include: "../codeml/codeml_subtrees.snake"
+
+# Optional, if _genes.fa files are not produced. Rules from codeml_subtrees.snake.
+rule list_tree_labels:
+	input: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}.nwk"
+	output: temp("{genetree}/{subtreedir}/{ancestorgenetreesuffix}_labels.txt")
+	# the perl part removes the last newline of stdin. (Otherwise
+	# evosite3d/extract_sequences.py fails if there are no labels)
+	shell: "nw_labels -I '{input}' | perl -pe 'chomp if eof' > '{output}'"
+
+rule rm_seq_not_in_tree:
+	input:
+		labels=rules.list_tree_labels.output,  #"{genetree}_labels.txt",
+		al    ="{genetree}/{genetree}_genes.fa"
+	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_genes.fa"
+	shell:
+		"~glouvel/scripts/evosite3d/extract_sequences.py '{input.labels}' "\
+		"'{input.al}' > '{output}'"
+
 
 rule translate:
+    #input: codeml_subtrees("{basedir}/{subtree}_genes.fa")
     input: "{basedir}/{subtree}_genes.fa"
     output: "{basedir}/realign/{subtree}_prot.fa"
     run:
