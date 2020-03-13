@@ -2050,7 +2050,8 @@ class fullRegression(object):
             for ft in unfiltered_constant_vars:
                 features.remove(ft)
         # All binary variables should **NOT** be z-scored!
-        bin_features = [ft for ft in features if suggested_transform[ft].__name__ == 'binarize']
+        self.bin_features = bin_features = [ft for ft in features
+                            if suggested_transform[ft].__name__ == 'binarize']
 
         if alls.isin((-np.Inf, np.Inf)).any(axis=None):
             logger.warning('Replace Inf,-Inf by NaN')
@@ -2360,7 +2361,7 @@ class fullRegression(object):
         inde_features += [colname for colname in a_n_inde.columns.difference(self.a_n.columns)]
         print('inde_features', len(inde_features), file=self.out)
 
-        new_inde_features = set(inde_features) - set(features)
+        new_inde_features = set(inde_features) - set(self.features)
         self.inde_features = inde_features
 
         na_rows_decorr = check_nan(a_n_inde, 'after decorr', self.out)
@@ -2415,7 +2416,8 @@ class fullRegression(object):
     #def do_randomforest(self):
         print('\n#### Random Forest Regression', file=self.out)
         try:
-            RFcrossval_r2 = randomforest_regression(a_n_inde[inde_features], a_n_inde[y],
+            RFcrossval_r2 = randomforest_regression(self.a_n_inde[self.inde_features],
+                                                    self.a_n_inde[y],
                                                     out=self.out)
         except joblib.externals.loky.process_executor.TerminatedWorkerError:
             logger.error("Can't compute RFcrossval_r2 from random forest due to parallel error (TerminatedWorkerError)")
@@ -2493,10 +2495,13 @@ class fullRegression(object):
             if vcounts.shape[0] > 2:
                 logger.warning('%r not binary.', badp)
             print('\n'.join(str(vcounts).split('\n')[:-1]), file=self.out)
-            is_badval = a_n_inde[badp].isin(badval)
+            #is_badval = a_n_inde[badp].isin(badval)
+            is_badval = self.a_t[badp].reindex(a_n_inde.index).isin(badval)
             if (is_badval.sum()) > 0.05 * vcounts.sum():
                 logger.warning('Discarding %s.isin(%s) trees will remove >5%% of the subtrees',
                                badp, badval)
+            if (~is_badval).sum() == 0 or is_badval.sum() == 0:
+                logger.error('0 data available in one group [badval = %s]', badval)
             tt_badp = stats.ttest_ind(
                         a_n_inde.loc[~is_badval, y],
                         a_n_inde.loc[is_badval, y],
@@ -2510,7 +2515,7 @@ class fullRegression(object):
         #a_n_inde2 = a_n_inde.query(' & '.join('(%s==0)' % p for p in bad_props))\
         #                .drop(bad_props, axis=1, errors='ignore')
 
-        self.bad_data_rows = bad_data_rows = a_n_inde.isin(bad_props).any(axis=1)
+        self.bad_data_rows = bad_data_rows = self.a_t.reindex(a_n_inde.index).isin(bad_props).any(axis=1)
         a_n_inde2 = a_n_inde.loc[~bad_data_rows]
         tt_bad = stats.ttest_ind(
                     a_n_inde2[y],
