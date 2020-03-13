@@ -1119,9 +1119,9 @@ def main():
                              'groups of data, e.g "(0,1);(2,3,4)"')
     parser.add_argument('-C', '--compare-only', action='store_true',
                         help='Do not display global scores')
-    parser.add_argument('-w', '--figwidth', default=16, type=float,
+    parser.add_argument('-W', '--figwidth', default=16, type=float,
                         help='Figure width (inches) [%(default)s]')
-    parser.add_argument('-h', '--plotheight', default=1.8, type=float,
+    parser.add_argument('-H', '--plotheight', default=1.8, type=float,
                         help='Individual plot height (inches) [%(default)s]')
     parser.add_argument('-p', '--plotlist', default='al,gap,pars',
                         help='comma-sep list of plots. Valid values are: '\

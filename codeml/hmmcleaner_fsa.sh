@@ -16,6 +16,7 @@ if [[ "$inputal" = *.* ]]; then
 else
     inputroot="$inputal"
 fi
+# Find the dirname and basename
 if [[ "$inputroot" = */* ]]; then
     inputdir="${inputroot%/*}"
     inputbase="${inputroot##*/}"
@@ -24,6 +25,7 @@ else
     inputbase="$inputroot"
 fi
 
+# Output directory is the parent folder of "realign/"
 outputroot="${inputdir%/realign}/${inputbase}"
 
 

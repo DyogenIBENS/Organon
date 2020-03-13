@@ -10,7 +10,7 @@ print("'codeml_subtrees' working dir: %s; snakefile dir: %s" % (
          os.getcwd(), workflow.basedir), file=sys.stderr) 
 
 ruleorder: codeml_condor > codeml
-#ruleorder: make_ctl_realigned > make_ctl
+ruleorder: make_ctl_realigned > make_ctl
 
 wildcard_constraints:
 	ancestorgenetreesuffix='[A-Z][A-Za-z_.-]+ENSGT00\d+[.`a-zA-Z0-9-]*',
@@ -39,16 +39,22 @@ GENETREES = config.setdefault('genetrees', ['ENSGT00850000133333'])
 SUBTREEDIR = config.setdefault('subtreedir', 'subtrees')  # Unused
 #BASE_CTL = config.setdefault('base_ctl', 'base0.ctl')
 REDO = config.setdefault('redo', False)
-if isinstance(REDO, str) and REDO.lower() in ('true', 'false', '1', '0'):
-	REDO = True if REDO.lower() in ('true' ,'1') else False
-elif isinstance(REDO, int):
-	REDO = bool(REDO)
-else:
-	print("Error: config option 'redo' must be bool-like (True/False/1/0)",
-			file=sys.stderr)
-	sys.exit(1)
+
+def arg_to_bool(value, name=''):
+	if isinstance(value, str) and value.lower() in ('true', 'false', '1', '0'):
+		value = True if value.lower() in ('true' ,'1') else False
+	elif isinstance(value, int):
+		value = bool(value)
+	else:
+		print("Error: config option %r must be bool-like (True/False/1/0)" % name,
+				file=sys.stderr)
+		sys.exit(2)
+
+REDO = arg_to_bool(REDO, 'redo')
 
 STARTING_DATA = config.setdefault('starting_data', 'subtree')  # Value in 'subtree'/'alignment'
+REALIGN = config.setdefault('realign', False)
+REALIGN = arg_to_bool(REALIGN, 'realign')
 #rule one_subtree:
 #    input: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.ctl"
 
@@ -75,7 +81,8 @@ def get_subalignments(wildcards):
 		print("Loading from cache %r" % cachefile, file=sys.stderr)
 		with bz2.open(cachefile, 'rt', encoding='utf8') as cache:
 			for line in cache:
-				yield line.rstrip()
+				if not line.startswith('#'):
+					yield line.rstrip()
 	else:
 		mainpattern = '{{0}}/{subtreedir}/{ancestor}{{0}}*_{alignment}.fa'.format(**vars(wildcards))
 
@@ -258,9 +265,12 @@ rule reshape_tree:
 	shell:
 		"~glouvel/scripts/codeml/reshape_tree.py '{input}' '{output}'"
 
-subworkflow realign:
-	workdir: os.getcwd()  # != "." which is `workflow.basedir` (the snakefile directory)
-	snakefile: "../seqtools/realign.snake"
+if REALIGN:
+	subworkflow realign:
+		workdir: os.getcwd()  # != "." which is `workflow.basedir` (the snakefile directory)
+		snakefile: "../seqtools/realign.snake"
+else:
+	def realign(inputfile): return inputfile
 
 #rule fasta2phylip_realign:
 #	input:  realign("{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.fa")
