@@ -42,9 +42,9 @@ REDO = config.setdefault('redo', False)
 
 def arg_to_bool(value, name=''):
 	if isinstance(value, str) and value.lower() in ('true', 'false', '1', '0'):
-		value = True if value.lower() in ('true' ,'1') else False
+		return True if value.lower() in ('true' ,'1') else False
 	elif isinstance(value, int):
-		value = bool(value)
+		return bool(value)
 	else:
 		print("Error: config option %r must be bool-like (True/False/1/0)" % name,
 				file=sys.stderr)

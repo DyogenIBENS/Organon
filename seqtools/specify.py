@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-"""Append the species name to a gene name in a sequence alignment.
+"""
+Append the species name to a gene name in a sequence alignment.
 Can convert ensembl gene names to species, as well as assembly names
-(ex: loxAfr3)."""
+(ex: loxAfr3).
+"""
+
+EXAMPLES="""
+EXAMPLES
+
+# For short species names + shorter numeric ids:
+  -t 'gene=s/^ENS(G|[A-Z]{3}G)0{5}|^MGP_(SPRET|CAROLI|Pahari)EiJ_G0|^WBGene00/G/'
+"""
 
 from sys import stdout
 import os.path as op
@@ -172,7 +181,13 @@ def specify(inputfile, outfile, input_fmt=DEFAULT_IN_FMT,
 
     if file_fmt == 'nwk':
         import ete3
-        tree = ete3.Tree(inputfile, format=1)
+        try:
+            tree = ete3.Tree(inputfile, format=1)
+        except ete3.parser.newick.NewickError as err:
+            err.args = (err.args[0] + ' ERROR with treefile %s%s' % (
+                inputfile[:70],
+                '...'+inputfile[-10:] if len(inputfile)>80 else inputfile[70:]),)
+            raise
         tree_specify(tree, input_fmt, label_fmt, transforms, ensembl_version)
         if outfile is stdout:
             print(tree.write(format=1))
@@ -185,7 +200,7 @@ def specify(inputfile, outfile, input_fmt=DEFAULT_IN_FMT,
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, epilog=EXAMPLES)
     parser.add_argument('inputfile')
     parser.add_argument('outfile', nargs='?', default=stdout)
     parser.add_argument('-i', '--input-fmt', default=DEFAULT_IN_FMT,
