@@ -221,6 +221,7 @@ def zscore_unregress0(v, cv): return zscore(unregress0(v,cv))
 
 renorm_decorrelate = partial(check_decorrelator, zscore_divide)  # = checkDecorrelator(zscore_divide)
 renorm_decorrelatelogs = partial(check_decorrelator, zscore_subtract)
+check_unregress = partial(check_decorrelator, unregress)
 renorm_unregress = partial(check_decorrelator, zscore_unregress)
 renorm_unregress0 = partial(check_decorrelator, zscore_unregress0)
 
@@ -657,6 +658,11 @@ def display_decorrelate(decorr_item, data_raw, data_transformed, data_decorred,
         else:
             yvar = var
         points = scatter(corrvar, yvar, data, ax)
+        if (data[[yvar, corrvar]].isna().any(axis=None) or
+                np.isinf(data[[yvar, corrvar]]).any(axis=None)):
+            logger.error('NaN or Inf in %s [%s, %s]', desc, yvar, corrvar)
+            data = data.loc[np.isfinite(data[[yvar, corrvar]]).all(axis=1)]
+
         fit = sm.OLS(data[yvar], sm.add_constant(data[corrvar])).fit()
         if desc=='raw':
             # xlims are set to large

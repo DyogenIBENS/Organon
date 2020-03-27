@@ -95,7 +95,7 @@ def get_al_compo_summary(length, seq_counts, seq_freqs):
                    + tuple(nucl_count.astype(float) / nucl_tot) \
                    + (float(GC_count)      / (nucl_tot),
                    +  float(N_count)       / (nucl_tot+N_count),
-                      float(gap_count)     / length,
+                      float(gap_count)     / np.array(length),
                       float(CpG_count) * 2 / nucl_tot, float(stop_count)* 3 / nucl_tot)
 
     seq_means   = [s.mean()     for s in seq_freqs]

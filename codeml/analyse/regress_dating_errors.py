@@ -715,12 +715,12 @@ def add_control_dates_lengths(ages, phyltree, control_ages_CI=None,
                     #          inplace=False)\
                     #.drop(branch_info, axis=1)
     ###FIXME: Still some branches that are not in PhylTree (jump over taxa)
-    display_html(control_brlen)
+    #display_html(control_brlen)
     return ages_controled, control_ages, control_brlen
 
 
 def check_control_dates_lengths(control_brlen, phyltree, root,
-                                measures=MEASURES):
+                                measures=MEASURES, out=None):
     """Check NA values and if the branches fit the phylogenetic tree.
     
     Return: (unexpected_branches, lost_branches)"""
@@ -736,16 +736,16 @@ def check_control_dates_lengths(control_brlen, phyltree, root,
 
     na_brlen = control_brlen.isna().any(axis=1)
     if na_brlen.any():
-        print("MISSING branch lengths:\n" + str(control_brlen[na_brlen]))
+        print("MISSING branch lengths:\n" + str(control_brlen[na_brlen]), file=out)
 
     median_measures = ['median_brlen_%s' % m for m in measures]
     median_brlen_sum = control_brlen[median_measures].sum()
-    print("Sum of median branch lengths =", median_brlen_sum, "My")
+    print("Sum of median branch lengths =", median_brlen_sum, "My", file=out)
     timetree_brlen_sum = control_brlen.timetree_brlen.sum()
-    print("Sum of timetree branch lengths =", timetree_brlen_sum, "My")
+    print("Sum of timetree branch lengths =", timetree_brlen_sum, "My", file=out)
     real_timetree_brlen_sum = sum(expected_dists)
     print("Real sum of TimeTree branch lengths (in phyltree) =",
-          real_timetree_brlen_sum, "My")
+          real_timetree_brlen_sum, "My", file=out)
 
     unexpected_branches = set(control_brlen.index) - set(expected_branches)
     if unexpected_branches:
@@ -759,9 +759,9 @@ def check_control_dates_lengths(control_brlen, phyltree, root,
     median_treelen_phyltree = control_brlen.reindex(list(expected_branches))[median_measures].sum()
     timetree_treelen_phyltree = control_brlen.reindex(list(expected_branches)).timetree_brlen.sum()
     print("Sum of median branch lengths for branches found in phyltree =\n",
-          str(median_treelen_phyltree).replace('\n', '\t\n'))
+          str(median_treelen_phyltree).replace('\n', '\t\n'), file=out)
     print("Sum of timetree branch lengths for branches found in phyltree =",
-          timetree_treelen_phyltree)
+          timetree_treelen_phyltree, file=out)
     return unexpected_branches, lost_branches
 
 
@@ -1481,7 +1481,7 @@ class age_analysis_data(object):
 
 def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts,
                        measures=['dS', 'dist', 'dN', 't'],
-                       control_names=['timetree']):  # 'dosreis'
+                       control_names=['timetree'], out=None):  # 'dosreis'
     #, aS, cs, clS=None
     ages, ns = load_prepare_ages(ages_file, ts, measures)
     ages_controled_withnonrobust, control_ages, control_brlen =\
@@ -1490,7 +1490,7 @@ def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts,
     ages_controled = ages_controled_withnonrobust.query('really_robust & aberrant_dists == 0').copy(deep=False)
     unexpected_branches, lost_branches = check_control_dates_lengths(
                                                 control_brlen, phyltree, root,
-                                                measures)
+                                                measures, out=out)
     control_brlen.drop(unexpected_branches, inplace=True)
     # Rates
     #cs_rates = compute_branchrate_std(ages_controled, dist_measures)
@@ -1499,7 +1499,7 @@ def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts,
     #cs_rates_withoutAnc
 
     mean_errors = pd.concat(
-                [compute_dating_errors(ages_controled, ctl, measures)
+                [compute_dating_errors(ages_controled_withnonrobust, ctl, measures)
                  for ctl in ['median']+control_names],
                 axis=1, sort=False, copy=False)
     
@@ -1705,9 +1705,10 @@ def check_nan(df, description=None, out=None):
     if na_rows.any():
         print(('%d NA rows' % na_rows.sum()) +
               (' (%s)' % description if description else ''), file=out)
+        na_counts = df.isna().sum().sort_values(ascending=False)
         print('Columns with NA%s:\n%s'
               % ((' (%s)' % description if description else ''),
-                 df.isna().sum().sort_values(ascending=False).head()), file=out)
+                 na_counts[na_counts>0]), file=out)
         #self.a_t.dropna(inplace=True)
     return na_rows
 
@@ -1736,6 +1737,7 @@ def check_dupindex(df, description=None, out=None):
                        n_dup_rows, len(dup_cols), dup_cols.tolist())
 
 def check_constants(df, description=None, out=None):
+    df = df.select_dtypes(['number', 'bool'])
     with warnings.catch_warnings(record=True) as ws:
         constant_vars = df.columns[(df.agg(np.ptp) == 0)].tolist()
     for w in ws:
@@ -1755,6 +1757,44 @@ def sanity_check(df, description=None, out=None):
     check_inf(df, description, out)
     check_nan(df, description, out)
     #check_constants(df, description, out)
+
+def standardize_dataframe(df, ref_df=None):
+    if ref_df is None: ref_df = df
+    dfstd = ref_df[df.columns].std(ddof=1)
+    assert isinstance(dfstd, pd.Series), type(dfstd)
+    assert (set(dfstd.index) == set(df.columns)), dfstd.index
+    assert not dfstd.index.has_duplicates
+    if (dfstd == 0).any():
+        logger.warning('std = 0 at: %s', dfstd.index[dfstd==0].tolist())
+
+    return df.div(dfstd, axis=1)
+
+def zscore_dataframe(df, ref_zscore=None):
+    if ref_zscore is None:
+        ref_zscore = df
+    #a = np.divide(
+    #    np.subtract(df.values, np.nanmean(df.values, axis=0), axis=1),
+    #    np.nanstd(df.values, axis=0),
+    #    axis=1)
+    dfnum = df.select_dtypes(np.number)  #exclude=
+    if set(df.columns.difference(dfnum.columns)):
+        #logger.error(
+        raise ValueError("Non-numeric columns can't be zscored (=>dropped): %s"
+                         % (df.columns.difference(dfnum.columns)))
+        #df = dfnum
+
+    dfmean = ref_zscore[df.columns].mean()
+    assert isinstance(dfmean, pd.Series), type(dfmean)
+    assert (set(dfmean.index) == set(df.columns)), df.columns.difference(dfmean.index)
+    assert (not dfmean.index.has_duplicates), dfmean.index[dfmean.index.duplicated()]
+    dfcentered = df.sub(dfmean, axis=1)
+    assert isinstance(dfcentered, pd.DataFrame), type(dfcentered)
+    assert (dfcentered.shape == df.shape), dfcentered.shape
+    assert (set(dfcentered.index) == set(df.index)), dfcentered.index
+    assert (set(dfcentered.columns) == set(df.columns)), dfcentered.columns
+    assert not dfcentered.index.has_duplicates
+    assert not dfcentered.columns.has_duplicates
+    return standardize_dataframe(dfcentered, ref_zscore)
 
 
 def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
@@ -1999,13 +2039,14 @@ class fullRegression(object):
 
     def do(self):
         self.do_undecorred_fit()
+        self.do_decorr()
         # You can fix the decorrelation inbetween these steps
         self.do_decorred_fit()
         reslopes2 = self.do_bestfit()
         self.do_extreme_points()
         return reslopes2
 
-    def do_undecorred_fit(self):
+    def do_transform(self, ref_rescale=None, rescale=True):
         logger = self.logger
 
         features = self.features
@@ -2049,9 +2090,11 @@ class fullRegression(object):
             logger.warning('Dropping constants %s', unfiltered_constant_vars)
             for ft in unfiltered_constant_vars:
                 features.remove(ft)
+        
         # All binary variables should **NOT** be z-scored!
         self.bin_features = bin_features = [ft for ft in features
                             if suggested_transform[ft].__name__ == 'binarize']
+        zscored_features = [ft for ft in responses+features if ft not in bin_features]
 
         if alls.isin((-np.Inf, np.Inf)).any(axis=None):
             logger.warning('Replace Inf,-Inf by NaN')
@@ -2064,6 +2107,7 @@ class fullRegression(object):
 
         self.na_rows_t = check_nan(a_t, 'after transform', out=self.out)
         self.inf_rows_t = check_inf(a_t, 'after transform', out=self.out)
+        constant_vars_t = check_constants(a_t, 'after transform', out=self.out)
 
     #def do_norm(self):
         logger.debug('Will Z-score: from %r a_t %s %s', type(a_t), a_t.shape,
@@ -2076,41 +2120,16 @@ class fullRegression(object):
         # Back to good ol' numpy:
         # Ok, the problem was duplicates in index. Well no.
         check_dupindex(a_t, 'after transform', self.out)
-        def zscore_dataframe(df):
-            #a = np.divide(
-            #    np.subtract(df.values, np.nanmean(df.values, axis=0), axis=1),
-            #    np.nanstd(df.values, axis=0),
-            #    axis=1)
-            dfnum = df.select_dtypes(np.number)  #exclude=
-            if set(df.columns.difference(dfnum.columns)):
-                #logger.error(
-                raise ValueError("Non-numeric columns can't be zscored (=>dropped): %s"
-                                 % (df.columns.difference(dfnum.columns)))
-                #df = dfnum
 
-            dfmean = df.mean()
-            assert isinstance(dfmean, pd.Series), type(dfmean)
-            assert (dfmean.index is df.columns), df.columns.difference(dfmean.index)
-            assert (not dfmean.index.has_duplicates), dfmean.index[dfmean.index.duplicated()]
-            dfcentered = df.sub(dfmean, axis=1)
-            assert isinstance(dfcentered, pd.DataFrame), type(dfcentered)
-            assert (dfcentered.shape == df.shape), dfcentered.shape
-            assert (dfcentered.index is df.index), dfcentered.index
-            assert (dfcentered.columns is df.columns), dfcentered.columns
-            assert not dfcentered.index.has_duplicates
-            assert not dfcentered.columns.has_duplicates
-            dfstd = df.std(ddof=1)
-            assert isinstance(dfstd, pd.Series), type(dfstd)
-            assert (dfstd.index is df.columns), dfstd.index
-            assert not dfstd.index.has_duplicates
-            if (dfstd == 0).any():
-                logger.warning('std = 0 at: %s', dfstd.index[dfstd==0].tolist())
+        if ref_rescale is None:
+            ref_rescale = a_t
 
-            return dfcentered.div(dfstd, axis=1)
+        if rescale:
+            a_n = zscore_dataframe(a_t[zscored_features], ref_rescale[zscored_features])\
+                 .join(standardize_dataframe(a_t[bin_features], ref_rescale[bin_features]))
+        else:
+            a_n = a_t[zscored_features+bin_features].copy()
 
-        a_n = zscore_dataframe(a_t[[ft for ft in responses+features
-                                    if ft not in bin_features]])\
-                 .join(a_t[bin_features].transform(standardize))
         #a_n = pd.concat()
         self.na_rows_n = na_rows_n = check_nan(a_n, 'after zscore', out=self.out)
 
@@ -2143,6 +2162,12 @@ class fullRegression(object):
                           for r in responses), file=self.out)
 
     #def do_fitall(self):
+    def do_undecorred_fit(self):
+        self.do_transform()
+        logger = self.logger
+        a_n = self.a_n
+        y = self.responses[0]
+        features = self.features
         print('\n### Fit of all features (lasso)', file=self.out)
 
         #fitlasso, fit, pslopes, displayed =
@@ -2155,7 +2180,7 @@ class fullRegression(object):
         #scatter_density('dS_rate_std', 'abs_age_dev', data=a_n, alpha=0.5)
         #scatter_density(alls.null_dist_before, alls.null_dS_before)
 
-    #def do_pca(self):
+    #def do_undecorred_fa(self):
         print('\n### Dimension reduction of features\n#### PCA', file=self.out)
 
         ft_pca, ft_pca_outputs = detailed_pca(a_n, features, abs_cov=True,
@@ -2186,10 +2211,25 @@ class fullRegression(object):
         #transformed0_out = transformed0[:,1] > eq_sep(transformed0[:,0])
         #plt.plot(transformed0[transformed0_out, 0], transformed0[transformed0_out, 1], 'r.')
 
-        print('\n### Feature decorrelation: 1. Drop features; 2. decorr.', file=self.out)
+    def do_decorr(self, ref_rescale=None, rescale=True):
+        print('\n### Feature decorrelation: 1. drop features; 2. decorr.', file=self.out)
+        suggested_transform = self.suggested_transform
         must_drop_features = self.must_drop_features
+        a_t = self.a_t
+        a_n = self.a_n
+        na_rows_n = self.na_rows_n
+        inf_rows_n = self.inf_rows_n
+        y = self.responses[0]
         ### **TODO**!!! Check that decorrelation is done on the un-zscored data!!
         
+        #FIXME: there should be no "renorm" step here, but just a general zscore/standardize later.
+        decorr_names = {renorm_decorrelatelogs: 'renorm_decorrelatelogs',
+                        decorrelatelogs: 'decorrelatelogs',
+                        renorm_decorrelate: 'renorm_decorrelate',
+                        decorrelate: 'decorrelate',
+                        renorm_unregress: 'renorm_unregress',
+                        renorm_unregress0: 'renorm_unregress0'}
+
         try:
             a_n_inde = a_n.drop(must_drop_features, axis=1)
             #a_t.drop(must_drop_features, axis=1, inplace=True)
@@ -2229,24 +2269,27 @@ class fullRegression(object):
 
         # Check if the proposed decorrelation is in line with the transforms.
         # (subtract for logs, divide for raw/sqrt)
-        to_renormdecorr_items = list(to_decorr[renorm_decorrelate].items())
+        to_divide_items = list(to_decorr[renorm_decorrelate].items()) + \
+                                list(to_decorr[decorrelate].items())
         # reversed() because popping from list.
-        for k, (var, corrvar) in reversed(list(to_decorr[renorm_decorrelatelogs].items())):
-            msg = []
-            var_transform = suggested_transform[var].__name__
-            corrvar_transform = suggested_transform[corrvar].__name__
-            if 'log' not in var_transform and 'binarize' not in var_transform:
-                msg.append('suggested_transform[%r] = %s' % (var, var_transform))
-            if 'log' not in corrvar_transform and 'binarize' not in corrvar_transform:
-                msg.append('/ suggested_transform[%r] = %s' % (corrvar, corrvar_transform))
-            if msg:
-                logger.warning(' '.join(msg) + ': automatic switch from "logdecorr" to "decorr"')
-                to_decorr[renorm_decorrelate].additem(k,
-                            to_decorr[renorm_decorrelatelogs].pop(k))
+        for func in (renorm_decorrelatelogs, decorrelatelogs):
+            for k, (var, corrvar) in reversed(list(to_decorr[func].items())):
+                msg = []
+                var_transform = suggested_transform[var].__name__
+                corrvar_transform = suggested_transform[corrvar].__name__
+                if 'log' not in var_transform and 'binarize' not in var_transform:
+                    msg.append('suggested_transform[%r] = %s' % (var, var_transform))
+                if 'log' not in corrvar_transform and 'binarize' not in corrvar_transform:
+                    msg.append('/ suggested_transform[%r] = %s' % (corrvar, corrvar_transform))
+                if msg:
+                    logger.warning(' '.join(msg) + ': automatic switch from "decorrelatelogs" (subtract) to "decorr" (divide).')
+                    dest_func = decorrelate if decorr_names[func] == 'decorrelate' else renorm_decorrelate
+                    to_decorr[dest_func].additem(k,
+                                to_decorr[func].pop(k))
 
         # Conversely, if dividing is on the log, ask confirmation.
         # But NO auto-switch, because sometimes dividing by the log-scaled var makes sense.
-        for k, (var, corrvar) in to_renormdecorr_items:
+        for k, (var, corrvar) in to_divide_items:
             msg = []
             var_transform = suggested_transform[var].__name__
             corrvar_transform = suggested_transform[corrvar].__name__
@@ -2294,21 +2337,14 @@ class fullRegression(object):
 
         #a_n_inde = decorrelatelogs(a_n_inde, a_t[~na_rows_n], *zeros_to_decorrelate)
 
-        
-        decorr_names = {renorm_decorrelatelogs: 'renorm_decorrelatelogs',
-                        decorrelatelogs: 'decorrelatelogs',
-                        renorm_decorrelate: 'renorm_decorrelate',
-                        decorrelate: 'decorrelate',
-                        renorm_unregress: 'renorm_unregress',
-                        renorm_unregress0: 'renorm_unregress0'}
         for decorr_func, decorr_args in to_decorr.items():
             a_n_inde = decorr_args(decorr_func, a_n_inde, a_t[~na_rows_n & ~inf_rows_n])
             # decorring from a_t or alls might yield very different results.
 
         # special_decorr
-        CpG_odds = (alls.ingroup_mean_CpG / (alls.ingroup_mean_GC**2))[~na_rows_n & ~inf_rows_n]
+        CpG_odds = (self.alls.ingroup_mean_CpG / (self.alls.ingroup_mean_GC**2))[~na_rows_n & ~inf_rows_n]
         CpG_odd_transform = make_best_logtransform(CpG_odds)
-        a_n_inde['CpG_odds'] = zscore(CpG_odd_transform(CpG_odds))
+        a_n_inde['CpG_odds'] = CpG_odd_transform(CpG_odds)
         print('%d independent features (%d rows)' % a_n_inde.shape[::-1], file=self.out)
 
         #TODO: fix decorrs
@@ -2321,7 +2357,7 @@ class fullRegression(object):
         if self.widget:
             to_decorr_iter_args = self.widget(to_decorr_iter_args)
         for decorr_func, *decorr_item in to_decorr_iter_args:
-            fig = display_decorrelate(decorr_item, alls, a_t, a_n_inde, color_var=y)
+            fig = display_decorrelate(decorr_item, self.alls, a_t, a_n_inde, color_var=y)
             fig.suptitle('%s: %s ~ %s' %(decorr_names.get(decorr_func, decorr_func), *decorr_item[1]))
             self.show(fig); plt.close(fig)
 
@@ -2338,24 +2374,44 @@ class fullRegression(object):
                          decorrelatelogs: '-',
                          renorm_decorrelate: '/',
                          decorrelate: '/',
-                         renorm_unregress: '~'}
-        self.decorred = dict(('R'+var1, (decorr_symbol[decorr_func], var2))
+                         renorm_unregress: '~',
+                         check_unregress: '~'}
+        self.decorred = dict(('R'+var1, (decorr_symbol.get(decorr_func, str(decorr_func)), var2))
                                 if isinstance(k, int) else
-                                (k, (var1, decorr_symbol[decorr_func], var2))
+                                (k, (var1, decorr_symbol.get(decorr_func, str(decorr_func)), var2))
                              for decorr_func, decorr_args in to_decorr.items()
                              for k, (var1, var2) in decorr_args.items())
         self.decorred.update(
                 CpG_odds=('ingroup_mean_CpG', '/', 'ingroup_mean_GC^2'))
-        self.a_n_inde = a_n_inde
-        return
+        # Discriminate binary features from continuous ones, to choose "standardize" instead of "zscore".
+        decorred_continuous = []
+        decorred_binary = []
+        for ft, decorred_item in self.decorred.items():
+            corrvar = decorred_item[-1]
+            var = ft[1:] if len(decorred_item)==2 else decorred_item[0]
+            if 'binary' in self.suggested_transform[var].__name__ and 'binary' in self.suggested_transform[corrvar].__name__:
+                decorred_binary.append(ft)
+            else:
+                decorred_continuous.append(ft)
 
-    # Could be: @property(inde_features)
-    def do_decorr(self):
-        logger = self.logger
         self.decorr_source = {key: (key[1:] if len(tup)==2 else tup[0])
                               for key, tup in self.decorred.items()}
 
-        a_n_inde = self.a_n_inde  # Could make this a property, triggering do_undecorred_fit.
+        self.a_decorred = a_n_inde[list(self.decorred)].copy()
+        self.decorred_stats = a_n_inde[list(self.decorred)].agg(['mean', 'std'])
+
+        if rescale:
+            self.a_n_inde = a_n_inde.assign(
+                    **dict(zscore_dataframe(a_n_inde[decorred_continuous], ref_rescale)),
+                    **dict(standardize_dataframe(a_n_inde[decorred_binary], ref_rescale))
+                    )
+        else:
+            self.a_n_inde = a_n_inde
+
+    # Could be: @property(inde_features)
+    def do_decorred_fa(self):
+        logger = self.logger
+        a_n_inde = self.a_n_inde  # Could make this a property, triggering do_decorr.
         inde_features = [ft for ft in self.features if ft in a_n_inde]
         #print('inde_features', len(inde_features), file=self.out)
         inde_features += [colname for colname in a_n_inde.columns.difference(self.a_n.columns)]
@@ -2401,7 +2457,7 @@ class fullRegression(object):
 
     def do_decorred_fit(self):
         logger = self.logger
-        self.do_decorr()  # This creates the attribute inde_features
+        self.do_decorred_fa()
         y = self.responses[0]
 
         print('\n### Fit of less colinear features (after internal decorrelation)', file=self.out)
@@ -2464,7 +2520,7 @@ class fullRegression(object):
             return self._suggest_multicolin2
 
 
-    def do_drop_bad(self):
+    def do_drop_bad(self, ref_rescale=None, rescale=True):
         """
         Drop colinear features (auto selection) and bad properties:
             
@@ -2562,23 +2618,26 @@ class fullRegression(object):
                 constant_varnames.append(ft)
 
         # Removing bad data probably shifted Y. We need to re-center and standardize.
-        continuous_inde_features2 = []
-        bin_inde_features2 = []
+        self.continuous_inde_features2 = []
+        self.bin_inde_features2 = []
         for ft in (self.responses+self.inde_features2):
             if self.suggested_transform[self.decorr_source.get(ft, ft)].__name__ == 'binarize':
-                bin_inde_features2.append(ft)
+                self.bin_inde_features2.append(ft)
             else:
-                continuous_inde_features2.append(ft)
+                self.continuous_inde_features2.append(ft)
 
-        self.a_n_inde2 = a_n_inde2.assign(
-            **dict(
-                a_n_inde2[continuous_inde_features2].transform(zscore)  #.apply(zscore, raw=True, result_type='broadcast')
-                  ),
-            **dict(
-                a_n_inde2[bin_inde_features2].transform(standardize)
+        if rescale:
+            self.a_n_inde2 = a_n_inde2.assign(
+                **dict(
+                    zscore_dataframe(a_n_inde2[self.continuous_inde_features2], ref_rescale)  #.apply(zscore, raw=True, result_type='broadcast')
+                    ),
+                **dict(
+                    standardize_dataframe(a_n_inde2[self.bin_inde_features2], ref_rescale)
+                    )
                 )
-            )
-        #TODO: drop some constant features.
+            #TODO: drop some constant features.
+        else:
+            self.a_n_inde2 = a_n_inde2
 
         print('Check multi-colinearity post-removal of bad data:', file=self.out)
         print(self.suggest_multicolin2, file=self.out)
@@ -2817,19 +2876,70 @@ class fullRegression(object):
             self.show(fig)
 
 
-    def predict(self, new_alls):
+    def predict(self, out=None, logger=None, widget=None, **new_attrs):
         selected_features = self.reslopes2.index[1:].tolist()
         ### Apply all the transforms + decorrelations
-        self.prediction = prediction = full_dating_regression.from_other(self)
-        prediction.alls = new_alls
-        prediction.do_decorr()
-        prediction.do_drop_bad()
+        self.prediction = prediction = self.__class__.from_other(self)
+        prediction.out = out
+        prediction.logger = logger
+        prediction.widget = widget
+        prediction.set_output()
+
+        training_observations = self.a_n_inde.index
+        training_observations2 = self.a_n_inde2.index
+        for attrname, value in new_attrs.items():
+            setattr(prediction, attrname, value)
+        prediction.do_transform(rescale=False) #ref_rescale=self.alls.loc[training_observations])
+        prediction.do_decorr(rescale=False) #ref_rescale=self.a_decorred)
+
+        ref_rescale = self.a_t.assign(**dict(self.a_decorred)).loc[training_observations]
+        prediction.do_drop_bad(rescale=False)  # a_t_inde
+        a_n_inde2 = prediction.a_n_inde2
+        if not training_observations2.difference(a_n_inde2.index).empty:
+            logger.warning('Lost %d observations in the prediction.', len(training_observations2.difference(a_n_inde2.index)))
+        prediction.a_n_inde2 = a_n_inde2.assign(
+                                **dict(zscore_dataframe(a_n_inde2[self.continuous_inde_features2],
+                                                        a_n_inde2.loc[training_observations2])),
+                                **dict(standardize_dataframe(a_n_inde2[self.bin_inde_features2],
+                                                        a_n_inde2.loc[training_observations2]))
+                                )
+        
         #pred_reslopes2 = prediction.do_bestfit()
-        return self.refitlasso2.predict(
-                    sm.add_constant(
-                        prediction.a_n_inde2[prediction.inde_features2]))
+        common_features = set(self.inde_features2).intersection(prediction.inde_features2)
+        logger.info('%d common features.', len(common_features))
+        discarded_features = set(self.inde_features2).difference(prediction.inde_features2)
+        if discarded_features:
+            logger.warning('Prediction discarded %d features: %s' % (
+                    len(discarded_features), '\n'.join(sorted(discarded_features))))
+        if not a_n_inde2.columns.difference(common_features).empty:
+            logger.warning('Extraneous features in prediction (NOT rescaled): %s',
+                           ' '.join(a_n_inde2.columns.difference(common_features)))
 
+        prediction_features = self.refitlasso2.params.drop('const').index.tolist()
+        stds = a_n_inde2.std(ddof=1)
+        not_scaled = (stds - 1).abs() > 0.0001
+        if not_scaled.any():
+            if not_scaled[prediction_features].any():
+                logger.error('Not rescaled but used for prediction: %s', 
+                    ' '.join(not_scaled[prediction_features][not_scaled[prediction_features]].index))
+            logger.warning('Other not rescaled: %s',
+                ' '.join(not_scaled[not_scaled].drop(prediction_features, errors='ignore').index))
 
+        logger.info('training data shape: %s', self.refitlasso2.model.exog.shape)
+        logger.info('training data used %d features for refitting.', len(prediction_features))
+
+        predicted = self.refitlasso2.predict(
+                        sm.add_constant(
+                            prediction.a_n_inde2[prediction_features]))
+        prediction.predicted_raw = predicted
+        # Transform back to the original scale.
+        y = self.responses[0]
+        err_transform = self.suggested_transform[y]
+        err_t = err_transform(prediction.alls[y])[training_observations2]
+        err_t_center, err_t_scale = err_t.mean(), err_t.std(ddof=1)
+        prediction.predicted = predicted*err_t_scale + err_t_center
+        return prediction.predicted
+        # Check that predicted == fitted for the training set.
 
 
 # full_dating_regression init parameters:
@@ -2922,6 +3032,8 @@ def renorm_logsqdecorr(y, x):
 
 _must_decorr = {
     renorm_decorrelatelogs: Args(
+        ),
+    decorrelatelogs: Args(
         ('brOmega_std', 'brOmega_mean'),
          #('ingroup_std_N', 'ingroup_mean_N')]
           # Normalise the rate deviations by the rate mean.
@@ -2931,18 +3043,23 @@ _must_decorr = {
         RsynSites=('NsynSites',    'ls'),
         RnonsynSites=('NnonsynSites', 'ls')  # But this one should be removed.
     ),
+    #decorrelate: Args(
     renorm_decorrelate: Args(
     #    sitelnL=('lnL', 'ingroup_glob_len')
     ),
-    decorrelatelogs: Args(
+    decorrelate: Args(
+    #    sitelnL=('lnL', 'ingroup_glob_len')
+    ),
+    #decorrelatelogs: Args(
         #[('%s_zeros%s' %(how, ('' if m=='dist' else '_'+m)),
         #  'triplet_zeros'+('' if m=='dist' else '_'+m))
         # for m in MEASURES
         # for how in ('sister', 'consecutive')],
         #[],  # No need anymore since this is now handled in treestats.
         #{}
-    ),
-    renorm_unregress: Args(
+    #),
+    #renorm_unregress: Args(
+    check_unregress: Args(
         ('ingroup_nucl_parsimony_std', 'ingroup_nucl_parsimony_mean'),
         ('ingroup_nucl_entropy_std', 'ingroup_nucl_entropy_mean'),
         ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean'),
@@ -3029,7 +3146,7 @@ class full_dating_regression(fullRegression):
                       'taxon_age': 'median_age_dS',  # defaults kwargs
                       **rate_args}
         #display_html('<h3>Compute rates</h3>', raw=True)
-            cs_rates = compute_branchrate_std(self.data.ages_controled,
+            cs_rates = compute_branchrate_std(self.data.ages_controled,  #TODO: ages_controled_withnonrobust
                                               dist_measures, **kwargs)
             if setting:
                 cs_rates.rename(columns=lambda c: c+'_'+setting, inplace=True)
