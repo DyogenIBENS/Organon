@@ -2337,9 +2337,16 @@ class fullRegression(object):
 
         #a_n_inde = decorrelatelogs(a_n_inde, a_t[~na_rows_n], *zeros_to_decorrelate)
 
+        self.unregressed_coefs = {}  # newfeature: (intercept, slope)
         for decorr_func, decorr_args in to_decorr.items():
             a_n_inde = decorr_args(decorr_func, a_n_inde, a_t[~na_rows_n & ~inf_rows_n])
             # decorring from a_t or alls might yield very different results.
+            if decorr_func in (check_unregress, renorm_unregress):
+                for k, (var, corrvar) in decorr_args.items():
+                    fit = sm.OLS(a_t[~na_rows_n & ~inf_rows_n][var],
+                        sm.add_constant(a_t[~na_rows_n & ~inf_rows_n][corrvar])).fit()
+                    if isinstance(k, int): k = 'R'+var
+                    self.unregressed_coefs[k] = (fit.params['const'], fit.params[corrvar])
 
         # special_decorr
         CpG_odds = (self.alls.ingroup_mean_CpG / (self.alls.ingroup_mean_GC**2))[~na_rows_n & ~inf_rows_n]
@@ -2559,10 +2566,10 @@ class fullRegression(object):
             if (~is_badval).sum() == 0 or is_badval.sum() == 0:
                 logger.error('0 data available in one group [badval = %s]', badval)
             tt_badp = stats.ttest_ind(
-                        a_n_inde.loc[~is_badval, y],
                         a_n_inde.loc[is_badval, y],
+                        a_n_inde.loc[~is_badval, y],
                         equal_var=False)
-            print('T-test: Y(goodval) VS Y(badval): t=%g, p=%g' % tt_badp, file=self.out)
+            print('T-test: Y(badval) VS Y(goodval): t=%g, p=%g' % tt_badp, file=self.out)
             bad_props[badp] = badval
             bad_props_ttests[badp] = tt_badp
 
@@ -2574,17 +2581,20 @@ class fullRegression(object):
         self.bad_data_rows = bad_data_rows = self.a_t.reindex(a_n_inde.index).isin(bad_props).any(axis=1)
         a_n_inde2 = a_n_inde.loc[~bad_data_rows]
         tt_bad = stats.ttest_ind(
-                    a_n_inde2[y],
                     a_n_inde.loc[bad_data_rows, y],
+                    a_n_inde2[y],
                     equal_var=False)
-        print(("Kept VS removed data: t=%g; p=%g (two-tailed Welch's t-test; "
+        print(("Removed VS kept data: t=%g; p=%g (two-tailed Welch's t-test; "
                +"sample sizes: %d, %d)") % (*tt_bad,
                   (~bad_data_rows).sum(), bad_data_rows.sum()), file=self.out)
         bad_props_ttests = pd.DataFrame(bad_props_ttests, index=['T', 'P']).T
+        bad_props_ttests['P_over'] = bad_props_ttests.apply(lambda row:
+                                    (1 - row['P']/2 if row['T']<=0 else row['P']/2),
+                                    axis=1)
         na_ttests = bad_props_ttests['P'].isna()
         
         bad_props_ttests['Pcorr'] = smm.multipletests(
-                                            bad_props_ttests['P'],
+                                            bad_props_ttests['P_over'],
                                             alpha=0.05,
                                             method='fdr_bh')[1] # Benjamini/Hochberg
         # Even with *some* NaN p-values, the added column should not be all NaN:
@@ -2593,7 +2603,8 @@ class fullRegression(object):
                          na_ttests.sum(), bad_props_ttests.index[na_ttests])
         # Add last row being the pooled features T-test.
         self.bad_props_ttests = bad_props_ttests.append(
-                                    pd.Series(tt_bad, index=['T', 'P'], name='ANY'))
+                                    pd.Series(tt_bad, index=['T', 'P'],
+                                              name='ANY'))
         self.display_html(self.bad_props_ttests.style.applymap(
                          lambda v: ('background: khaki' if v<0.01 else
                                     'background: lemonchiffon; alpha: 0.5' if v<=0.05 else ''),
@@ -2796,37 +2807,7 @@ class fullRegression(object):
         except KeyError:
             response_transform = 'notransform'
 
-        if response_transform == 'notransform':
-            retro_trans = notransform
-        elif response_transform == 'log10':
-            def retro_trans(x): return 10**x
-        elif response_transform == '-log10(-%s)':
-            def retro_trans(x): return -10**(-x)
-        elif response_transform.startswith('log10('):
-            if response_transform.endswith('-min+%s)'):
-                inc = float(response_transform.replace('log10(', '').replace('-min+%s)', ''))
-                miny = self.alls[y].min()
-                def retro_trans(x):
-                    return 10**x + miny + inc
-            elif response_transform.endswith('+%s)'):
-                inc = float(response_transform.replace('log10(', '').replace('+%s)', ''))
-                def retro_trans(x): return 10**x - inc
-            elif response_transform.endswith('-%s)'):
-                inc = float(response_transform.replace('log10(', '').replace('-%s)', ''))
-                def retro_trans(x): return -10**(x) - inc
-        elif response_transform == 'sqrt':
-            def retro_trans(x): return x*x
-        elif response_transform == 'sqrtneg':
-            def retro_trans(x): return -x*x
-        elif response_transform.startswith('sqrt('):
-            if response_transform.endswith('-min+%s)'):
-                miny = self.alls[y].min()
-                inc = float(response_transform.replace('sqrt(', '').replace('-min+%s)', ''))
-                def retro_trans(x):
-                    return x*x + miny + inc
-        else:
-            logger.error('No reverse transformation known for %r' % response_transform)
-            retro_trans = notransform
+        retro_trans = make_retro_trans(response_transform)
                     
         #tr_mean, tr_std = self.reslopes2.loc[y,
         #                            ['transformed mean', 'transformed std']]
@@ -2936,10 +2917,39 @@ class fullRegression(object):
         y = self.responses[0]
         err_transform = self.suggested_transform[y]
         err_t = err_transform(prediction.alls[y])[training_observations2]
-        err_t_center, err_t_scale = err_t.mean(), err_t.std(ddof=1)
-        prediction.predicted = predicted*err_t_scale + err_t_center
+        self.err_t_center, self.err_t_scale = err_t.mean(), err_t.std(ddof=1)
+        print('%r training data: mean = %.5f; std = %.5f' % (y, self.err_t_center,
+               self.err_t_scale),
+              file=out)
+        prediction.predicted = predicted*self.err_t_scale + self.err_t_center
         return prediction.predicted
         # Check that predicted == fitted for the training set.
+
+
+def make_ref_todecorr(trained_to_decorr, unregressed_coefs):
+    to_decorr = {func: Args.fromcontent(args.content)
+                 for func,args in trained_to_decorr.items()}
+    
+    for i, func_unregress in enumerate((check_unregress, renorm_unregress)):
+        unregress_args = to_decorr.pop(func_unregress)
+        #unregress_args.pop('sitelnL')
+        #except KeyError as err:
+        #    logger.error('Key (%d) %r in to_decorr: %s\nOther keys: %s',
+        #                 i, func_unregress, func_unregress in to_decorr,
+        #                 ' '.join('%r' % k for k in to_decorr.keys()))
+        #    raise
+        for k, (var, corrvar) in unregress_args.items():
+            if isinstance(k, int): k = 'R'+var
+            try:
+                a, b = unregressed_coefs[k]
+            except KeyError:
+                logger.warning('Feature %r not in unregressed_coefs.', k)
+                continue
+            logger.info('%s ~ %s -> coefficients: %s + x*%s', var, corrvar, a, b)
+            ref_unregress_var = partial(check_decorrelator,
+                                        lambda v,cv: v - (a+b*cv))
+            to_decorr[ref_unregress_var] = Args.fromitems((k, (var, corrvar)))
+    return to_decorr
 
 
 # full_dating_regression init parameters:
@@ -3058,7 +3068,7 @@ _must_decorr = {
         #[],  # No need anymore since this is now handled in treestats.
         #{}
     #),
-    #renorm_unregress: Args(
+    renorm_unregress: Args(),
     check_unregress: Args(
         ('ingroup_nucl_parsimony_std', 'ingroup_nucl_parsimony_mean'),
         ('ingroup_nucl_entropy_std', 'ingroup_nucl_entropy_mean'),
@@ -3082,6 +3092,7 @@ _must_decorr = {
 # variable name, variable values. Dropped by .isin()
 # Must be the decorr variable name.
 _must_drop_data = dict(prop_splitseq=(1,),
+                       really_robust=(0,),
                        **{'null_%s_%s' % (m,where): (1,)
                           for m in MEASURES
                           for where in ('before', 'after')},
@@ -3143,11 +3154,12 @@ class full_dating_regression(fullRegression):
             print('### Compute rates with setting %r and measures %s.'
                     % (setting, ','.join(self.measures)), file=self.out)
             kwargs = {'branchtime': 'median_brlen_dS',
-                      'taxon_age': 'median_age_dS',  # defaults kwargs
+                      'taxon_age': 'median_age_dS',
+                      'dist_measures': dist_measures,  # defaults kwargs
                       **rate_args}
         #display_html('<h3>Compute rates</h3>', raw=True)
-            cs_rates = compute_branchrate_std(self.data.ages_controled,  #TODO: ages_controled_withnonrobust
-                                              dist_measures, **kwargs)
+            cs_rates = compute_branchrate_std(self.data.ages_controled_withnonrobust,  #TODO: ages_controled_withnonrobust
+                                              **kwargs)
             if setting:
                 cs_rates.rename(columns=lambda c: c+'_'+setting, inplace=True)
             toconcat.append(cs_rates)

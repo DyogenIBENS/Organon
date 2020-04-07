@@ -244,6 +244,41 @@ def renorm_bestlog_and_unregress(v1, v2):
     return zscore(unregress(tr_v1(v1), tr_v2(v2)))
 
 
+def make_retro_trans(transform):
+    if transform == 'notransform':
+        retro_trans = notransform
+    elif transform == 'log10':
+        def retro_trans(x): return 10**x
+    elif transform == '-log10(-%s)':
+        def retro_trans(x): return -10**(-x)
+    elif transform.startswith('log10('):
+        if transform.endswith('-min+%s)'):
+            inc = float(transform.replace('log10(', '').replace('-min+%s)', ''))
+            miny = self.alls[y].min()
+            def retro_trans(x):
+                return 10**x + miny + inc
+        elif transform.endswith('+%s)'):
+            inc = float(transform.replace('log10(', '').replace('+%s)', ''))
+            def retro_trans(x): return 10**x - inc
+        elif transform.endswith('-%s)'):
+            inc = float(transform.replace('log10(', '').replace('-%s)', ''))
+            def retro_trans(x): return -10**(x) - inc
+    elif transform == 'sqrt':
+        def retro_trans(x): return x*x
+    elif transform == 'sqrtneg':
+        def retro_trans(x): return -x*x
+    elif transform.startswith('sqrt('):
+        if transform.endswith('-min+%s)'):
+            miny = self.alls[y].min()
+            inc = float(transform.replace('sqrt(', '').replace('-min+%s)', ''))
+            def retro_trans(x):
+                return x*x + miny + inc
+    else:
+        logger.error('No reverse transformation known for %r' % transform)
+        retro_trans = notransform
+    return retro_trans
+
+
 def test_transforms(alls, variables, figsize=(14, 5), out=None, widget=None):
     """:param: out: file-like object with `.write()` method (given to `print`).
     If out.output, out.html or out.show exist, they replace

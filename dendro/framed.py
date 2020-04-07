@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 # ~~> dendro.bates.framed
-def roll_rootwards_indices(df, parent_column='parent', type_column=None, node_column=None): #tree_column=None, 
+# FIXME: too slow.
+def roll_rootwards_indices(df, parent_column='parent', type_column=None, node_column=None,
+                           strategy='levelorder'): #tree_column=None, 
     """Given a dataframe with rows representing tree nodes,
     Iterate row indices in a postorder manner:
 
@@ -30,25 +32,42 @@ def roll_rootwards_indices(df, parent_column='parent', type_column=None, node_co
         if df.index.has_duplicates:
             logger.error('Should not index forest with duplicated node names.')
 
-    sister_groups = df.groupby(parent_column).groups
-    logger.debug('%d node groups.', len(sister_groups))
+    sister_groups = df.groupby(parent_column, sort=False)
+    sister_items = [(parent, g.index) for parent,g in sister_groups]
+    logger.debug('%d node groups.', sister_groups.ngroups)
     # Find leaves:
     if type_column is None:
         # this could be done using:
-        leaves = set(df.index.difference(sister_groups))
+        leaves = set(df.index.difference(sister_groups.groups))
     else:
         leaves = set(df.index[df[type_column] == 'leaf'])
+    # Better with list(leaves) ? (order accelerating the search)
 
-    # You only want to fetch those parents whose subtrees have been visited.
-    # Therefore, visited nodes will be set as leaves as we go rootwards.
+    if strategy == 'levelorder':
+        yield from levelorder_rootwards(df, sister_groups.groups, leaves)
+    elif strategy == 'postorder':
+        yield from postorder_rootwards(df, sister_items, leaves)
+    else:
+        raise ValueError('Invalid `strategy` ["levelorder"/"postorder"]')
+
+
+def get_sorted_sister_groups(df, parent_column):
+    # This is going to be awfully slow but let's try
+    # groupby(sort=False) does the same.
+    pass
+
+
+def levelorder_rootwards(df, sister_groups, leaves):
+    # suboptimal
+    # Worst case scenario: with dataframe of N rows:
+    # one single caterpillar tree, and the cherry is the last encountered sister_group.
+    # Will iterate N*(N-1)/2 times
     max_iter = df.shape[0]
     max_iter *= (max_iter - 1)/2.
     i = 0
+    # You only want to fetch those parents whose subtrees have been visited.
+    # Therefore, visited nodes will be set as leaves as we go rootwards.
     while sister_groups and i <= max_iter:
-        # suboptimal
-        # Worst case scenario: with dataframe of N rows:
-        # one single caterpillar tree, and the cherry is the last encountered sister_group.
-        # Will iterate N*(N-1)/2 times
         logger.debug('rootwards: iteration #%d (%d groups, %d leaves remaining)',
                      i, len(sister_groups), len(leaves))
         for parent, children in list(sister_groups.items()):
@@ -63,6 +82,41 @@ def roll_rootwards_indices(df, parent_column='parent', type_column=None, node_co
                 #break  if not levelorder, we can break here.
     if i == max_iter:
         logger.error('Reached maximum iter. Tree is probably wrong.')
+    else:
+        logger.debug('Finished in %d iterations.', i)
+
+
+def postorder_rootwards(df, sister_items, leaves, is_sorted=True):
+    # suboptimal
+    # Worst case scenario: with dataframe of N rows:
+    # one single caterpillar tree, and the cherry is the last encountered sister_item.
+    # Will iterate N*(N-1)/2 times
+    max_iter = df.shape[0]
+    max_iter *= (max_iter - 1)/2.
+    i = 0
+    while sister_items and i <= max_iter:
+        #logger.debug('rootwards: iteration #%d (%d groups, %d leaves remaining)',
+        #             i, len(sister_items), len(leaves))
+        parent, children = sister_items.pop(0)
+        i += 1
+        if children.difference(leaves).empty:  # If sorted, always true.
+            # Both children are current leaves: proceed rootward.
+            yield parent, children
+            # This may work, but unsure of the side effects.
+            leaves.difference_update(children)
+            leaves.add(parent)
+            #break  if not levelorder, we can break here.
+        else:
+            #sister_items.insert(1, (parent, children))
+            # Track the next item having `parent` in the children
+            if is_sorted:
+                raise RuntimeError('Expected sorted nodes (postorder).')
+            pass
+            
+    if i == max_iter:
+        logger.error('Reached maximum iter. Tree is probably wrong.')
+    else:
+        logger.debug('Finished in %d iterations.', i)
 
 
 def roll_leafwards_indices(df, parent_column='parent', root_value=None,
