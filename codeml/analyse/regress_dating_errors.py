@@ -3493,7 +3493,8 @@ class regressAncs(object):
 
 
     def summarize(self, ncoefs=8,  # No more than 8 in the main text.
-                  startcoef=0, ncols=2, save=False):
+                  startcoef=0, ncols=2, fixed_order=None, save=False):
+        """fixed_order: ordered list of coefficients (strictly included in sorted_coefs)"""
         reportfile = self.out_template.format(anc='allspeciations', desc=self.description)
         self.reports.append(('allspeciations', reportfile, dt.now()))
         self.all_reports[('allspeciations', reportfile)] = self.reports[-1][-1]
@@ -3554,6 +3555,11 @@ class regressAncs(object):
             self.sorted_union_top5_coefs = \
             sorted_union_top5_coefs = spec_coefs.loc[union_top5_coefs].sort_values('absmean', ascending=False).index.tolist()
 
+            if fixed_order is not None:
+                bad_feature_names = set(fixed_order).difference(sorted_union_top5_coefs)
+                assert not bad_feature_names, bad_feature_names
+                sorted_union_top5_coefs = fixed_order + [ft for ft in sorted_union_top5_coefs if ft not in fixed_order]
+
             # Also check the simple regression coefs, for inconsistencies
             self.spec_simple_coefs = \
             spec_simple_coefs = pd.concat([all_coeffs[anc][['Simple regression coef']] for anc in ordered_simii_anc_byage],
@@ -3570,7 +3576,7 @@ class regressAncs(object):
                                          ])
                         )
                         #.set_table_attributes(title=))
-            
+
             # Paper figures: top coefficients
             hr.print('## Top 5 coefficients, sorted by their mean absolute value across ancestors')
 
