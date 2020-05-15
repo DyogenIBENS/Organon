@@ -35,7 +35,9 @@ from datasci.graphs import scatter_density, \
                            plot_features_radar, \
                            plottree, \
                            stackedbar, \
-                           dodged_violin
+                           dodged_violin, \
+                           fade_color_hex, \
+                           darken_hex
 from datasci.compare import pairwise_intersections, align_sorted
 from datasci.stats import r_squared, adj_r_squared, multicol_test, multi_vartest,\
                           rescale_groups, iqr, iqr90, iqr95, mad, trimstd, trimmean, \
@@ -571,7 +573,10 @@ def npraw_group_average_w0(gvalues):
     gv = gvalues[:,1:]
     gw = gvalues[:,0]
     keep = ~np.isnan(gw)  # What about isnan(gv) (when branch==0 and branchtime==0)
-    return np.average(gv[keep], axis=0, weights=gw[keep])
+    try:
+        return np.average(gv[keep], axis=0, weights=gw[keep])
+    except ZeroDivisionError:
+        return np.NaN
 
 def group_average(g, var, weight_var):
     #values = np.ma.array(g[var].values, mask=g[var].isna().values)
@@ -2143,9 +2148,9 @@ class fullRegression(object):
         self.inf_rows_n = inf_rows_n = np.isinf(a_nn).any(axis=1) # = check_inf(a_n, '', self.out)
         if inf_rows_n.any():
             print('Drop %d Inf rows' % inf_rows_n.sum(), file=self.out)
-            print('Data with Inf: column %s:\n%s' % (
-                        a_nn.columns[np.isinf(a_nn).any()],
-                        alls[~na_rows_n][inf_rows_n].head(10)), file=self.out)
+            print('Data with Inf: columns %s:\nhead:\n' % (
+                        a_nn.columns[np.isinf(a_nn).any()],), file=self.out)
+            self.display(alls[~na_rows_n][inf_rows_n].head(10))
             a_n = a_n[~inf_rows_n].copy(deep=False)
         
         constant_vars = check_constants(a_n, '', self.out)
@@ -2339,6 +2344,7 @@ class fullRegression(object):
 
         self.unregressed_coefs = {}  # newfeature: (intercept, slope)
         for decorr_func, decorr_args in to_decorr.items():
+            #FIXME: UserWarning: Boolean Series key will be reindexed to match DataFrame index.
             a_n_inde = decorr_args(decorr_func, a_n_inde, a_t[~na_rows_n & ~inf_rows_n])
             # decorring from a_t or alls might yield very different results.
             if decorr_func in (check_unregress, renorm_unregress):
@@ -2586,29 +2592,33 @@ class fullRegression(object):
                     equal_var=False)
         print(("Removed VS kept data: t=%g; p=%g (two-tailed Welch's t-test; "
                +"sample sizes: %d, %d)") % (*tt_bad,
-                  (~bad_data_rows).sum(), bad_data_rows.sum()), file=self.out)
+                  bad_data_rows.sum(), (~bad_data_rows).sum()), file=self.out)
         bad_props_ttests = pd.DataFrame(bad_props_ttests, index=['T', 'P']).T
-        bad_props_ttests['P_over'] = bad_props_ttests.apply(lambda row:
-                                    (1 - row['P']/2 if row['T']<=0 else row['P']/2),
-                                    axis=1)
         na_ttests = bad_props_ttests['P'].isna()
         
-        bad_props_ttests['Pcorr'] = smm.multipletests(
+        try:
+            bad_props_ttests['P_over'] = bad_props_ttests.apply(lambda row:
+                                        (1 - row['P']/2 if row['T']<=0 else row['P']/2),
+                                        axis=1)
+            bad_props_ttests['Pcorr'] = smm.multipletests(
                                             bad_props_ttests['P_over'],
                                             alpha=0.05,
                                             method='fdr_bh')[1] # Benjamini/Hochberg
-        # Even with *some* NaN p-values, the added column should not be all NaN:
-        if bad_props_ttests.Pcorr.isna().all():
-            logger.error('Pcorr are all NaNs. There were %d input NaN pvalues (%s)',
-                         na_ttests.sum(), bad_props_ttests.index[na_ttests])
-        # Add last row being the pooled features T-test.
-        self.bad_props_ttests = bad_props_ttests.append(
-                                    pd.Series(tt_bad, index=['T', 'P'],
-                                              name='ANY'))
-        self.display_html(self.bad_props_ttests.style.applymap(
-                         lambda v: ('background: khaki' if v<0.01 else
-                                    'background: lemonchiffon; alpha: 0.5' if v<=0.05 else ''),
-                                 subset=['Pcorr']))
+            # Even with *some* NaN p-values, the added column should not be all NaN:
+            if bad_props_ttests.Pcorr.isna().all():
+                logger.error('Pcorr are all NaNs. There were %d input NaN pvalues (%s)',
+                             na_ttests.sum(), bad_props_ttests.index[na_ttests])
+            # Add last row being the pooled features T-test.
+            self.bad_props_ttests = bad_props_ttests.append(
+                                        pd.Series(tt_bad, index=['T', 'P'],
+                                                  name='ANY'))
+            self.display_html(self.bad_props_ttests.style.applymap(
+                             lambda v: ('background: khaki' if v<0.01 else
+                                        'background: lemonchiffon; alpha: 0.5' if v<=0.05 else ''),
+                                     subset=['Pcorr']))
+        except ValueError as err:
+            # Cannot set a frame with no defined index and a value that cannot be converted to a Series
+            logger.exception('Possibly no features removed.')
 
         print("New shape after removing bad data:", a_n_inde2.shape, file=self.out)
         print("New Mean,SD of response: %g; %g" % (
@@ -2789,10 +2799,10 @@ class fullRegression(object):
     
     def predicted_extreme_values(self, percent=10):
         print('\n### Predicted extreme values', file=self.out)
-        y = responses[0]
+        y = self.responses[0]
         N = self.a_n_inde2.shape[0]
         #print(N)
-        sorted_fit = reg.refitlasso2.fittedvalues.sort_values()
+        sorted_fit = self.refitlasso2.fittedvalues.sort_values()
         n = N * percent // 100
         fitted_lowest = sorted_fit.head(n).index  # Lowest error
         fitted_highest = sorted_fit.tail(n).index
@@ -2815,22 +2825,26 @@ class fullRegression(object):
         tr_mean, tr_std = (self.a_t.loc[self.a_n_inde2.index, y].mean(),
                            self.a_t.loc[self.a_n_inde2.index, y].std())
 
-        fitted_lowest_max = sorted_fit[fitted_lowest[-1]]
-        fitted_highest_min = sorted_fit[fitted_highest[0]]
+        self.fitted_lowest_max = sorted_fit[fitted_lowest[-1]]
+        self.fitted_highest_min = sorted_fit[fitted_highest[0]]
+        self.fitted_lowest_max_tr = self.fitted_lowest_max*tr_std + tr_mean
+        self.fitted_highest_min_tr = self.fitted_highest_min*tr_std + tr_mean
+        self.fitted_lowest_max_orig = retro_trans(self.fitted_lowest_max*tr_std + tr_mean)
+        self.fitted_highest_min_orig = retro_trans(self.fitted_highest_min*tr_std + tr_mean)
         print(('\n#### %g%% lowest *fitted* %s: <= %g\n'
                  '     %g%% Highest >= %g\n'
                  '#### In transformed scale: <= %g / >= %g\n'
                  '#### In original scale:     %g / %g [undoing %r]\n') % (
-              percent, y, fitted_lowest_max,
-              percent, fitted_highest_min,
-              fitted_lowest_max*tr_std + tr_mean,
-              fitted_highest_min*tr_std + tr_mean,
-              retro_trans(fitted_lowest_max*tr_std + tr_mean),
-              retro_trans(fitted_highest_min*tr_std + tr_mean),
+              percent, y, self.fitted_lowest_max,
+              percent, self.fitted_highest_min,
+              self.fitted_lowest_max_tr,
+              self.fitted_highest_min_tr,
+              self.fitted_lowest_max_orig,
+              self.fitted_highest_min_orig,
               response_transform),
               file=self.out)
 
-        print('\n#### Original data:')
+        print('\n#### Original data:', file=self.out)
         summary_lowest = self.alls.loc[fitted_lowest,
                                     [y] + top_features
                                   ].agg(['median', 'mean', 'std'])
@@ -2838,12 +2852,13 @@ class fullRegression(object):
                                     [y] + top_features
                                   ].agg(['median', 'mean', 'std'])
         idx = pd.IndexSlice
-        self.display(pd.concat((summary_lowest, summary_highest),
+        self.predicted_extremes = pd.concat((summary_lowest, summary_highest),
                                keys=['Predicted %s%% lowest' % percent,
                                      'Predicted %s%% highest' % percent],
                                verify_integrity=True, sort=False, copy=False)\
-                               .style.format('{:g}'))#\
+                               .style.format('{:g}')#\
                                #.format('±{:g}', subset=idx[idx[:,'std'], [y]+top_features]))
+        self.display(self.predicted_extremes)
         iter_features = top_features if self.widget is None else self.widget(top_features)
         for ft in iter_features:
             colored = pd.Series('#7f7f7f', index=self.a_n_inde2.index, name='color')
@@ -2855,9 +2870,12 @@ class fullRegression(object):
             ax.set_ylabel(y)
             ax.set_xlabel(ft)
             self.show(fig)
+            plt.close()
 
 
     def predict(self, out=None, logger=None, widget=None, **new_attrs):
+        """Return predicted Y in transformed scale (unnormalised).
+        Also attach the prediction object (of same class) to self."""
         selected_features = self.reslopes2.index[1:].tolist()
         ### Apply all the transforms + decorrelations
         self.prediction = prediction = self.__class__.from_other(self)
@@ -2911,7 +2929,8 @@ class fullRegression(object):
 
         predicted = self.refitlasso2.predict(
                         sm.add_constant(
-                            prediction.a_n_inde2[prediction_features]))
+                            prediction.a_n_inde2[prediction_features]))\
+                    .rename('predicted')
         prediction.predicted_raw = predicted
         # Transform back to the original scale.
         y = self.responses[0]
@@ -2941,13 +2960,14 @@ def make_ref_todecorr(trained_to_decorr, unregressed_coefs):
         for k, (var, corrvar) in unregress_args.items():
             if isinstance(k, int): k = 'R'+var
             try:
-                a, b = unregressed_coefs[k]
+                a, b = unregressed_coefs[k]  # Intercept, slope
             except KeyError:
                 logger.warning('Feature %r not in unregressed_coefs.', k)
                 continue
             logger.info('%s ~ %s -> coefficients: %s + x*%s', var, corrvar, a, b)
-            ref_unregress_var = partial(check_decorrelator,
-                                        lambda v,cv: v - (a+b*cv))
+            def refdecorr(v, cv):
+                return v - (a+b*cv)
+            ref_unregress_var = partial(check_decorrelator, refdecorr)
             to_decorr[ref_unregress_var] = Args.fromitems((k, (var, corrvar)))
     return to_decorr
 
@@ -3092,7 +3112,7 @@ _must_decorr = {
 # variable name, variable values. Dropped by .isin()
 # Must be the decorr variable name.
 _must_drop_data = dict(prop_splitseq=(1,),
-                       really_robust=(0,),
+                       #really_robust=(0,),
                        **{'null_%s_%s' % (m,where): (1,)
                           for m in MEASURES
                           for where in ('before', 'after')},
@@ -3197,6 +3217,318 @@ class full_dating_regression(fullRegression):
                          + str(same_alls.iloc[:5, :5]) + '\n'
                          )
             raise RuntimeError(msg)
+
+
+def predict_nonrobust(reg_approx, same_alls, hr, renames):
+    """Essentially compare the histogram of response in the training VS testing
+    dataset. Then check feature distributions relative to the 90% decile of
+    fitted response.
+    """
+    hr.mkd('## Values at extreme points of the fit')
+    reg_approx.out = hr
+    reg_approx.logger = logger
+    reg_approx.widget = slideshow_generator(hr)
+    reg_approx.set_output()
+    reg_approx.predicted_extreme_values()
+
+    hr.mkd('## Prediction on new data')
+    training_observations = reg_approx.a_n_inde.index
+    training_observations2 = reg_approx.a_n_inde2.index
+    print('### Check content of `training_observations(2)`', file=hr)
+    print(('%d trees in training_observations\n'
+           '%d trees in training_observations2\n'
+           '%d in intersection\n'
+           '%d only in 1\n'
+           '%d only in 2\n') % (
+               len(training_observations),
+               len(training_observations2),
+               len(training_observations.intersection(training_observations2)),
+               len(training_observations.difference(training_observations2)),
+               len(training_observations2.difference(training_observations))),
+           file=hr)
+
+    #to_decorr = {func: Args.fromcontent(args.content)
+    #             for func,args in reg_approx.to_decorr.items()}
+    #to_decorr[check_unregress].args.remove(('ingroup_nucl_parsimony_std', 'ingroup_nucl_parsimony_mean'))
+    #to_decorr[check_unregress].pop('sitelnL')
+    #ref_unregress_nuclparsstd = partial(check_decorrelator,
+    #                                    lambda v,cv: v - (cv*0.508705-0.652472))
+    #ref_unregress_lnL = partial(check_decorrelator,
+    #                            lambda v,cv: v - (cv*(-0.557353)-0.962986))
+    #to_decorr[ref_unregress_nuclparsstd] = Args(('ingroup_nucl_parsimony_std', 'ingroup_nucl_parsimony_mean'))
+    #to_decorr[ref_unregress_lnL] = Args(sitelnL=('lnL', 'ingroup_glob_len'))
+    to_decorr = make_ref_todecorr(reg_approx.to_decorr, reg_approx.unregressed_coefs)
+    must_drop_data = {k: v for k,v in reg_approx.must_drop_data.items()}
+    must_drop_data.pop('really_robust', None)
+    predicted = reg_approx.predict(same_alls=same_alls,
+                                   to_decorr=to_decorr,
+                                   must_drop_data=must_drop_data,
+                                   out=hr, logger=logger,
+                                   widget=slideshow_generator(hr))
+    hr.html(predicted.to_frame())  # In transformed scale (unnormalised)
+    #try:
+    scatter_density(reg_approx.refitlasso2.fittedvalues[training_observations2],\
+                    predicted[training_observations2], alpha=0.4)
+    ax = plt.gca()
+    ax.set_ylabel('Predicted %s on training data' % reg_approx.responses[0])
+    ax.set_xlabel('Fitted %s (trained)' % reg_approx.responses[0])
+    hr.show()
+    plt.close()
+
+    prediction_data = reg_approx.prediction.a_n_inde2
+    #prediction_data['data'] = 'testing'
+    #prediction_data.loc[training_observations2, 'data'] = 'training'
+    #err_threshold = 0.5  # In transformed scale.
+    err_threshold = reg_approx.fitted_highest_min_tr
+    # Or alternatively, the median of the total/testing set?
+
+    low_err_trained = predicted[training_observations2] <= err_threshold
+    low_err_tested = predicted.drop(training_observations2) <= err_threshold
+    n_low_err_trained = low_err_trained.sum()
+    n_low_err_tested = low_err_tested.sum()
+    response_transform = reg_approx.suggested_transform[reg_approx.responses[0]]
+    response_retro_trans = make_retro_trans(response_transform.__name__)
+    retro_err_thr = response_retro_trans(err_threshold)
+
+    cycled = mpl.rcParams['axes.prop_cycle'].by_key()['color']
+    colorpairs = [func(c, frac)
+                  for c in cycled
+                  for func, frac in [(fade_color_hex, 0.7), (darken_hex, 0.3)]]
+    
+    for ft, i in zip(reg_approx.refitlasso2.params.drop('const').index, generate_slideshow(hr)):
+        fig = plt.figure()
+        gridspec = fig.add_gridspec(2, 2)
+        
+        gs00 = gridspec[0,0] if ft in reg_approx.decorr_source else gridspec[:,0]
+        ax00 = fig.add_subplot(gs00)
+        bicmap = mpl.colors.ListedColormap(['#393b79', '#e6550d'])
+        ax00.scatter(ft, ft+'_pred',
+                    data=reg_approx.a_n_inde2[[ft]].join(
+                        prediction_data[[ft]],
+                        rsuffix='_pred', sort=False).loc[training_observations2],
+                    alpha=0.5, s=3, c=low_err_trained.loc[training_observations2].astype(float), cmap=bicmap)
+        ax00.set_xlabel('Original %s' % ft)
+        ax00.set_ylabel('Prediction %s' % ft)
+        if ft in reg_approx.decorr_source:
+            ax10 = fig.add_subplot(gridspec[1,0])
+            srcft = reg_approx.decorr_source[ft]
+            ax10.scatter(srcft, srcft+'_pred',
+                        data=reg_approx.a_t[[srcft]].join(
+                            reg_approx.prediction.a_t[[srcft]],
+                            rsuffix='_pred', sort=False).loc[training_observations2],
+                        alpha=0.5, s=3, c=low_err_trained.loc[training_observations2].astype(float), cmap=bicmap)
+            ax10.set_xlabel('Original %s' % srcft)
+            ax10.set_ylabel('Prediction %s' % srcft)
+
+        trained_data = prediction_data[ft].loc[training_observations2]
+        tested_data = prediction_data[ft].drop(training_observations2)
+        n_trained = np.isfinite(trained_data.values).sum()
+        n_tested = np.isfinite(tested_data.values).sum()
+        ax1 = fig.add_subplot(gridspec[:,1])
+        ax1.set_prop_cycle('color', colorpairs)
+        heights, bins, _ = ax1.hist([trained_data[low_err_trained],
+                  trained_data[~low_err_trained],
+                  tested_data[low_err_tested],
+                  tested_data[~low_err_tested]],
+                 bins=50, histtype='barstacked',
+                 label=['training (tr err ≤ %g) (n=%4d)' % (err_threshold, n_low_err_trained),
+                        'training (tr err > %g) (n=%4d)' % (err_threshold, n_trained - n_low_err_trained),
+                        'testing  (tr err ≤ %g) (n=%4d)' % (err_threshold, n_low_err_tested),
+                        'testing  (tr err > %g) (n=%4d)' % (err_threshold, n_tested - n_low_err_tested)])
+        ax1.step(bins, heights[1].tolist() + [heights[1][-1]], 
+             bins, heights[3].tolist() + [heights[3][-1]],
+             where='post', color='k', alpha=0.8)
+        ax1.legend()
+        hr.show(fig)
+        plt.close()
+
+    # Check again the Ringroup_nucl_parsimony_std: why regression so different?
+    fig, axes = plt.subplots(ncols=2)
+    xvar, yvar = 'ingroup_nucl_parsimony_mean', 'ingroup_nucl_parsimony_std'
+    prediction = reg_approx.prediction
+    axes[0].set_ylabel(yvar)
+    for data, ax, title in zip((reg_approx.a_t, prediction.a_t), axes,
+                               ('Original fit', 'Prediction')):
+        ax.scatter(xvar, yvar, data=data.drop(training_observations),
+                    label='testing', alpha=0.4, s=3)
+        ax.scatter(xvar, yvar, data=data.loc[training_observations],
+                    label='training', alpha=0.4, s=3)
+        x = np.array(ax.get_xlim())
+        regdata = data.loc[training_observations, [yvar, xvar]]
+        if regdata.isna().any(axis=None):
+            logger.warning('%d NaN rows in reg0t data[[%r, %r]]',
+                           regdata.isna().any(axis=1).sum(), yvar, xvar)
+            regdata = regdata.dropna()
+        reg0t = sm.OLS(regdata[yvar],
+                      sm.add_constant(regdata[xvar])).fit()
+        a, b = reg0t.params.loc['const'], reg0t.params.loc[xvar]
+        ax.plot(x, a + b*x, '--', label='training: %.5f + %.5f * x' % (a, b))
+        regdata = data[[yvar, xvar]]
+        if regdata.isna().any(axis=None):
+            logger.warning('%d NaN rows in reg0 data[[%r, %r]]',
+                           regdata.isna().any(axis=1).sum(), yvar, xvar)
+            regdata = regdata.dropna()
+        if (~np.isfinite(regdata)).any(axis=None):
+            logger.warning('%d Inf rows in reg0 data[[%r, %r]]',
+                           (~np.isfinite(regdata)).any(axis=1).sum(), yvar, xvar)
+            regdata = regdata[np.isfinite(regdata).all(axis=1)]
+        reg0 = sm.OLS(regdata[yvar], sm.add_constant(regdata[xvar])).fit()
+        a, b = reg0.params.loc['const'], reg0.params.loc[xvar]
+        ax.plot(x, a + b*x, '--', label='complete: %.5f + %.5f * x' % (a, b))
+        ax.legend()
+        ax.set_title(title)
+    fig.suptitle('Relation between source variables (before decorr, transformed)')
+    hr.show(fig)
+    plt.close()
+
+    ft = 'R'+yvar
+    a, b = reg_approx.unregressed_coefs['R'+yvar]
+    print('%s ~ %s: a=%s; b=%s' % (yvar, xvar, a, b), file=hr)
+    fig, axes = plt.subplots(ncols=3, figsize=(14,7))
+    axes[0].scatter(reg_approx.a_t.loc[training_observations, xvar],
+                    prediction.a_t.loc[training_observations, xvar],
+                    marker='.', alpha=0.5)
+    axes[0].set_title('Original %s' % xvar)
+    axes[1].scatter(reg_approx.a_t.loc[training_observations, yvar],
+                    prediction.a_t.loc[training_observations, yvar],
+                    marker='.', alpha=0.5)
+    axes[1].set_title('Original %s' % yvar)
+    axes[2].scatter((reg_approx.a_t.loc[training_observations, yvar]
+                     - (a+b*reg_approx.a_t.loc[training_observations, xvar])),
+                    (prediction.a_t.loc[training_observations, yvar]
+                     - (a+b*prediction.a_t.loc[training_observations, xvar])),
+                    marker='.', alpha=0.5)
+    axes[2].set_title('Residuals of %s' % yvar)
+    fig.suptitle('Compare original fit VS prediction features, step-by-step.')
+    hr.show(fig)
+    plt.close()
+    
+    fig, axes = plt.subplots(ncols=3, figsize=(14,7))
+    axes[0].scatter(reg_approx.a_n_inde2[ft],
+                    (prediction.a_t.loc[training_observations2, yvar]
+                   - (a+b*prediction.a_t.loc[training_observations2, xvar])),
+                  marker='.', alpha=0.5)
+    axes[0].set_ylabel('Manual decorr %s' % yvar)
+    axes[0].set_xlabel('Original fit %s' % ft)
+    axes[0].set_title('prediction manually decorred\n%s' % yvar)
+    axes[1].scatter(reg_approx.a_n_inde2[ft],
+                  (reg_approx.a_t.loc[training_observations2, yvar]
+                   - (a+b*reg_approx.a_t.loc[training_observations2, xvar])),
+                  marker='.', alpha=0.5)
+    axes[1].set_xlabel('Original %s' % ft)
+    axes[1].set_ylabel('Manual decorr %s' % yvar)
+    axes[1].set_title('Original fit manually decorred\n%s' % yvar)
+    axes[2].scatter(reg_approx.prediction.a_n_inde2.loc[training_observations2, ft],
+                  (reg_approx.prediction.a_t.loc[training_observations2, yvar]
+                   - (a+b*reg_approx.prediction.a_t.loc[training_observations2, xvar])),
+                  marker='.', alpha=0.5)
+    axes[2].set_xlabel('Prediction %s' % ft)
+    axes[2].set_ylabel('Manual decorr %s' % yvar)
+    axes[2].set_title('prediction VS prediction,\nmanually decorred.')
+    fig.suptitle('Compare original fit at different steps.')
+    hr.show(fig)
+    plt.close()
+
+    predicted_data = pd.DataFrame({'predicted': predicted})
+    predicted_data['data'] = 'testing'
+    predicted_data.loc[training_observations2, 'data'] = 'training'
+
+    fig, (ax0, ax1) = plt.subplots(ncols=2)
+    _, bins, _ = ax0.hist([predicted_data.loc[predicted_data.data=='training', 'predicted'],
+              predicted_data.loc[predicted_data.data=='testing', 'predicted']],
+             bins=50, histtype='barstacked', label=['training', 'testing'])
+    ax0.legend()
+    ax0.set_xlabel('Predicted error (in %s scale)' % response_transform.__name__)
+    ax0.set_ylabel('Number of trees')
+
+    predicted_data['predicted_retro'] = response_retro_trans(predicted_data['predicted'])
+    heights, bins, _ = ax1.hist(
+             [predicted_data.loc[predicted_data.data=='training', 'predicted_retro'],
+              predicted_data.loc[predicted_data.data=='testing', 'predicted_retro']],
+             bins=response_retro_trans(bins), histtype='barstacked',
+             label=['training', 'testing'],
+             edgecolor='none')
+    ax1.step(bins, heights[0].tolist() + [heights[0][-1]], 
+             bins, heights[1].tolist() + [heights[1][-1]],
+             where='post', color='k', alpha=0.8)
+    ax1.legend()
+    ax1.set_xscale('log')
+    ax1.xaxis.set_major_formatter(mpl.ticker.ScalarFormatter())
+    ax1.xaxis.set_minor_formatter(mpl.ticker.ScalarFormatter())
+    xt_labels = [xtl.get_text() for xtl in ax1.get_xticklabels(minor=True)]
+    for i, xt in enumerate(ax1.get_xticks(minor=True)):
+        if xt in (0.5,2,3,5):
+            xt_labels[i] = '%g' % xt
+    ax1.set_xticklabels(xt_labels, minor=True)
+    ax1.set_xlabel('Predicted error')
+    hr.show(fig)
+    plt.close()
+
+    # Figure saved out of the html report.
+    fig = plt.figure(figsize=(10, 7))  # contrained_layout=True
+    gridspec = fig.add_gridspec(4,2, hspace=0.4)  #width_ratios=[2,1]
+    ax = fig.add_subplot(gridspec[:,0])  # Entire first column
+    retro_err_bins = response_retro_trans(np.histogram(predicted_data['predicted'], 50)[1])
+    heights, bins, _ = ax.hist(
+            [predicted_data.loc[predicted_data.data=='training', 'predicted_retro'],
+             predicted_data.loc[predicted_data.data=='testing', 'predicted_retro']],
+            bins=retro_err_bins,
+            histtype='barstacked', label=['training', 'testing'],
+            linewidth=0, edgecolor='none', alpha=0.7) #, rwidth=1.1)
+    bin_lim = np.searchsorted(retro_err_bins, retro_err_thr)
+    print('len(retro_err_bins)=%d; len(heights)=%d' % (len(retro_err_bins), len(heights)))
+    ax.fill_between([retro_err_thr] + retro_err_bins[bin_lim:-1].tolist(),
+                    0, heights[0][bin_lim-1:],
+                    step='post', color=darken_hex(cycled[0])) #, rwidth=1.1)
+    ax.fill_between([retro_err_thr] + retro_err_bins[bin_lim:-1].tolist(),
+                    heights[0][bin_lim-1:], heights[1][bin_lim-1:],
+                    step='post', color=darken_hex(cycled[1])) #, rwidth=1.1)
+    ax.step(bins, heights[0].tolist() + [heights[0][-1]],
+            bins, heights[1].tolist() + [heights[1][-1]],
+            color='k', alpha=0.8, where='post')
+    ax.axvline(retro_err_thr, linestyle='--', color='k', alpha=0.8, label='err=%.2f\n(9th decile of fit)' % retro_err_thr)
+    #ax.annotate('err = %.2f' % retro_err_thr, (retro_err_thr, )
+    print('err threshold = %g (%s-transformed) -> original scale: %g'
+          %(err_threshold, response_retro_trans.__name__, retro_err_thr), file=hr)
+    ax.legend()
+    ax.set_xscale('log')
+    ax.xaxis.set_major_formatter(mpl.ticker.ScalarFormatter())
+    xt_labels = [xtl.get_text() for xtl in ax.get_xticklabels(minor=True)]
+    for i, xt in enumerate(ax.get_xticks(minor=True)):
+        if xt in (0.5, 2,3,4,5):
+            xt_labels[i] = '%g' % xt
+    ax.set_xticklabels(xt_labels, minor=True)
+    ax.set_xlabel('Predicted error (My/tree)')
+    ax.set_ylabel('Number of trees')
+    for i, ft in enumerate(reg_approx.refitlasso2.params.drop('const').index[:3]):
+        axi = fig.add_subplot(gridspec[1+i, 1])
+        trained_data = prediction_data[ft].loc[training_observations2]
+        tested_data  = prediction_data[ft].drop(training_observations2)
+        #TODO: convert to original units. At least not z-scored.
+        n_trained = np.isfinite(trained_data.values).sum()
+        n_tested  = np.isfinite(tested_data.values).sum()
+        n_low_err_trained = low_err_trained.sum()
+        n_low_err_tested  = low_err_tested.sum()
+        axi.set_prop_cycle('color', colorpairs)
+        heights, bins, _ = axi.hist(
+                 [trained_data[low_err_trained],
+                  trained_data[~low_err_trained],
+                  tested_data[low_err_tested],
+                  tested_data[~low_err_tested]],
+                 bins=50, histtype='barstacked',
+                 label=['training (err ≤ %.2f) (n=%4d)' % (retro_err_thr, n_low_err_trained),
+                        'training (err > %.2f) (n=%4d)' % (retro_err_thr, n_trained - n_low_err_trained),
+                        'testing  (err ≤ %.2f) (n=%4d)' % (retro_err_thr, n_low_err_tested),
+                        'testing  (err > %.2f) (n=%4d)' % (retro_err_thr, n_tested - n_low_err_tested)])
+        axi.step(bins, heights[1].tolist() + [heights[1][-1]], 
+             bins, heights[3].tolist() + [heights[3][-1]],
+             where='post', color='k', alpha=0.8)
+        axi.set_xlabel(renames[ft])
+        #axi.legend()
+    axl = fig.add_subplot(gridspec[0,1])
+    axl.legend(*axi.get_legend_handles_labels(), loc='upper center')
+    axl.axis('off')
+    return fig
 
 
 # Convert original code names to names displayed in the paper (see fig.1).
