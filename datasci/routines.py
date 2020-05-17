@@ -129,7 +129,9 @@ def standardize(x, ddof=1):
 def unregress(y, x):
     """Return the residuals of Y from the linear regression (with Intercept)
     against X"""
-    return sm.OLS(y, sm.add_constant(x)).fit().resid
+    fit = sm.OLS(y, sm.add_constant(x)).fit()
+    logger.debug('unregress Nobs=%d: a=%g; b=%g', fit.nobs, fit.params['const'], fit.params[1])
+    return fit.resid
 
 def unregress0(y, x):
     """Return the residuals of Y from the linear regression (with Intercept 0)

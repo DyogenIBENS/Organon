@@ -2353,6 +2353,12 @@ class fullRegression(object):
                         sm.add_constant(a_t[~na_rows_n & ~inf_rows_n][corrvar])).fit()
                     if isinstance(k, int): k = 'R'+var
                     self.unregressed_coefs[k] = (fit.params['const'], fit.params[corrvar])
+                    if not np.allclose(a_n_inde[k],
+                            a_t.loc[~na_rows_n & ~inf_rows_n, var] - (
+                                fit.params['const']
+                                + fit.params[corrvar]*a_t.loc[~na_rows_n & ~inf_rows_n, corrvar])):
+                        logger.error("INCONSISTENCY in unregress residuals: %s~%s", var, corrvar)
+            #elif isinstance(decorr_func, partial) and decorr_func.args[0].__name__ == 'refdecorr':
 
         # special_decorr
         CpG_odds = (self.alls.ingroup_mean_CpG / (self.alls.ingroup_mean_GC**2))[~na_rows_n & ~inf_rows_n]
@@ -2945,6 +2951,10 @@ class fullRegression(object):
         # Check that predicted == fitted for the training set.
 
 
+def refdecorr(a, b, v, cv):
+    logger.info('refdecorr: coefficients: a=%s b=%s', a, b)
+    return v - (a+b*cv)
+
 def make_ref_todecorr(trained_to_decorr, unregressed_coefs):
     to_decorr = {func: Args.fromcontent(args.content)
                  for func,args in trained_to_decorr.items()}
@@ -2964,10 +2974,8 @@ def make_ref_todecorr(trained_to_decorr, unregressed_coefs):
             except KeyError:
                 logger.warning('Feature %r not in unregressed_coefs.', k)
                 continue
-            logger.info('%s ~ %s -> coefficients: %s + x*%s', var, corrvar, a, b)
-            def refdecorr(v, cv):
-                return v - (a+b*cv)
-            ref_unregress_var = partial(check_decorrelator, refdecorr)
+            logger.info('make_ref_todecorr: %s ~ %s -> coefficients: %s + x*%s', var, corrvar, a, b)
+            ref_unregress_var = partial(check_decorrelator, partial(refdecorr, a, b))
             to_decorr[ref_unregress_var] = Args.fromitems((k, (var, corrvar)))
     return to_decorr
 
@@ -3266,9 +3274,13 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames):
                                    out=hr, logger=logger,
                                    widget=slideshow_generator(hr))
     hr.html(predicted.to_frame())  # In transformed scale (unnormalised)
-    #try:
-    scatter_density(reg_approx.refitlasso2.fittedvalues[training_observations2],\
-                    predicted[training_observations2], alpha=0.4)
+    try:
+        scatter_density(reg_approx.refitlasso2.fittedvalues[training_observations2],\
+                        predicted[training_observations2], alpha=0.4, s=3)
+    except np.linalg.LinAlgError:
+        # Singular matrix: GOOD news, the prediction on training data matches the fit!
+        plt.scatter(reg_approx.refitlasso2.fittedvalues[training_observations2],
+                    predicted[training_observations2], alpha=0.4, s=3)
     ax = plt.gca()
     ax.set_ylabel('Predicted %s on training data' % reg_approx.responses[0])
     ax.set_xlabel('Fitted %s (trained)' % reg_approx.responses[0])
@@ -3343,7 +3355,7 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames):
         plt.close()
 
     # Check again the Ringroup_nucl_parsimony_std: why regression so different?
-    fig, axes = plt.subplots(ncols=2)
+    fig, axes = plt.subplots(ncols=3)
     xvar, yvar = 'ingroup_nucl_parsimony_mean', 'ingroup_nucl_parsimony_std'
     prediction = reg_approx.prediction
     axes[0].set_ylabel(yvar)
@@ -3377,12 +3389,22 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames):
         ax.plot(x, a + b*x, '--', label='complete: %.5f + %.5f * x' % (a, b))
         ax.legend()
         ax.set_title(title)
+    ft = 'R'+yvar
+    a, b = reg_approx.unregressed_coefs['R'+yvar]
+    ax = axes[2]
+    data = prediction.a_t.assign(**{ft: (lambda df: df[yvar] - a - b*df[xvar])})
+    ax.scatter(xvar, ft, data=data.drop(training_observations),
+                label='testing', alpha=0.4, s=3)
+    ax.scatter(xvar, ft, data=data.loc[training_observations],
+                label='training', alpha=0.4, s=3)
+    ax.set_xlabel(xvar)
+    ax.set_ylabel(ft)
+    ax.set_title('Manual decorr of prediction data')
+
     fig.suptitle('Relation between source variables (before decorr, transformed)')
     hr.show(fig)
     plt.close()
 
-    ft = 'R'+yvar
-    a, b = reg_approx.unregressed_coefs['R'+yvar]
     print('%s ~ %s: a=%s; b=%s' % (yvar, xvar, a, b), file=hr)
     fig, axes = plt.subplots(ncols=3, figsize=(14,7))
     axes[0].scatter(reg_approx.a_t.loc[training_observations, xvar],
