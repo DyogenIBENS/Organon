@@ -18,7 +18,8 @@ import statsmodels.api as sm
 
 from datasci.graphs import scatter_density, brokenAxes
 from datasci.routines import test_transforms
-from datasci.dataframe_recipees import bounded_background_gradient
+from datasci.dataframe_recipees import bounded_background_gradient, \
+                                       matplotlib_background_gradient
 from datasci.savior import HtmlReport, css_dark_style, reroute_loggers, \
                            generate_slideshow, slideshow_generator
 
@@ -34,7 +35,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 plt.style.use('softer')
-plt.style.use('softdark')  # Also see the default 'dark_background'
+#mpl.rcParams['text.usetex'] = True  # matplotlib can render some math without calling latex.
+#mpl.rcParams['mathtext.fontset'] = 'bch'
+#mpl.rcParams['mathtext.rm'] = 'Bitstream Charter Sans'
+#mpl.rcParams['mathtext.it'] = 'Bitstream Charter Sans:italic'
+#mpl.rcParams['mathtext.bf'] = 'Bitstream Charter Sans:bold'
+#mpl.rcParams['font.family'] = 'Bitstream Charter'
+
+# Check available fonts with:
+#sorted([f.name for f in mpl.font_manager.fontManager.ttflist])
+# Install ttf font files in .local/lib/python3.5/site-packages/matplotlib/mpl-data/fonts/ttf/
+
 #TODO: set background of figure to dark. set better color cycle.
 import seaborn as sb
 #sb.set_palette('deep')
@@ -42,22 +53,132 @@ import seaborn as sb
 #sb.set_palette('Set2')
 
 mpl.rcParams['figure.figsize'] = (12,7)
-myslideshow_js = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.js') 
-myslideshow_css = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.css') 
+#myslideshow_js = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.js') 
+#myslideshow_css = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.css') 
+# Run from '~glouvel/ws7/DUPLI_data93/alignments_analysis/duprates/'
+myslideshow_js = Path('../../../../').joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.js') 
+myslideshow_css = Path('../../../../').joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.css') 
 
 
 continuous_distribs = [d for dname, d in sorted(vars(st).items())
                        if isinstance(d, st.rv_continuous)]
 continuous_positive_distribs = [d for d in continuous_distribs if d.a >= 0 and np.isinf(d.b)]
-# There are 50 distributions implemented.
+# There are 49 or 50 distributions implemented.
+
+restricted_distribs = [
+st.betaprime,  # default loc = 0
+st.chi,
+st.chi2,
+st.expon,
+st.exponpow,
+st.fisk,
+st.foldcauchy,
+st.foldnorm,
+st.halfcauchy,
+st.halfnorm,
+st.gompertz,
+st.gamma,
+st.gengamma,
+st.invgamma,
+st.invgauss,
+st.pareto,
+st.genpareto,
+st.weibull_min,
+st.exponweib,
+st.invweibull
+]
+# Check all default loc parameter values (expect zero):
+#getloc_reg = re.compile(r'^\s+pdf\(.*(loc=[^,]+).*\)', re.M)
+#for d in restricted_distribs:
+#    print(d.name, getloc_reg.search(d.__doc__).group(1))
 
 
-def fmt_params(params, prec=4):
+
+# Interesting distribs: exp, hyper exponential (kind of mixture of expon),
+# beta prime?
+# log-logistique (=Fisk)
+# Gompertz (age-dependent proba of dying)
+
+distrib_realnames = {'betaprime': 'Beta prime',
+    'chi': 'Chi',
+    'chi2': 'Chi²',
+    'expon': 'Exponential',
+    'exponpow': 'Exponential power',
+    'fisk': 'Log-logistic (Fisk)',
+    'foldcauchy': 'Folded Cauchy',
+    'foldnorm': 'Folded normal',
+    'halfcauchy': 'Half Cauchy',
+    'halfnorm': 'Half normal',
+    'gompertz': 'Gompertz',
+    'gamma': 'Gamma',
+    'gengamma': 'Generalised Gamma',
+    'invgamma': 'Inverted Gamma',
+    'invgauss': 'Inverse Gaussian',
+    'pareto': 'Pareto',
+    'genpareto': 'Generalised Pareto',
+    'weibull_min': 'Weibull',
+    'exponweib': 'Exponential Weibull',
+    'invweibull': 'Inverted Weibull'
+    }
+
+distrib_symbols = {'betaprime': r"$\beta'$",
+    'chi': r'$\chi$',
+    'chi2': r'$\chi^2$',
+    'expon': r'$\mathcal{E}$',  # Might require special latex package
+    'exponpow': 'Exponential power',
+    'fisk': 'Log-logistic (Fisk)',
+    'foldcauchy': 'Folded Cauchy',
+    'foldnorm': 'Folded normal',
+    'halfcauchy': 'Half Cauchy',
+    'halfnorm': 'Half normal',
+    'gompertz': 'Gompertz',
+    'gamma': r'$\Gamma$',
+    'gengamma': 'Generalised Gamma',
+    'invgamma': 'Inverted Gamma',
+    'invgauss': 'Inverse Gaussian',
+    'pareto': 'Pareto',
+    'genpareto': 'Generalised Pareto',
+    'weibull_min': 'Weibull',
+    'exponweib': 'Exponential Weibull',
+    'invweibull': 'Inverted Weibull'
+    }
+
+always_estimate_loc = set(('pareto'))  # Loc param > 0
+
+### TODO:
+#   - get rid of over-general distribs (gengamma, genpareto, etc) and *truncexpon*, and erlang.
+#   - print $k$ (nb of params)
+#   - change fig legend: parameter names, ~~duprates~~ -> Taux de duplication.
+#   - Make table/heatmap of a few interesting distributions
+#   - Constrain loc parameter to be zero.
+
+def fmt_params(distrib, params, prec=4, scalename='s', floc=None, sep=', '):
+    fmt='%%s=%%.%dg' % prec
+    if distrib.numargs:
+        param_names = distrib.shapes.split(', ') + ['loc', scalename]
+    else:
+        param_names = ['loc', scalename]
+    if floc is not None:
+        # Do not display the loc parameter since it is fixed.
+        params = params[:-2] + params[-1:]
+        del param_names[-2]
+    return '(' + sep.join(fmt % px for px in zip(param_names, params)) + ')'
+
+
+def fmt_params_gamma(params, prec=4, floc=None, sep=', '):
     fmt='%%.%dg' % prec
-    return '(' + ', '.join(fmt % x for x in params) + ')'
+    template = sep.join([r'$\alpha={0}$', r'$\beta={2}$'])
+    if floc is not None:
+        template += sep + '$\mathrm{{loc}}={1}$'
+    return template.format(*(fmt % p for p in inverse_scale(params)))
 
 
-def fit_distribs(distribs, df, x=None, nbins=100, stream=None):
+def fit_distribs(distribs, df, nodup, x=None, nbins=100, stream=None, lang_fr=True, dark=False,
+                 fix_loc=0):
+    """
+    floc: fix the location parameter when fitting.
+    """
+    if dark: plt.style.use('softdark')  # Also see the default 'dark_background'
     if x is None:
         x = df.columns.tolist()
     ncols = len(x)  # controling x is NotImplemented
@@ -67,24 +188,43 @@ def fit_distribs(distribs, df, x=None, nbins=100, stream=None):
             df.lossrate.values,
             df.lossrate[~nodup].values,
             df.lossrate[nodup].values)
-    for distrib in distribs:
-        print('###', distrib.name, file=stream)
+    for i, distrib in enumerate(distribs, start=1):
+        #floc = None if distrib.name in always_estimate_loc else fix_loc
+        floc = fix_loc
+        fmt_fit = (partial(fmt_params_gamma, floc=floc) if distrib.name == 'gamma'
+                   else partial(fmt_params, distrib, floc=floc))
+        distname = distrib_realnames.get(distrib.name)
+        distname = '%s (%s)' % (distname, distrib.name) if distname else distrib.name
+        distrib_k = distrib.numargs+2 if floc is None else distrib.numargs+1
+        # Followed by nb of params: numargs(shapes) + loc + scale.
+        
+        print('### %s k=%d' % (distname, distrib_k), file=stream)
         fig, ((ax0top, ax1top), (ax0bottom, ax1bottom)) = plt.subplots(2, ncols=ncols)
         # Y axis with a broken scale : ---//---
         fig.subplots_adjust(hspace=0.1)
         axes_dup = brokenAxes(ax0bottom, ax0top)
-        (h_dup, b_dup, _), _ = axes_dup.hist(df.duprate, bins=nbins, density=True)
+        (h_dup, b_dup, _), _ = axes_dup.hist(df.duprate, bins=nbins, density=True,
+                                             label=r'$\delta$ observ' + ('é' if lang_fr else 'ed'))
+        # Move the color cycler one-step forward:
+        axes_dup.plot([])
         axes_dup.dobreak(max(h_dup[1:]))
 
         axes_loss = brokenAxes(ax1bottom, ax1top)
-        ((h_loss_nodup,h_loss), b_loss, _), _ = axes_loss.hist((df.lossrate[nodup],
-                                                           df.lossrate[~nodup]),
-                                                label=['No dup', 'dup > 0'],
-                                                bins=nbins, density=True, stacked=True)
+        ((h_loss,h_loss_nodup), b_loss, _), _ = axes_loss.hist(
+                                                    (df.lossrate[~nodup],
+                                                     df.lossrate[nodup]),
+                                                #label=['No dup', 'dup > 0'],
+                                    label=[
+                                        r'$\lambda_{\delta>0}$ observ' + ('é' if lang_fr else 'ed'),
+                                        r'$\lambda_{\delta=0}$ observ' + ('é' if lang_fr else 'ed')],
+                                    bins=nbins, density=True, stacked=True)
         ymax = h_loss.max()
         axes_loss.dobreak(max(h_loss[h_loss<ymax]))
 
-        fits = [distrib.fit(data) for data in datas]
+        fits = [distrib.fit(data, floc=floc) for data in datas]
+        if len(fits[0]) != distrib.numargs + 2:
+            logger.error('Unexpected difference in nb params: theo %d VS fitted %d',
+                         distrib.numargs+2, len(fits[0]))
 
         # X coordinates of the middle of the bins:
         xdup = b_dup[:-1] + (b_dup[1] - b_dup[0])/2     #, dtype=float_
@@ -92,12 +232,14 @@ def fit_distribs(distribs, df, x=None, nbins=100, stream=None):
         dup_density = distrib.pdf(xdup, *fits[0])
         dup_density_nonzero = distrib.pdf(xdup, *fits[1])
         axes_dup.plot(xdup, dup_density,
-                      label=fmt_params(fits[0]))
+                      label=distrib_symbols.get(distrib.name, distrib.name)+fmt_fit(fits[0]))
         axes_dup.plot(xdup, dup_density_nonzero,
-                      label='dup>0 %s' % fmt_params(fits[1]))
+                      label=r'$\delta>0$ %s(%s)' % (
+                                distrib_symbols.get(distrib.name, distrib.name),
+                                fmt_fit(fits[1])))
         ax0top.legend()
-        ax0bottom.set_ylabel('% of gene trees')
-        ax0top.set_title('Duplication rates')
+        ax0bottom.set_ylabel("% d'arbres de gènes" if lang_fr else '% of gene trees')
+        ax0top.set_title(('Taux de duplication' if lang_fr else 'Duplication rates') + r' $\delta$')
 
         loss_density = distrib.pdf(xloss, *fits[2])
         loss_density_nodup = distrib.pdf(xloss, *fits[4])
@@ -111,21 +253,21 @@ def fit_distribs(distribs, df, x=None, nbins=100, stream=None):
               entropy(h_loss_nodup, loss_density_nodup)]
         # negative log-likelihood:
         nlL = [distrib.nnlf(fit, data) for fit, data in zip(fits, datas)]
-        aic = [2*len(fit) + 2*nll for fit, nll in zip(fits, nlL)]
+        aic = [2*distrib_k + 2*nll for nll in nlL]
 
         for info in zip(descriptions, kl, nlL, aic):
             print('%-14s:  KL = %8g;  -lL = %8g;  AIC = %g' % info, file=stream)
 
         axes_loss.plot(xloss, loss_density,
-                       label=fmt_params(fits[2]))
-        axes_loss.plot(xloss, loss_density_nodup,
-                       label='No dup %s' % fmt_params(fits[4]))
+                       label=fmt_fit(fits[2]))
         axes_loss.plot(xloss, loss_density_dup,
-                       label='dup>0 %s' % fmt_params(fits[3]))
+                       label=r'$\delta>0$ %s' % fmt_fit(fits[3]))
+        axes_loss.plot(xloss, loss_density_nodup,
+                       label=r'$\delta=0$ %s' % fmt_fit(fits[4]))
         ax1top.legend()
-        ax1top.set_title('Loss rates')
+        ax1top.set_title(('Taux de perte' if lang_fr else 'Loss rates') + r' $\lambda$')
         fig.suptitle('Fitting %s' % distrib.name)
-        logger.info('Fitted %s' % (distrib.name))
+        logger.info('Fitted %-16s [%2d/%d]' % (distrib.name, i, len(distribs)))
 
         yield fig, kl, nlL, aic
 
@@ -160,14 +302,15 @@ def filter_invalid_generax(df, out=None):
     print('Min Dup rate = %g  (%d gene trees)' % (min_dup, nodup.sum()), file=out)
     min_loss = df.lossrate.min()
     print('Min loss rate = %g  (%d gene trees)' % (min_loss, (df.lossrate == min_loss).sum()), file=out)
-    return df
+    return df, nodup
 
 
-def analysis_1_generax_withgamma():
+def analysis_1_generax_withgamma(lang_fr=True, dark=False):
     # First analyse output from GeneRax (1by1)
-    with HtmlReport(str(workdir / 'familyrates.html'), style=css_dark_style) as hr:
+    with HtmlReport(str(workdir / 'familyrates.html'),
+                    style=(css_dark_style if dark else None)) as hr:
         # Invalid values:
-        df = filter_invalid_generax(load_generax_familyrates(), out=hr)
+        df, nodup = filter_invalid_generax(load_generax_familyrates(), out=hr)
 
         fig, ((ax0top, ax1top), (ax0bottom, ax1bottom)) = plt.subplots(2, ncols=2)
         # Y axis with a broken scale : ---//---
@@ -180,7 +323,8 @@ def analysis_1_generax_withgamma():
 
         axes_loss = brokenAxes(ax1bottom, ax1top)
         ((_,heights), _, _), _ = axes_loss.hist((df.lossrate[nodup], df.lossrate[~nodup]),
-                                                label=['No dup', 'dup > 0'],
+                                                #label=['No dup', 'dup > 0'],
+                                                label=[r'$\delta=0$', r'$\delta>0$'],
                                                 bins=100, density=True, stacked=True)
         ymax = heights.max()
         axes_loss.dobreak(max(heights[heights<ymax]))
@@ -195,34 +339,37 @@ def analysis_1_generax_withgamma():
         xdup = np.linspace(*ax0bottom.get_xlim(), num=100)
         xloss = np.linspace(*ax1bottom.get_xlim(), num=100)
         axes_dup.plot(xdup, gamma.pdf(xdup, *dup_gamma),
-                      label='Gamma(%g, %g, %g)' % dup_gamma)
+                      label=r'$\Gamma(%g, %g, %g)$' % inverse_scale(dup_gamma))
         #ax0.annotate('Gamma(%g, %g, %g)' % dup_gamma, (1,1), (-2,-2),
         #             xycoords='axes fraction', textcoords='offset points',
         #             va='top', ha='right')
         axes_dup.plot(xdup, gamma.pdf(xdup, *dup_gamma_nonzero),
-                      label='dup>0 Gamma(%g, %g, %g)' % dup_gamma_nonzero)
+                      #label='dup>0 Gamma(%g, %g, %g)' % dup_gamma_nonzero)
+                      label=r'$\delta>0$ $\Gamma(%g, %g, %g)$' % inverse_scale(dup_gamma_nonzero))
         ax0top.legend()
-        ax0bottom.set_ylabel('% of gene trees')
-        ax0top.set_title('Duplication rates')
+        ax0bottom.set_ylabel("% d'arbres de gènes" if lang_fr else '% of gene trees')
+        ax0top.set_title(('Taux de duplication' if lang_fr else 'Duplication rates') + r' $\delta$')
 
         axes_loss.plot(xloss, gamma.pdf(xloss, *loss_gamma),
-                       label='Gamma(%g, %g, %g)' % loss_gamma)
+                       label=r'$\Gamma(%g, %g, %g)$' % loss_gamma)
         axes_loss.plot(xloss, gamma.pdf(xloss, *loss_gamma_nodup),
-                       label='No dup Gamma(%g, %g, %g)' % loss_gamma_nodup)
+                       label=r'$\delta=0$ $\Gamma(%g, %g, %g)$' % inverse_scale(loss_gamma_nodup))
         axes_loss.plot(xloss, gamma.pdf(xloss, *loss_gamma_dup),
-                       label='dup>0 Gamma(%g, %g, %g)' % loss_gamma_dup)
+                       label=r'$\delta>0$ $\Gamma(%g, %g, %g)$' % inverse_scale(loss_gamma_dup))
         #ax1.annotate('Gamma(%g, %g, %g)' % loss_gamma, (1,1), (-2,-2),
         #             xycoords='axes fraction', textcoords='offset points',
         #             va='top', ha='right')
         ax1top.legend()
-        ax1top.set_title('Loss rates')
+        ax1top.set_title(('Taux de perte' if lang_fr else 'Loss rates') + r' $\lambda$')
         logger.info('Fitted gamma distribs')
 
-        fig.savefig(str(workdir / 'hist_duploss.pdf'), bbox_inches='tight')
+        fig.savefig(str(workdir / ('fit_duploss_gamma%s.pdf' % ('_darkbg' if dark else ''))),
+                    bbox_inches='tight')
         hr.show()
 
         for dataset, data_params, data in zip(
-            ('dup', 'dup>0', 'loss', 'nodup loss', 'dup>0 loss'),
+            #('dup', 'dup>0', 'loss', 'nodup loss', 'dup>0 loss'),
+            (r'$\delta$', r'$\delta>0$', r'$\lambda$', r'$\lambda_{\delta=0}$', r'$\lambda_{\delta>0}$'),
             (dup_gamma, dup_gamma_nonzero, loss_gamma, loss_gamma_nodup, loss_gamma_dup),
             (df.duprate, df.duprate[~nodup], df.lossrate, df.lossrate[nodup], df.lossrate[~nodup])):
             hr.mkd(r'\\[ - lL(%s\\ params) = %g \\]' % (
@@ -237,13 +384,13 @@ def analysis_1_generax_withgamma():
 
         fig, axes = plt.subplots(ncols=2, squeeze=False)
         scatter_density('duprate', 'lossrate', data=df, alpha=0.4, ax=axes[0,0])
-        axes[0,0].set_xlabel('dup rate')
-        axes[0,0].set_ylabel('loss rate')
-        axes[0,0].set_title('Complete dataset', usetex=True)
+        axes[0,0].set_xlabel(r'$\delta$')
+        axes[0,0].set_ylabel(r'$\lambda$')
+        axes[0,0].set_title('Données complètes' if lang_fr else 'Complete dataset')
         scatter_density('duprate', 'lossrate', data=nonzerodup_df, alpha=0.4, ax=axes[0,1])
-        axes[0,1].set_xlabel('dup rate')
-        axes[0,1].set_ylabel('loss rate')
-        axes[0,1].set_title('Dataset with $\delta > 0$', usetex=True)
+        axes[0,1].set_xlabel(r'$\delta$')
+        axes[0,1].set_ylabel(r'$\lambda$')
+        axes[0,1].set_title(r'Données avec $\delta>0$' if lang_fr else r'Dataset with $\delta > 0$')
         hr.show()
         fig.savefig(str(workdir/'scatter_duploss.pdf'), bbox_inches='tight')
         logger.info('Plotted scatter of dup/loss (dup>0, untransformed)')
@@ -260,8 +407,8 @@ def analysis_1_generax_withgamma():
         transformed_df = nonzerodup_df.transform(suggested_transforms_nonzerodup)
         fig, ax = plt.subplots()
         scatter_density('duprate', 'lossrate', data=transformed_df, alpha=0.4, ax=ax)
-        ax.set_ylabel('%s(loss rate)' % suggested_transforms_nonzerodup['lossrate'].__name__)
-        ax.set_xlabel('%s(dup rates)' % suggested_transforms_nonzerodup['duprate'].__name__)
+        ax.set_ylabel(r'$\mathrm{%s}(\lambda)$' % suggested_transforms_nonzerodup['lossrate'].__name__)
+        ax.set_xlabel(r'$\mathrm{%s}(\delta)$' % suggested_transforms_nonzerodup['duprate'].__name__)
         hr.show()
         fig.savefig(str(workdir/'scatter_transformed-duploss.pdf'), bbox_inches='tight')
         logger.info('Plotted scatter of dup/loss (dup>0, transformed:%s,%s)',
@@ -274,15 +421,20 @@ def analysis_1_generax_withgamma():
         hr.output(fit.summary())
 
 
-def analysis_2_alldistribs():
-    with HtmlReport(str(workdir / 'familyrates_fitdistribs.html'), style=css_dark_style) as hr:
+def analysis_2_alldistribs(lang_fr=True, dark=False, restrict_distribs=True):
+    filesuffix = '_restricted' if restrict_distribs else ''
+    pd.set_option('display.show_dimensions', True)
+    with HtmlReport(str(workdir / 'familyrates_fitdistribs%s.html') % filesuffix,
+                    style=(css_dark_style if dark else None)) as hr:
         # Invalid values:
-        df = filter_invalid_generax(load_generax_familyrates(), out=hr)
+        df, nodup = filter_invalid_generax(load_generax_familyrates(), out=hr)
         hr.mkd('## Fitting other distributions')
 
         descriptions = ('dup', 'dup (>0)', 'loss', 'loss (dup>0)', 'loss (dup=0)')
+        descriptions_tex = (r'$\delta$', r'$\delta > 0$',
+                r'$\lambda$', r'$\lambda_{\delta\! >\! 0}$', r'$\lambda_{\delta\! =\! 0}$')
         #tested_distribs = (gamma, st.expon) #st.dgamma, st.exponweib),
-        tested_distribs = continuous_positive_distribs
+        tested_distribs = restricted_distribs[13:16] if restrict_distribs else continuous_positive_distribs
         #divide by zero: betaprime, exponweib, genpareto, invweibull, loglaplace, mielke, nakagami, ncf
         #invalid value: alpha
         # RuntimeWarning non-integer value: Erlang.
@@ -294,9 +446,10 @@ def analysis_2_alldistribs():
         # Gompertz (age-dependent proba of dying)
 
         all_kl, all_nlL, all_aic = [], [], []
-        with PdfPages('distrib_fits_duploss.pdf') as pdfdoc:
+        with PdfPages('distrib_fits_duploss%s.pdf' % filesuffix) as pdfdoc:
             for fig, kl, nlL, aic in fit_distribs(tested_distribs,
-                                             df, x=['duprate', 'lossrate'], stream=hr):
+                                         df, nodup, x=['duprate', 'lossrate'],
+                                         stream=hr, lang_fr=lang_fr, dark=dark):
                 hr.show(fig)
                 pdfdoc.savefig(fig, bbox_inches='tight', facecolor='k', transparent=True)
                 plt.close()
@@ -305,16 +458,49 @@ def analysis_2_alldistribs():
                 hr.flush()
         #logger.info('Saved all histograms.')
 
-        kl_df = pd.DataFrame(all_kl, columns=descriptions, index=[d.name for d in tested_distribs])
-        aic_df = pd.DataFrame(all_aic, columns=descriptions, index=[d.name for d in tested_distribs])
+        kl_df = pd.DataFrame(all_kl, columns=descriptions_tex,
+                             index=[distrib_realnames.get(d.name, d.name) for d in tested_distribs])
+        aic_df = pd.DataFrame(all_aic, columns=descriptions_tex,
+                              index=[distrib_realnames.get(d.name, d.name) for d in tested_distribs])
 
         fit_stats = pd.concat((kl_df, aic_df), axis=1, keys=['KL', 'AIC'],
                               verify_integrity=True)
         #fit_stats.format({'KL': '{:.5f}', 'AIC': '{:.2f}'})
-        hr.html(fit_stats.style.apply(bounded_background_gradient, cmap='bone_r',
-                                      subset=['KL'], bad='#707099', under='k', over='k')\
-                               .apply(bounded_background_gradient, cmap='gray_r',
-                                      subset=['AIC'], bad='#707099', under='k', over='k'))
+        logger.info('fit_stats.columns = %s', fit_stats.columns)
+        if fit_stats.index.has_duplicates:
+            logger.error('fit_stats.index has duplicates!')
+
+        cmapKL = plt.get_cmap('bone_r')
+        cmapKL.set_bad('#707099')
+        cmapKL.set_under('k')
+        cmapKL.set_over('k')
+
+        cmapAIC = plt.get_cmap('gray_r')
+        cmapAIC.set_bad('#707099')
+        cmapAIC.set_under('k')
+        cmapAIC.set_over('k')
+        #fig, (axKL, axAIC) = plt.subplots(ncols=2, hspace=0, sharey=True)
+        #print("fit_stats.xs('KL', axis=1) =\n" + str(fit_stats.xs('KL', axis=1)))
+        logger.debug("Pandas option 'display.html.use_mathjax': %s" % pd.get_option('display.html.use_mathjax'))
+        fig, axKL = plt.subplots()
+        _, cbar = matplotlib_background_gradient(
+                    #fit_stats.transpose().xs('KL'),
+                    fit_stats.xs('KL', axis=1),
+                    cmapKL, axis=0, ax=axKL)
+        #axKL.set_title('Kullback-Leibler divergences from observed distribution')
+        fig.set_size_inches(5, 7)
+        fig.savefig(str(workdir / 'distrib_KL_duploss%s.pdf') % filesuffix, bbox_inches='tight')
+        fig.savefig(str(workdir / 'distrib_KL_duploss%s.png') % filesuffix, bbox_inches='tight')
+        hr.mkd('\n![Kullback-Leibler divergences](%s)\n' % (
+               str(workdir / 'distrib_KL_duploss%s.png') % filesuffix))
+
+        #fit_stats.set_axis(['\n'.join(colname) for colname in fit_stats.columns.to_list()],
+        #                   axis=1, inplace=True)
+        hr.html(fit_stats.rename(lambda n: n.replace('$', '$$'), axis=1, level=1)\
+                        .style.apply(bounded_background_gradient, cmap='bone_r',
+                                     subset=['KL'], bad='#707099', under='k', over='k')\
+                              .apply(bounded_background_gradient, cmap='gray_r',
+                                     subset=['AIC'], bad='#707099', under='k', over='k'))
 
     # CCL: Best ones:
     # - dup:    + chi, gengamma, pareto, powerlognorm, recipinvgauss (good KL, badAIC), ~expon
@@ -325,7 +511,7 @@ def analysis_2_alldistribs():
     # - do we really want truncexpon...?
     # - gengamma > {weibull, gamma}
 
-    fit_stats.to_csv('distrib_fits_duploss.csv', sep='\t')
+    fit_stats.to_csv('distrib_fits_duploss%s.csv' % filesuffix, sep='\t')
     #TODO: analyse the eventCounts as well.
 
 common_info = ['genetree']
@@ -373,15 +559,15 @@ dataset_params_dS = ['freq_null_dS', 'null_dS_before', 'null_dS_after']
 rate_params_dS = ['dS_rate_local', 'dS_rate_std_local', 'dS_rate_nonlocal', 'dS_rate_std_nonlocal']
 
 
-def analysis_3_regress_duprates():
+def analysis_3_regress_duprates(lang_fr=True, dark=False):
     """2020/02/24"""
     loggers[0].setLevel(logging.DEBUG)
     with reroute_loggers(
             HtmlReport(str(workdir / 'familyrates_correlates-tree-al.html'),
-                       style=css_dark_style, css=[myslideshow_css],
+                       style=(css_dark_style if dark else None), css=[myslideshow_css],
                        scripts=[myslideshow_js], external_content=True),
             loggers) as hr:
-        df = filter_invalid_generax(load_generax_familyrates(), out=hr)
+        df, nodup = filter_invalid_generax(load_generax_familyrates(), out=hr)
 
         all_stattypes = ('tree', 'al', 'codeml', 'cleaning', 'alfsa',
                          'codemlfsa', 'cleaningfsa', 'beastS', 'alfsahmmc', 'codemlfsahmmc')
@@ -447,11 +633,16 @@ if __name__ == '__main__':
         colorlog.ColoredFormatter.install(logger)
     except ImportError:
         logging.basicConfig()
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
+    logging.getLogger('datasci.dataframe_recipees').setLevel(logging.DEBUG)
 
     #workdir = op.expanduser('~/ws7/DUPLI_data93/alignments_analysis/duprates')
     workdir = Path.home().joinpath('ws7', 'DUPLI_data93', 'alignments_analysis', 'duprates')
 
     #analysis_1_generax_withgamma()
     #analysis_2_alldistribs()
-    reg = analysis_3_regress_duprates()
+    # 2020/02/24:
+    #reg = analysis_3_regress_duprates()
+
+    # 2020/05/20:
+    analysis_2_alldistribs()

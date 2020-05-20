@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import rgb2hex, to_rgba, Colormap, Normalize
 from matplotlib.cm import get_cmap
 from IPython.display import display_html
+import logging
+logger = logging.getLogger(__name__)
 
 # Copied from Pandas.io.formats.style.Styler._background_gradient:
 def relative_luminance(rgba):
@@ -53,7 +55,10 @@ def centered_background_gradient(s, cmap='PRGn', center=0, extend=0):
 
 def bounded_background_gradient(s, cmap='PRGn', vmin=None, vmax=None, extend=0,
                                 bad='gray', under='k', over='w'):
-    """Drop NaN and Inf before computing vmin and vmax."""
+    """Drop NaN and Inf before computing vmin and vmax.
+
+    DEPRECATED: Pandas v.1.0.0 introduced vmin and vmax in pd.style.background_gradient.
+    """
     sfinite = np.isfinite(s)
     if vmin is None:
         vmin = s[sfinite].min()
@@ -209,14 +214,27 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
                                    cbar_kw=None, textalpha=0.8, **style_kwargs):
     #data = styled_data.data.xs('adjR2', axis=1, level=1)  # select from multiIndex
     orig_data = data
+    finitedata = np.ma.MaskedArray(data.values, ~np.isfinite(data.values))
+
     if axis in (0, 1):
         broadcast_axis = 1 - axis
-        data = data.subtract(data.min(axis=axis), broadcast_axis)\
-                   .div(np.ptp(data.values, axis=axis), axis=broadcast_axis)
+        data = data.subtract(finitedata.min(axis=axis), broadcast_axis)\
+                   .div(np.ptp(finitedata, axis=axis), axis=broadcast_axis)
+        norm = Normalize(0, 1)
+    else:
+        norm = Normalize(finitedata.min(), finitedata.max())
+
     #im = plt.imshow(data, cmap=cmap, aspect='auto', interpolation='none'); ax = plt.gca()
-    #pcolor is the most precise on rectangle boundaries
+    # pcolor is the most precise on rectangle boundaries
+    # pcolormesh show the over/under/bad rectangles.
+    if finitedata.mask.any():
+        # pcolor is transparent for masked data, so we need to replot it.
+        pcolormesh = plt.pcolormesh if ax is None else ax.pcolormesh
+        pcolormesh(data.values, cmap=cmap, norm=norm, edgecolors='', snap=True)
+        # Interprets Inf as NaN...
     pcolor = plt.pcolor if ax is None else ax.pcolor
-    im = pcolor(data, cmap=cmap, edgecolors='', snap=True)
+    im = pcolor(data.values, cmap=cmap, norm=norm, edgecolors='', snap=True)
+    
     if ax is None:
         ax = plt.gca()
     ax.invert_yaxis()
@@ -242,29 +260,49 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
     #fig.colorbar(im)
 
     # Now, fix the text color according to the background color (copy from Pandas style)
-    styled_data = orig_data.style.background_gradient(cmap=cmap, axis=axis, **style_kwargs)
-    styled_data.render()  # To get the text colors.
+    #styled_data = orig_data.style.background_gradient(cmap=cmap, axis=axis, **style_kwargs)
+    #styled_data.render()  # To get the text colors.
     #print(styled_data.ctx)
 
     cell_txts = []
+    cmap = plt.get_cmap(cmap)
+    #facecolors = im.get_facecolors()
+    #i = 0
     for x,xt in enumerate(xticks):
         for y,yt in enumerate(yticks):
-            attributes = styled_data.ctx[(y, x)]  # if it's not a MultiIndex
-            dict_attr = dict(t.split(':') for t in attributes)
-            try:
-                textcolor = to_rgba(dict_attr['color'].strip())
-            except KeyError as err:
-                err.args += ((y, x), attributes)
-                raise
+            #attributes = styled_data.ctx[(y, x)]  # if it's not a MultiIndex
+            #dict_attr = dict(t.split(':') for t in attributes)
+            #try:
+            #    textcolor = to_rgba(dict_attr['color'].strip())
+            #except KeyError as err:
+            #    err.args += ((y, x), attributes)
+            #    raise
+
+            # Alternative not relying on Pandas
+            #if np.isposinf(orig_data.iloc[y,x]):
+            color = cmap(norm(data.iloc[y,x]))
+            if np.isinf(orig_data.iloc[y,x]):
+                logger.debug('Color for original %g: %s (data=%g)', orig_data.iloc[y,x], color, data.iloc[y,x])
+            textcolor = '#333333' if relative_luminance(color)>0.408 else '#cccccc'
             cell_txts.append(
                     ax.text(xt, yt, float_fmt % orig_data.iloc[y,x],
                             color=textcolor, va='center', ha='center',
                             alpha=textalpha))
 
     if cbar:
+        extend = 'neither'
+        if (data.values[~np.isnan(data.values)] < norm.vmin).any():
+            extend = 'min'
+            #logger.info('Matrix value %s < vmin %g',
+            #            ft_cov[~np.isnan(ft_cov) & (ft_cov<norm.vmin)].max(), norm.vmin)
+        if (data.values[~np.isnan(data.values)] > norm.vmax).any():
+            extend = 'both' if extend=='min' else 'max'
+            #logger.info('Matrix value %s > vmax %g',
+            #            ft_cov[~np.isnan(ft_cov) & (ft_cov>norm.vmax)].min(), norm.vmax)
+
         orient = 'horizontal' if axis==1 else 'vertical'
-        cbar_kw = {'fraction':0.05, 'pad':0.03, 'aspect':40,
-                    **({} if cbar_kw is None else cbar_kw)}
+        cbar_kw = {'fraction': 0.05, 'pad': 0.03, 'aspect': 40, 'extend': extend,
+                   **({} if cbar_kw is None else cbar_kw)}
         cbar = plt.colorbar(im, orientation=orient, **cbar_kw)
         if axis is not None:
             cbar.set_ticks([0, 1])
