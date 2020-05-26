@@ -27,6 +27,8 @@ from duprates.optim_gamma import inverse_scale #, gamma_negloglikelihood
 from codeml.analyse.regress_dating_errors import *
 import codeml.analyse.regress_dating_errors as aregr
 
+from LibsDyogen import myPhylTree
+
 
 float_ = np.longdouble  # Global precision set here.
 
@@ -55,10 +57,15 @@ import seaborn as sb
 mpl.rcParams['figure.figsize'] = (12,7)
 #myslideshow_js = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.js') 
 #myslideshow_css = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.css') 
+
 # Run from '~glouvel/ws7/DUPLI_data93/alignments_analysis/duprates/'
+
+#workdir = op.expanduser('~/ws7/DUPLI_data93/alignments_analysis/duprates')
+workdir = Path.home().joinpath('ws7', 'DUPLI_data93', 'alignments_analysis', 'duprates')
+
+# Important: keep relative paths here.
 myslideshow_js = Path('../../../../').joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.js') 
 myslideshow_css = Path('../../../../').joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.css') 
-
 
 continuous_distribs = [d for dname, d in sorted(vars(st).items())
                        if isinstance(d, st.rv_continuous)]
@@ -74,18 +81,18 @@ st.exponpow,
 st.fisk,
 st.foldcauchy,
 st.foldnorm,
-st.halfcauchy,
-st.halfnorm,
+#st.halfcauchy,  # Special case of foldcauchy
+#st.halfnorm,    # Special case of foldnorm
 st.gompertz,
 st.gamma,
-st.gengamma,
+st.gengamma,     # > weibull, gamma, expon, halfnorm...
 st.invgamma,
 st.invgauss,
 st.pareto,
 st.genpareto,
 st.weibull_min,
 st.exponweib,
-st.invweibull
+st.invweibull    # = Fréchet
 ]
 # Check all default loc parameter values (expect zero):
 #getloc_reg = re.compile(r'^\s+pdf\(.*(loc=[^,]+).*\)', re.M)
@@ -103,7 +110,7 @@ distrib_realnames = {'betaprime': 'Beta prime',
     'chi': 'Chi',
     'chi2': 'Chi²',
     'expon': 'Exponential',
-    'exponpow': 'Exponential power',
+    'exponpow': 'Exponential power',  # (Generalised Gaussian)
     'fisk': 'Log-logistic (Fisk)',
     'foldcauchy': 'Folded Cauchy',
     'foldnorm': 'Folded normal',
@@ -120,37 +127,54 @@ distrib_realnames = {'betaprime': 'Beta prime',
     'exponweib': 'Exponential Weibull',
     'invweibull': 'Inverted Weibull'
     }
+distrib_realnames_fr = {'betaprime': 'Beta prime',
+    'chi': 'Chi',
+    'chi2': 'Chi²',
+    'expon': 'Exponentielle',
+    'exponpow': 'Exponentielle puissance',  # (Generalised Gaussian)
+    'fisk': 'Log-logistique (Fisk)',
+    'foldcauchy': 'Cauchy repliée',
+    'foldnorm': 'Normale repliée',
+    'halfcauchy': 'Demi-Cauchy',
+    'halfnorm': 'Demi-normale',
+    'gompertz': 'Gompertz',
+    'gamma': 'Gamma',
+    'gengamma': 'Gamma généralisée',
+    'invgamma': 'Gamma inverse',
+    'invgauss': 'Gaussienne inverse',
+    'pareto': 'Pareto',
+    'genpareto': 'Pareto généralisée',
+    'weibull_min': 'Weibull',
+    'exponweib': 'Weibull exponentielle',
+    'invweibull': 'Fréchet'
+    }
 
 distrib_symbols = {'betaprime': r"$\beta'$",
     'chi': r'$\chi$',
     'chi2': r'$\chi^2$',
     'expon': r'$\mathcal{E}$',  # Might require special latex package
-    'exponpow': 'Exponential power',
-    'fisk': 'Log-logistic (Fisk)',
+    'exponpow': 'Expon. power',
+    'fisk': 'Fisk',
     'foldcauchy': 'Folded Cauchy',
     'foldnorm': 'Folded normal',
     'halfcauchy': 'Half Cauchy',
     'halfnorm': 'Half normal',
     'gompertz': 'Gompertz',
     'gamma': r'$\Gamma$',
-    'gengamma': 'Generalised Gamma',
-    'invgamma': 'Inverted Gamma',
-    'invgauss': 'Inverse Gaussian',
+    'gengamma': r'Generalised $\Gamma$',
+    'invgamma': r'$Inv-\Gamma$',
+    'invgauss': 'Inv-Gaussian',
     'pareto': 'Pareto',
     'genpareto': 'Generalised Pareto',
-    'weibull_min': 'Weibull',
-    'exponweib': 'Exponential Weibull',
-    'invweibull': 'Inverted Weibull'
+    'weibull_min': 'Weib',
+    'exponweib': 'Exp Weib',
+    'invweibull': 'Inv-Weib'
     }
 
-always_estimate_loc = set(('pareto'))  # Loc param > 0
+#always_estimate_loc = set(('pareto',))  # Loc param > 0
+strictly_positive_distribs = set((d for d in continuous_positive_distribs
+                                  if d.a > 0))  # Includes only Pareto as of Scipy v1.4.1
 
-### TODO:
-#   - get rid of over-general distribs (gengamma, genpareto, etc) and *truncexpon*, and erlang.
-#   - print $k$ (nb of params)
-#   - change fig legend: parameter names, ~~duprates~~ -> Taux de duplication.
-#   - Make table/heatmap of a few interesting distributions
-#   - Constrain loc parameter to be zero.
 
 def fmt_params(distrib, params, prec=4, scalename='s', floc=None, sep=', '):
     fmt='%%s=%%.%dg' % prec
@@ -162,7 +186,7 @@ def fmt_params(distrib, params, prec=4, scalename='s', floc=None, sep=', '):
         # Do not display the loc parameter since it is fixed.
         params = params[:-2] + params[-1:]
         del param_names[-2]
-    return '(' + sep.join(fmt % px for px in zip(param_names, params)) + ')'
+    return sep.join(fmt % px for px in zip(param_names, params))
 
 
 def fmt_params_gamma(params, prec=4, floc=None, sep=', '):
@@ -179,6 +203,7 @@ def fit_distribs(distribs, df, nodup, x=None, nbins=100, stream=None, lang_fr=Tr
     floc: fix the location parameter when fitting.
     """
     if dark: plt.style.use('softdark')  # Also see the default 'dark_background'
+    dist_realnames = distrib_realnames_fr if lang_fr else distrib_realnames
     if x is None:
         x = df.columns.tolist()
     ncols = len(x)  # controling x is NotImplemented
@@ -189,14 +214,18 @@ def fit_distribs(distribs, df, nodup, x=None, nbins=100, stream=None, lang_fr=Tr
             df.lossrate[~nodup].values,
             df.lossrate[nodup].values)
     for i, distrib in enumerate(distribs, start=1):
-        #floc = None if distrib.name in always_estimate_loc else fix_loc
-        floc = fix_loc
+        floc = fix_loc #floc = None if distrib in strictly_positive_distribs else fix_loc
+        # TODO: fix loc for Pareto for datas[1]
+        fit_kw = {} if floc is None else {'floc': floc}
         fmt_fit = (partial(fmt_params_gamma, floc=floc) if distrib.name == 'gamma'
                    else partial(fmt_params, distrib, floc=floc))
-        distname = distrib_realnames.get(distrib.name)
-        distname = '%s (%s)' % (distname, distrib.name) if distname else distrib.name
+        distname = dist_realnames.get(distrib.name)
+        distname = '%s (%s)' % (distname, distrib.name) if distname else distrib.name.capitalize()
         distrib_k = distrib.numargs+2 if floc is None else distrib.numargs+1
         # Followed by nb of params: numargs(shapes) + loc + scale.
+        #if distrib.name == 'pareto':
+        #    logger.debug('Pareto: fix_loc=%s floc=%s in_always_est=%s fit_kw=%s',
+        #            fix_loc, floc, distrib.name in always_estimate_loc, fit_kw)
         
         print('### %s k=%d' % (distname, distrib_k), file=stream)
         fig, ((ax0top, ax1top), (ax0bottom, ax1bottom)) = plt.subplots(2, ncols=ncols)
@@ -215,13 +244,13 @@ def fit_distribs(distribs, df, nodup, x=None, nbins=100, stream=None, lang_fr=Tr
                                                      df.lossrate[nodup]),
                                                 #label=['No dup', 'dup > 0'],
                                     label=[
-                                        r'$\lambda_{\delta>0}$ observ' + ('é' if lang_fr else 'ed'),
-                                        r'$\lambda_{\delta=0}$ observ' + ('é' if lang_fr else 'ed')],
+                                        r'$\lambda_{\delta\! >\! 0}$ observ' + ('é' if lang_fr else 'ed'),
+                                        r'$\lambda_{\delta\! =\! 0}$ observ' + ('é' if lang_fr else 'ed')],
                                     bins=nbins, density=True, stacked=True)
         ymax = h_loss.max()
         axes_loss.dobreak(max(h_loss[h_loss<ymax]))
 
-        fits = [distrib.fit(data, floc=floc) for data in datas]
+        fits = [distrib.fit(data, **fit_kw) for data in datas]
         if len(fits[0]) != distrib.numargs + 2:
             logger.error('Unexpected difference in nb params: theo %d VS fitted %d',
                          distrib.numargs+2, len(fits[0]))
@@ -232,9 +261,10 @@ def fit_distribs(distribs, df, nodup, x=None, nbins=100, stream=None, lang_fr=Tr
         dup_density = distrib.pdf(xdup, *fits[0])
         dup_density_nonzero = distrib.pdf(xdup, *fits[1])
         axes_dup.plot(xdup, dup_density,
-                      label=distrib_symbols.get(distrib.name, distrib.name)+fmt_fit(fits[0]))
+                      label='%s(%s)' % (distrib_symbols.get(distrib.name, distrib.name.capitalize()),
+                                        fmt_fit(fits[0])))
         axes_dup.plot(xdup, dup_density_nonzero,
-                      label=r'$\delta>0$ %s(%s)' % (
+                      label=r'%s(%s)  $\delta\! >\! 0$' % (
                                 distrib_symbols.get(distrib.name, distrib.name),
                                 fmt_fit(fits[1])))
         ax0top.legend()
@@ -254,22 +284,24 @@ def fit_distribs(distribs, df, nodup, x=None, nbins=100, stream=None, lang_fr=Tr
         # negative log-likelihood:
         nlL = [distrib.nnlf(fit, data) for fit, data in zip(fits, datas)]
         aic = [2*distrib_k + 2*nll for nll in nlL]
+        ks, ks_p = zip(*[st.kstest(data, distrib(*fit).cdf, N=nbins) for fit, data
+                         in zip(fits, datas)])
 
-        for info in zip(descriptions, kl, nlL, aic):
-            print('%-14s:  KL = %8g;  -lL = %8g;  AIC = %g' % info, file=stream)
+        for info in zip(descriptions, kl, nlL, aic, ks, ks_p):
+            print('%-14s: KL = %8.6f;  -lL = %8.1f;  AIC = %7.0f;  KS = %8.6g p=%-8g' % info, file=stream)
 
         axes_loss.plot(xloss, loss_density,
                        label=fmt_fit(fits[2]))
         axes_loss.plot(xloss, loss_density_dup,
-                       label=r'$\delta>0$ %s' % fmt_fit(fits[3]))
+                       label=r'%s  $\delta\!>\!0$' % fmt_fit(fits[3]))
         axes_loss.plot(xloss, loss_density_nodup,
-                       label=r'$\delta=0$ %s' % fmt_fit(fits[4]))
+                       label=r'%s  $\delta\!=\!0$' % fmt_fit(fits[4]))
         ax1top.legend()
         ax1top.set_title(('Taux de perte' if lang_fr else 'Loss rates') + r' $\lambda$')
         fig.suptitle('Fitting %s' % distrib.name)
         logger.info('Fitted %-16s [%2d/%d]' % (distrib.name, i, len(distribs)))
 
-        yield fig, kl, nlL, aic
+        yield fig, kl, nlL, aic, ks, ks_p
 
 
 def load_generax_familyrates():
@@ -421,11 +453,15 @@ def analysis_1_generax_withgamma(lang_fr=True, dark=False):
         hr.output(fit.summary())
 
 
-def analysis_2_alldistribs(lang_fr=True, dark=False, restrict_distribs=True):
+def analysis_2_alldistribs(lang_fr=True, dark=False, restrict_distribs=True,
+        fix_loc=0):
     filesuffix = '_restricted' if restrict_distribs else ''
+    if fix_loc is None: filesuffix += '_nofloc'
+    dist_realnames = distrib_realnames_fr if lang_fr else distrib_realnames
     pd.set_option('display.show_dimensions', True)
     with HtmlReport(str(workdir / 'familyrates_fitdistribs%s.html') % filesuffix,
-                    style=(css_dark_style if dark else None)) as hr:
+                    style=(css_dark_style if dark else None),
+                    css=[myslideshow_css], scripts=[myslideshow_js]) as hr:
         # Invalid values:
         df, nodup = filter_invalid_generax(load_generax_familyrates(), out=hr)
         hr.mkd('## Fitting other distributions')
@@ -434,7 +470,7 @@ def analysis_2_alldistribs(lang_fr=True, dark=False, restrict_distribs=True):
         descriptions_tex = (r'$\delta$', r'$\delta > 0$',
                 r'$\lambda$', r'$\lambda_{\delta\! >\! 0}$', r'$\lambda_{\delta\! =\! 0}$')
         #tested_distribs = (gamma, st.expon) #st.dgamma, st.exponweib),
-        tested_distribs = restricted_distribs[13:16] if restrict_distribs else continuous_positive_distribs
+        tested_distribs = restricted_distribs if restrict_distribs else continuous_positive_distribs
         #divide by zero: betaprime, exponweib, genpareto, invweibull, loglaplace, mielke, nakagami, ncf
         #invalid value: alpha
         # RuntimeWarning non-integer value: Erlang.
@@ -445,63 +481,91 @@ def analysis_2_alldistribs(lang_fr=True, dark=False, restrict_distribs=True):
         # log-logistique (=Fisk)
         # Gompertz (age-dependent proba of dying)
 
-        all_kl, all_nlL, all_aic = [], [], []
+        all_kl, all_nlL, all_aic, all_ks, all_ks_p = [], [], [], [], []
         with PdfPages('distrib_fits_duploss%s.pdf' % filesuffix) as pdfdoc:
-            for fig, kl, nlL, aic in fit_distribs(tested_distribs,
+            for _, (fig, kl, nlL, aic, ks, ks_p) in zip(
+                    generate_slideshow(hr, len(tested_distribs)),
+                    fit_distribs(tested_distribs,
                                          df, nodup, x=['duprate', 'lossrate'],
-                                         stream=hr, lang_fr=lang_fr, dark=dark):
+                                         stream=hr, lang_fr=lang_fr, dark=dark,
+                                         fix_loc=fix_loc)):
                 hr.show(fig)
                 pdfdoc.savefig(fig, bbox_inches='tight', facecolor='k', transparent=True)
                 plt.close()
                 all_kl.append(kl)
                 all_aic.append(aic)
+                all_ks.append(ks)
+                all_ks_p.append(ks_p)
                 hr.flush()
         #logger.info('Saved all histograms.')
 
         kl_df = pd.DataFrame(all_kl, columns=descriptions_tex,
-                             index=[distrib_realnames.get(d.name, d.name) for d in tested_distribs])
+                             index=[dist_realnames.get(d.name, d.name.capitalize()) for d in tested_distribs])
         aic_df = pd.DataFrame(all_aic, columns=descriptions_tex,
-                              index=[distrib_realnames.get(d.name, d.name) for d in tested_distribs])
+                              index=[dist_realnames.get(d.name, d.name.capitalize()) for d in tested_distribs])
+        ks_df = pd.DataFrame(all_ks, columns=descriptions_tex,
+                             index=[dist_realnames.get(d.name, d.name.capitalize()) for d in tested_distribs])
+        ks_p_df = pd.DataFrame(all_ks_p, columns=descriptions_tex,
+                             index=[dist_realnames.get(d.name, d.name.capitalize()) for d in tested_distribs])
 
         fit_stats = pd.concat((kl_df, aic_df), axis=1, keys=['KL', 'AIC'],
                               verify_integrity=True)
+        fit_stats.rename(dict(zip(descriptions_tex, descriptions)), axis=1, level=1).to_csv('distrib_fits_duploss%s.csv' % filesuffix, sep='\t')
+
+        ks_stats = pd.concat((ks_df, ks_p_df), axis=1, keys=['stat', 'Pval'],
+                             verify_integrity=True)
+        ks_stats.rename(dict(zip(descriptions_tex, descriptions)), axis=1, level=1).to_csv('distrib_KS_duploss%s.csv' % filesuffix, sep='\t')
+
         #fit_stats.format({'KL': '{:.5f}', 'AIC': '{:.2f}'})
         logger.info('fit_stats.columns = %s', fit_stats.columns)
         if fit_stats.index.has_duplicates:
             logger.error('fit_stats.index has duplicates!')
 
+
         cmapKL = plt.get_cmap('bone_r')
         cmapKL.set_bad('#707099')
         cmapKL.set_under('k')
         cmapKL.set_over('k')
-
         cmapAIC = plt.get_cmap('gray_r')
         cmapAIC.set_bad('#707099')
         cmapAIC.set_under('k')
         cmapAIC.set_over('k')
+
+        hr.html(fit_stats.rename(lambda n: n.replace('$', '$$'), axis=1, level=1)\
+                        .style.apply(bounded_background_gradient, cmap=cmapKL,
+                                     subset=['KL'])\
+                              .apply(bounded_background_gradient, cmap=cmapAIC,
+                                     subset=['AIC']))
+        hr.raw('\n<br />\n')
+        hr.html(ks_stats.rename(lambda n: n.replace('$', '$$'), axis=1, level=1)\
+                        .style.apply(bounded_background_gradient, cmap=cmapKL,
+                                     subset=['stat'])\
+                              .apply(bounded_background_gradient, cmap=cmapAIC,
+                                     subset=['Pval']))
         #fig, (axKL, axAIC) = plt.subplots(ncols=2, hspace=0, sharey=True)
         #print("fit_stats.xs('KL', axis=1) =\n" + str(fit_stats.xs('KL', axis=1)))
-        logger.debug("Pandas option 'display.html.use_mathjax': %s" % pd.get_option('display.html.use_mathjax'))
         fig, axKL = plt.subplots()
         _, cbar = matplotlib_background_gradient(
                     #fit_stats.transpose().xs('KL'),
                     fit_stats.xs('KL', axis=1),
                     cmapKL, axis=0, ax=axKL)
         #axKL.set_title('Kullback-Leibler divergences from observed distribution')
-        fig.set_size_inches(5, 7)
+        fig.set_size_inches((5, 7) if restrict_distribs else (5, 12))
         fig.savefig(str(workdir / 'distrib_KL_duploss%s.pdf') % filesuffix, bbox_inches='tight')
         fig.savefig(str(workdir / 'distrib_KL_duploss%s.png') % filesuffix, bbox_inches='tight')
-        hr.mkd('\n![Kullback-Leibler divergences](%s)\n' % (
-               str(workdir / 'distrib_KL_duploss%s.png') % filesuffix))
+        hr.mkd('\n![Kullback-Leibler divergences](%s)\n' % ('distrib_KL_duploss%s.png' % filesuffix))
 
-        #fit_stats.set_axis(['\n'.join(colname) for colname in fit_stats.columns.to_list()],
-        #                   axis=1, inplace=True)
-        hr.html(fit_stats.rename(lambda n: n.replace('$', '$$'), axis=1, level=1)\
-                        .style.apply(bounded_background_gradient, cmap='bone_r',
-                                     subset=['KL'], bad='#707099', under='k', over='k')\
-                              .apply(bounded_background_gradient, cmap='gray_r',
-                                     subset=['AIC'], bad='#707099', under='k', over='k'))
-
+        fig, axKS = plt.subplots()
+        _, cbar = matplotlib_background_gradient(
+                    #fit_stats.transpose().xs('KL'),
+                    ks_stats.xs('stat', axis=1),
+                    cmapKL, axis=0, ax=axKS)
+        axKS.set_title('Kolmogorov-Smirnov statistic')
+        fig.set_size_inches((5, 7) if restrict_distribs else (5, 12))
+        fig.savefig(str(workdir / 'distrib_KS_duploss%s.pdf') % filesuffix, bbox_inches='tight')
+        fig.savefig(str(workdir / 'distrib_KS_duploss%s.png') % filesuffix, bbox_inches='tight')
+        hr.mkd('\n![Kolmogorov-Smirnov statistic](%s)\n' % ('distrib_KS_duploss%s.png' % filesuffix))
+    
     # CCL: Best ones:
     # - dup:    + chi, gengamma, pareto, powerlognorm, recipinvgauss (good KL, badAIC), ~expon
     #           - gompertz looks good but has high KL and high AIC. Nakagami looks good.
@@ -510,8 +574,7 @@ def analysis_2_alldistribs(lang_fr=True, dark=False, restrict_distribs=True):
     # NOTE:    
     # - do we really want truncexpon...?
     # - gengamma > {weibull, gamma}
-
-    fit_stats.to_csv('distrib_fits_duploss%s.csv' % filesuffix, sep='\t')
+    #
     #TODO: analyse the eventCounts as well.
 
 common_info = ['genetree']
@@ -559,11 +622,42 @@ dataset_params_dS = ['freq_null_dS', 'null_dS_before', 'null_dS_after']
 rate_params_dS = ['dS_rate_local', 'dS_rate_std_local', 'dS_rate_nonlocal', 'dS_rate_std_nonlocal']
 
 
+workspace = Path.home() / 'ws7'
+phyltree = myPhylTree.PhylogeneticTree(str(workspace / 'DUPLI_data93/PhylTree.TimeTree201901.Ensembl93-like.goodQual.nwk'))
+timetree_ages_CI = pd.read_csv(str(workspace / 'databases/timetree/Primates_conf-int_201909.txt'),
+                       sep='\s+', header=None, index_col=0,
+                       names=['taxon', 'timetree_CI95_inf', 'timetree_CI95_sup'])#.rename_axis(index='taxon')
+dosreis_ages_CI = pd.read_csv(
+        str(workspace / 'databases/DosReis2018_Primates-timescale/Primates_dates.tsv'),
+        sep='\t', header=0, index_col=0, keep_default_na=False)
+
+ordered_simii_anc = ['Platyrrhini',
+                     'Cebidae',
+                     'Catarrhini',
+                     'Cercopithecidae',
+                     'Cercopithecinae',
+                     'Papionini',
+                     'Macaca',
+                     'Hominoidea',
+                     'Hominidae',
+                     'Homininae',
+                     'HomoPan',
+                     'Pan']
+extra_primates = ['Simiiformes', 'Primates', 'Strepsirrhini', 'Lemuriformes']
+calibrations = pd.concat((pd.Series([phyltree.ages[anc] for anc in ordered_simii_anc+extra_primates],
+                                    index=ordered_simii_anc+extra_primates,
+                                    name='timetree_age'),
+                          timetree_ages_CI,
+                          dosreis_ages_CI.drop('synonym', 1)
+                 ),
+                 axis=1, sort=False)
+
+
 def analysis_3_regress_duprates(lang_fr=True, dark=False):
     """2020/02/24"""
     loggers[0].setLevel(logging.DEBUG)
     with reroute_loggers(
-            HtmlReport(str(workdir / 'familyrates_correlates-tree-al.html'),
+            HtmlReport(str(workdir / 'familyrates_correlates.html'),
                        style=(css_dark_style if dark else None), css=[myslideshow_css],
                        scripts=[myslideshow_js], external_content=True),
             loggers) as hr:
@@ -571,8 +665,7 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
 
         all_stattypes = ('tree', 'al', 'codeml', 'cleaning', 'alfsa',
                          'codemlfsa', 'cleaningfsa', 'beastS', 'alfsahmmc', 'codemlfsahmmc')
-        stattypes = ('tree', 'alfsa') #, 'codemlfsa', 'cleaningfsa')
-        #TODO: run codeml and cleaning for non-robusts.
+        stattypes = ('tree', 'alfsa', 'codemlfsa', 'cleaning')
         ss = load_subtree_stats(
                 "../subtrees_stats/subtreesGoodQualO2_{stattype}stats-Simiiformes.tsv",
                 stattypes=stattypes)
@@ -585,19 +678,31 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
 
         # I just need Ndup and Nspe
         #for fsa, there are only the robust...
-        #ages_file = '../ages/Simiiformes-robusts_m1w04-fsa_ages.subtreesGoodQualO2-ci-um1.tsv.bz2'
-        ages_file = '../ages/Simiiformes_m1w04_ages.subtreesGoodQualO2-ci-um1.tsv.bz2'
-        ages_treestats, ns = load_prepare_ages(ages_file, ss[0], measures=['dS'])
-        #features.append('Ndup')
+        #ages_file = '../ages/Simiiformes_m1w04_ages.subtreesGoodQualO2-ci-um1.tsv.bz2'
+        ages_file = '../ages/Simiiformes_m1w04-fsa_ages.subtreesGoodQualO2-ci-um1.tsv.bz2'
+        #ages_treestats, ns = load_prepare_ages(ages_file, ss[0], measures=['dS'])
 
-        alls = pd.concat(([df.set_index('subgenetree'), ns[['Ndup', 'Nspe']]]
-                           + [sdata[stat_params.get(stype,
+        print('\n# Loading ages: m1w04-fsa -c%s-%s' %('i', 'um1'), file=hr)
+        analysis_fsa = analyse_age_errors(ages_file,
+                                        'Simiiformes', phyltree,
+                                        calibrations, ss[0], measures=['dS'], #'dN', 't', 'dist'],
+                                        control_names=['timetree', 'dosreis'],
+                                        out=hr)
+        #hr.html(analysis_fsa.control_brlen)
+        analysis_fsa.ages_controled_withnonrobust = analysis_fsa.ages_controled_withnonrobust.join(
+                pd.read_csv('../ages/Simiiformes_m1w04-fsa-hmmc_star-branch-dS.subtreesGoodQualO2.tsv.bz2',
+                            sep='\t', index_col=0), sort=False)
+    
+        dataset_params_dS = ['freq_null_dS', 'null_dS_before', 'null_dS_after', 'Ndup', 'Nspe']
+        alls = pd.concat(([df.set_index('subgenetree')] #, ns[dataset_params_dS]]
+                          + [sdata[stat_params.get(stype,
                                           sdata.columns.difference(common_info))]
-                              for stype, sdata in zip(stattypes, ss)]),
-                          axis=1, join='outer', sort=False, verify_integrity=True)
+                             for stype, sdata in zip(stattypes, ss)]),
+                         axis=1, join='outer', sort=False, verify_integrity=True)
         
         features.remove('really_robust')
         features.remove('nodes_robust')
+        features.remove('single_child_nodes')
         hr.html(alls.groupby(['duprate_nonzero', 'really_robust'])\
                 .size().unstack()) #.style.caption('Comparison between generax and treebest robustness.'))
         hr.html(alls.assign(Ndup_nonzero=(alls.Ndup.dropna()>0))\
@@ -606,22 +711,44 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
 
         hr.mkd('# Regression')
         try:
-            reg = fullRegression(
-                    alls,
-                    ['duprate', 'lossrate'],
-                    features,
+            #reg = fullRegression(
+            #        alls,
+            #        ['duprate', 'lossrate'],
+            #        features,
+            #        ref_suggested_transform=None,
+            #        impose_transform=aregr._must_transform,
+            #        #must_drop_features=aregr._must_drop_features.union(
+            #        #    ('single_child_nodes',)),
+            #        to_decorr=aregr._must_decorr,
+            #        protected_features=aregr._protected_features,
+            #        must_drop_data=aregr._must_drop_data,  # TODO: without dropping data.
+            #        out=hr,
+            #        logger=loggers[0],
+            #        widget=slideshow_generator(hr)
+            #        )
+            #TODO:
+            reg = full_dating_regression(analysis_fsa, alls, dataset_params_dS,
+                    ['duprate', 'lossrate'], features,
                     ref_suggested_transform=None,
                     impose_transform=aregr._must_transform,
-                    must_drop_features=aregr._must_drop_features.union(
-                        ('single_child_nodes',)),
+                    #must_drop_features=aregr._must_drop_features.union(
+                    #    ('single_child_nodes',)),
                     to_decorr=aregr._must_decorr,
                     protected_features=aregr._protected_features,
-                    must_drop_data=aregr._must_drop_data,
+                    must_drop_data=aregr._must_drop_data,  # TODO: without dropping data.
                     out=hr,
                     logger=loggers[0],
                     widget=slideshow_generator(hr)
                     )
+            reg.do_rates(dict(dist_measures=['star_branch_dS'],
+                         branchtime='star_median_brlen_dS',
+                         mean_condition='type!="dup"',
+                         weighted=True))  # Approx method
+            print('## Rates computed (spe2spe approx).', file=hr)
+            print(reg.cs_rates.head(), file=hr)
             coefs = reg.do()
+            fig, axes = reg.plot_coefs()
+            fig.savefig(str(workdir / 'familyrates_correlates_coefs.pdf'), bbox_inches='tight')
         finally:
             return reg
 
@@ -636,9 +763,6 @@ if __name__ == '__main__':
     logger.setLevel(logging.DEBUG)
     logging.getLogger('datasci.dataframe_recipees').setLevel(logging.DEBUG)
 
-    #workdir = op.expanduser('~/ws7/DUPLI_data93/alignments_analysis/duprates')
-    workdir = Path.home().joinpath('ws7', 'DUPLI_data93', 'alignments_analysis', 'duprates')
-
     #analysis_1_generax_withgamma()
     #analysis_2_alldistribs()
     # 2020/02/24:
@@ -646,3 +770,7 @@ if __name__ == '__main__':
 
     # 2020/05/20:
     analysis_2_alldistribs()
+    # 2020/05/22 11:11
+    #analysis_2_alldistribs(restrict_distribs=False, fix_loc=None)
+    # 2020/05/22 11:30
+    #analysis_2_alldistribs(restrict_distribs=False)

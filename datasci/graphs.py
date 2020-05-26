@@ -768,6 +768,10 @@ def rotate_cycle(ax, offset=1, prop='color', step=1):
 
         ax.set_prop_cycle(prop, cycled[offset::step] + cycled[:offset:step])
 
+def cycle_apply(ax, func, prop='color', *func_args):
+    #cycled = mpl.rcParams['axes.prop_cycle'].by_key()['color']
+    cycled = ax.get_prop_cycle(prop)
+    ax.set_prop_cycle('color', [func(v, *func_args) for v in cycled])
 
 
 class Coord(object):

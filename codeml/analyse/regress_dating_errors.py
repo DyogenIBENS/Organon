@@ -15,6 +15,7 @@ from datetime import datetime as dt
 import warnings
 from copy import copy, deepcopy
 import numpy as np
+from numpy.lib.arraysetops import setdiff1d
 import pandas as pd
 import matplotlib as mpl
 #mpl.use('TkAgg', warn=False)
@@ -36,6 +37,7 @@ from datasci.graphs import scatter_density, \
                            plottree, \
                            stackedbar, \
                            dodged_violin, \
+                           cathist, \
                            fade_color_hex, \
                            darken_hex
 from datasci.compare import pairwise_intersections, align_sorted
@@ -1604,6 +1606,101 @@ def compare_params(x='taxon', y='age_dS', split=True, order=None, hue_order=None
     return stacked, subgroup_disp, ltests
 
 
+# Copied from Compare_dating_methods20200318.py [2020/05/25 11:09]
+def plottree_add_hists(taxon_col, x, positions, data=None, nbins=100,
+                       order=None, ax=None, zorder=None, labels=None,
+                       invert=False, **kwargs):
+    """
+    x: variable whose histograms are drawn (column names from data).
+    taxon_col: groups to make histograms;
+    positions: histogram bottoms from each group;
+    order: ordered list of taxa for positioning.
+    
+    invert: Whether the first histogram is plotted *under* the branch
+    (useful for inverted yaxis.)"""
+    # positions is a bad name. It refers to the bottom of the histograms.
+    broadcasted = [x]
+    if data is not None:
+        broadcasted.append(data)
+    if labels is not None:
+        broadcasted.append(labels)
+    input_lists = [isinstance(arg, (list, tuple)) for arg in broadcasted]
+    if any(input_lists):
+        if not all(input_lists):
+            raise ValueError('(x, data, labels) should all be lists/tuples or '
+                             'all single elements.')
+        if data is None:
+            data = [None]*len(x)
+        if labels is None:
+            labels = [None]*len(x)
+    else:
+        x = [x]
+        data = [data]
+        labels = [labels]
+    
+    if len(x) > 2:
+        raise NotImplementedError("Can't handle more than 2 histograms.")
+    
+    if ax is None:
+        ax = plt.gca()
+    xbound = ax.get_xbound()
+
+    #if order is None:
+    #    # order should correspond to the positions
+    #    order = var_taxon[0].unique().tolist()
+    
+    # Set a different color to overlapping positions
+    positions = np.asarray(positions)
+    order = np.asarray(order)
+    step = 0.5
+    # Group together positions closer than 0.5
+    pos_bins = np.arange(round(min(positions)) - step/2.,
+                         round(max(positions)) + step/2.,
+                         step)
+    #pos_hist, _ = np.histogram(positions, pos_bins)
+    pos_group = np.digitize(positions, pos_bins, right=True)
+
+    distinct_positions = [np.unique(pos_group, return_index=True)[1]]
+    next_position_index = setdiff1d(np.arange(len(positions), dtype=int),
+                                    distinct_positions[-1])
+    # At each iteration: exclude overlapping positions into a new set of positions.
+    while next_position_index.size:
+        # Extract a set of positions, non-overlapping between them.
+        # I.e. Get the first time each pos_group is seen:
+        #uniq_pos, uniq_pos_index = np.unique(pos_group, return_index=True)
+        #distinct_positions.append(positions[uniq_pos_index])
+        filled_pos, filled_pos_index = np.unique(pos_group[next_position_index],
+                                                 return_index=True)
+        distinct_positions.append(next_position_index[filled_pos_index])
+        # Delete them
+        next_position_index = setdiff1d(next_position_index, distinct_positions[-1])
+        #pos_hist -= 1
+        #pos_group[uniq_pos_index] = np.NaN  # NaN is always different from itself, so is always unique
+    
+    #for i, (vtaxon, xi) in enumerate(zip(var_taxon, var_xs), start=1):
+    bars = []
+    for i, (xi, dat, lab) in enumerate(zip(x, data, labels), start=(int(invert))):
+#         print('* Plot data %r: (shape: %s)\n'
+#                   '  positions: %s\n'
+#                   '  order: %s\n'
+#                   '  range: %s\n'
+#                   '  bins: %s' % (x[i-1], getattr(xi, 'shape',None),
+#                                   positions, order, xbound, bins))
+        for distinct_pos in distinct_positions:
+            _, bin_edges, b = cathist(
+                    #var_taxon, xi,
+                    taxon_col, xi, data=dat,
+                    bins=nbins,
+                    positions=positions[distinct_pos],
+                    scale=0.5 * (-1)**i,
+                    order=order[distinct_pos],
+                    range=xbound,
+                   ax=ax, zorder=zorder, label=lab, **kwargs);
+            bars.append(b)
+    return bars
+#        print('%d bars, %d bin_edges: %s' % (len(bars), len(bin_edges), bin_edges))
+
+
 def display_errors(params, control='timetree', age_col='age_dS',
                    plotsize=(12, 5), save=False, plot=True):
     """From notebook `Speciations.ipynb`"""
@@ -2802,8 +2899,46 @@ class fullRegression(object):
               file=self.out)
         self.display_html(self.alls.sort_values(self.responses[0], ascending=True).head(50))
 
-    
-    def predicted_extreme_values(self, percent=10):
+
+    def plot_coefs(self, fig_columns=['coef']):
+        # fig_columns could also include: ['Lasso coef', 'Simple regression coef']
+        ax_titles = {'coef': 'Multiple regression coefficient',
+                     'lasso coef': 'Lasso regression',
+                     'Simple regression coef': 'Simple regression'}
+        ncols = len(fig_columns)
+        coefs = self.reslopes2  # Should run .do() or .do_bestfit() first.
+
+        coef_err = coefs[['[0.025', '0.975]']].subtract(coefs.coef, axis=0).abs().values.T
+        nan_err = np.full(coef_err.shape, np.NaN)
+
+        axes = matplotlib_stylebar(coefs.rename(renames), fig_columns,
+                                   err=np.array([coef_err]+[nan_err]*(ncols-1)))
+        ax0_xmax = axes[0].get_xlim()[1]
+        for j, (ft, pval) in enumerate(coefs['P>|z|'].items()):
+            txt = axes[0].text(ax0_xmax, j, ('**' if pval<0.01 else '*' if pval<=0.05 else ''),
+                               va='center', ha='left') #ha='right')
+        txt_box = txt.get_window_extent()#.get_positions()
+        print(txt_box.x0, txt_box.x1)
+        #axes[0].set_xlim(axes[0].get_xlim()[0], )
+
+        axes[0].set_xlabel(None)
+        #axes[0].set_ylabel(ylabel)
+        axes[0].set_title(ax_titles[fig_columns[0]])
+
+        if len(axes)>1:
+            axes[1].set_xlabel(None)
+            axes[1].set_title(ax_titles.get(fig_columns[1], fig_columns[1]))
+        if len(axes)>2:
+            axes[2].set_xlabel(None)
+            axes[2].set_title(ax_titles.get(fig_columns[2], fig_columns[2]))
+        fig = plt.gcf()
+        fig.tight_layout()
+        fig.set_size_inches(3+3*len(fig_columns), 6.5)
+        return fig, axes
+        #for ext in ('pdf', 'png'):
+        #    plt.savefig('../fig/coefs_fsahmmc+mpl.%s' % ext, bbox_inches='tight')
+
+    def predict_extreme_values(self, percent=10):
         print('\n### Predicted extreme values', file=self.out)
         y = self.responses[0]
         N = self.a_n_inde2.shape[0]
@@ -3237,7 +3372,7 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames):
     reg_approx.logger = logger
     reg_approx.widget = slideshow_generator(hr)
     reg_approx.set_output()
-    reg_approx.predicted_extreme_values()
+    reg_approx.predict_extreme_values()
 
     hr.mkd('## Prediction on new data')
     training_observations = reg_approx.a_n_inde.index

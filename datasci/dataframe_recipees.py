@@ -226,17 +226,19 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
 
     #im = plt.imshow(data, cmap=cmap, aspect='auto', interpolation='none'); ax = plt.gca()
     # pcolor is the most precise on rectangle boundaries
-    # pcolormesh show the over/under/bad rectangles.
-    if finitedata.mask.any():
-        # pcolor is transparent for masked data, so we need to replot it.
-        pcolormesh = plt.pcolormesh if ax is None else ax.pcolormesh
-        pcolormesh(data.values, cmap=cmap, norm=norm, edgecolors='', snap=True)
-        # Interprets Inf as NaN...
+    # pcolormesh draws the bad rectangles.
+        
     pcolor = plt.pcolor if ax is None else ax.pcolor
     im = pcolor(data.values, cmap=cmap, norm=norm, edgecolors='', snap=True)
     
     if ax is None:
         ax = plt.gca()
+    cmap = plt.get_cmap(cmap)
+    if finitedata.mask.any() and cmap._rgba_bad != (0,0,0,0):
+        # pcolor is transparent for masked data, so we need to add it to the bg.
+        # NOTE: interprets Inf as NaN...
+        ax.set_facecolor(cmap._rgba_bad)
+
     ax.invert_yaxis()
     yticks = np.arange(data.shape[0]) + 0.5
     xticks = np.arange(data.shape[1]) + 0.5
@@ -265,7 +267,6 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
     #print(styled_data.ctx)
 
     cell_txts = []
-    cmap = plt.get_cmap(cmap)
     #facecolors = im.get_facecolors()
     #i = 0
     for x,xt in enumerate(xticks):
@@ -281,8 +282,6 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
             # Alternative not relying on Pandas
             #if np.isposinf(orig_data.iloc[y,x]):
             color = cmap(norm(data.iloc[y,x]))
-            if np.isinf(orig_data.iloc[y,x]):
-                logger.debug('Color for original %g: %s (data=%g)', orig_data.iloc[y,x], color, data.iloc[y,x])
             textcolor = '#333333' if relative_luminance(color)>0.408 else '#cccccc'
             cell_txts.append(
                     ax.text(xt, yt, float_fmt % orig_data.iloc[y,x],
@@ -291,11 +290,13 @@ def matplotlib_background_gradient(data, cmap='YlGn', axis=None,
 
     if cbar:
         extend = 'neither'
-        if (data.values[~np.isnan(data.values)] < norm.vmin).any():
+        #if (data.values[~np.isnan(data.values)] < norm.vmin).any():
+        if (finitedata < norm.vmin).any():
             extend = 'min'
             #logger.info('Matrix value %s < vmin %g',
             #            ft_cov[~np.isnan(ft_cov) & (ft_cov<norm.vmin)].max(), norm.vmin)
-        if (data.values[~np.isnan(data.values)] > norm.vmax).any():
+        #if (data.values[~np.isnan(data.values)] > norm.vmax).any():
+        if (finitedata > norm.vmax).any():
             extend = 'both' if extend=='min' else 'max'
             #logger.info('Matrix value %s > vmax %g',
             #            ft_cov[~np.isnan(ft_cov) & (ft_cov>norm.vmax)].min(), norm.vmax)

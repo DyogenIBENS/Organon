@@ -43,4 +43,20 @@ comm -3 <(nw_labels -I "$simii_tree" | sort) \
 cd subtrees_stats/
 python3 $CAFEDIR/tutorial/clade_and_size_filter.py -s -i "$family_file" -o "${family_file%.tsv}.filtered.tsv"
 
+cd ~/ws7/DUPLI_data93/alignments_analysis/
+# Edit Condor submission files:
+# - cafe_onelambda.condor.txt
+# - cafe_onelambda-zero_root.condor.txt
+# - cafe_lambda-gammadist4.condor.txt
+# - cafe_lambda-per-lineage.condor.txt  -> output to cafe/Simiiformes_lambda-per-lineage/
 
+# Run with condor (lambda-per-lineage takes max 4 hours)
+
+# Plot number of families under expansion/contraction
+
+# This script is not in my CAFE directory...
+#$CAFEDIR/python_scripts/cafetutorial_draw_tree.py -i reports/summary_run1_node.txt -t <tree> -d <?> -o reports/summary_run1_tree_rapid.png -y Rapid
+
+# The 34 lambdas are in `cafe/Simiiformes_lambda-per-lineage/Base_results.txt`, line 2.
+
+# Now, correlate those with the diversification rates.
