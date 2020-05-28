@@ -170,7 +170,8 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
     if horizontal:
         axes.flat[0].invert_yaxis()
     for i, (ax, yvar) in enumerate(zip(axes.flat, y)):
-        ymin, ymax = data[yvar].min(), data[yvar].max()
+        ydata = data[yvar]
+        ymin, ymax = ydata[np.isfinite(ydata)].min(), ydata[np.isfinite(ydata)].max()
         if err is not None and np.ndim(err)==3:
             max_low_err = err[i,0].max()
             max_up_err = err[i,1].max()
@@ -203,7 +204,7 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
         ax.grid(False)
         ax.tick_params(left=False, bottom=False)
         # Add the table content (Once the xlim/ylim is set!)
-        for j, val in enumerate(data[yvar].values):
+        for j, val in enumerate(ydata.values):
             text(ax, j, val)
     return axes.flat
 

@@ -35,6 +35,7 @@ from datasci.graphs import scatter_density, \
                            plot_loadings, \
                            plot_features_radar, \
                            plottree, \
+                           plottree_set_xlim, \
                            stackedbar, \
                            dodged_violin, \
                            cathist, \
@@ -295,7 +296,8 @@ def check_subtree_stats(subtrees_stats, figsize=(10,3)):
     intersect_kwargs = {stype: ss.index for stype,ss in subtrees_stats}
 
     ax = intersection_plot(**intersect_kwargs)
-    ax.get_figure().set_size_inches(figsize)
+    ax.figure.set_size_inches(figsize)
+    return ax
 
 
 # ## Function to merge additional subgenetree information into `ages`
@@ -1609,7 +1611,8 @@ def compare_params(x='taxon', y='age_dS', split=True, order=None, hue_order=None
 # Copied from Compare_dating_methods20200318.py [2020/05/25 11:09]
 def plottree_add_hists(taxon_col, x, positions, data=None, nbins=100,
                        order=None, ax=None, zorder=None, labels=None,
-                       invert=False, **kwargs):
+                       invert=False, scale=0.95, alpha=0.7, recolor_samepos=True,
+                       **kwargs):
     """
     x: variable whose histograms are drawn (column names from data).
     taxon_col: groups to make histograms;
@@ -1644,38 +1647,39 @@ def plottree_add_hists(taxon_col, x, positions, data=None, nbins=100,
     if ax is None:
         ax = plt.gca()
     xbound = ax.get_xbound()
-
-    #if order is None:
-    #    # order should correspond to the positions
-    #    order = var_taxon[0].unique().tolist()
     
-    # Set a different color to overlapping positions
+    assert positions is not None, "positions argument is mandatory (list/array)"
     positions = np.asarray(positions)
-    order = np.asarray(order)
-    step = 0.5
-    # Group together positions closer than 0.5
-    pos_bins = np.arange(round(min(positions)) - step/2.,
-                         round(max(positions)) + step/2.,
-                         step)
-    #pos_hist, _ = np.histogram(positions, pos_bins)
-    pos_group = np.digitize(positions, pos_bins, right=True)
+    if order is not None: order = np.asarray(order)
 
-    distinct_positions = [np.unique(pos_group, return_index=True)[1]]
-    next_position_index = setdiff1d(np.arange(len(positions), dtype=int),
-                                    distinct_positions[-1])
-    # At each iteration: exclude overlapping positions into a new set of positions.
-    while next_position_index.size:
-        # Extract a set of positions, non-overlapping between them.
-        # I.e. Get the first time each pos_group is seen:
-        #uniq_pos, uniq_pos_index = np.unique(pos_group, return_index=True)
-        #distinct_positions.append(positions[uniq_pos_index])
-        filled_pos, filled_pos_index = np.unique(pos_group[next_position_index],
-                                                 return_index=True)
-        distinct_positions.append(next_position_index[filled_pos_index])
-        # Delete them
-        next_position_index = setdiff1d(next_position_index, distinct_positions[-1])
-        #pos_hist -= 1
-        #pos_group[uniq_pos_index] = np.NaN  # NaN is always different from itself, so is always unique
+    # Set a different color to overlapping positions
+    if recolor_samepos:
+        step = 0.5
+        # Group together positions closer than 0.5
+        pos_bins = np.arange(round(min(positions)) - step/2.,
+                             round(max(positions)) + step/2.,
+                             step)
+        #pos_hist, _ = np.histogram(positions, pos_bins)
+        pos_group = np.digitize(positions, pos_bins, right=True)
+
+        distinct_positions = [np.unique(pos_group, return_index=True)[1]]
+        next_position_index = setdiff1d(np.arange(len(positions), dtype=int),
+                                        distinct_positions[-1])
+        # At each iteration: exclude overlapping positions into a new set of positions.
+        while next_position_index.size:
+            # Extract a set of positions, non-overlapping between them.
+            # I.e. Get the first time each pos_group is seen:
+            #uniq_pos, uniq_pos_index = np.unique(pos_group, return_index=True)
+            #distinct_positions.append(positions[uniq_pos_index])
+            filled_pos, filled_pos_index = np.unique(pos_group[next_position_index],
+                                                     return_index=True)
+            distinct_positions.append(next_position_index[filled_pos_index])
+            # Delete them
+            next_position_index = setdiff1d(next_position_index, distinct_positions[-1])
+            #pos_hist -= 1
+            #pos_group[uniq_pos_index] = np.NaN  # NaN is always different from itself, so is always unique
+    else:
+        distinct_positions = [positions]
     
     #for i, (vtaxon, xi) in enumerate(zip(var_taxon, var_xs), start=1):
     bars = []
@@ -1687,15 +1691,20 @@ def plottree_add_hists(taxon_col, x, positions, data=None, nbins=100,
 #                   '  bins: %s' % (x[i-1], getattr(xi, 'shape',None),
 #                                   positions, order, xbound, bins))
         for distinct_pos in distinct_positions:
+            logger.debug('# i=%d. %d positions; distinct_pos=%s dtype %s; order=%s',
+                    i, len(positions), distinct_pos, distinct_pos.dtype, order)
+            logger.debug('Plotting taxa dupli:\n%s',
+                 dat.groupby(taxon_col)[xi].count()[
+                     slice(None) if order is None else order[distinct_pos]])
             _, bin_edges, b = cathist(
                     #var_taxon, xi,
                     taxon_col, xi, data=dat,
                     bins=nbins,
                     positions=positions[distinct_pos],
-                    scale=0.5 * (-1)**i,
-                    order=order[distinct_pos],
+                    scale=(scale * (-1)**i),
+                    order=None if order is None else order[distinct_pos],
                     range=xbound,
-                   ax=ax, zorder=zorder, label=lab, **kwargs);
+                   ax=ax, zorder=zorder, label=lab, alpha=alpha, **kwargs)
             bars.append(b)
     return bars
 #        print('%d bars, %d bin_edges: %s' % (len(bars), len(bin_edges), bin_edges))
@@ -1786,7 +1795,7 @@ def display_errors(params, control='timetree', age_col='age_dS',
         if plot:
             fig.suptitle(anc)
             fig.set_size_inches(plotsize[0], nax*plotsize[1])
-            plt.show()
+            fig.show()
             if save:
                 fig.savefig('../fig/ages_%s.pdf' % anc, bbox_inches='tight')
                 
@@ -2900,8 +2909,9 @@ class fullRegression(object):
         self.display_html(self.alls.sort_values(self.responses[0], ascending=True).head(50))
 
 
-    def plot_coefs(self, fig_columns=['coef']):
+    def plot_coefs(self, fig_columns=['coef'], renames=None):
         # fig_columns could also include: ['Lasso coef', 'Simple regression coef']
+        if renames is None: renames = {}
         ax_titles = {'coef': 'Multiple regression coefficient',
                      'lasso coef': 'Lasso regression',
                      'Simple regression coef': 'Simple regression'}

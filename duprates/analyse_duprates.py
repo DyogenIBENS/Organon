@@ -652,6 +652,12 @@ calibrations = pd.concat((pd.Series([phyltree.ages[anc] for anc in ordered_simii
                  ),
                  axis=1, sort=False)
 
+renames = {}
+# feature_longnames_fr.tsv
+with open(str(workdir.parent / 'subtrees_stats' / 'feature_longnames.tsv')) as f:
+    for line in f:
+        ft, longname, *_ = line.rstrip().split('\t')
+        renames[ft] = longname
 
 def analysis_3_regress_duprates(lang_fr=True, dark=False):
     """2020/02/24"""
@@ -669,8 +675,8 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
         ss = load_subtree_stats(
                 "../subtrees_stats/subtreesGoodQualO2_{stattype}stats-Simiiformes.tsv",
                 stattypes=stattypes)
-        check_subtree_stats(list(zip(stattypes, ss)))
-        hr.show(); plt.close()
+        ax = check_subtree_stats(list(zip(stattypes, ss)))
+        hr.show(ax.figure); plt.close()
 
         features = [ft for stype, sdata in zip(stattypes, ss)
                     for ft in stat_params.get(stype,
@@ -703,9 +709,13 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
         features.remove('really_robust')
         features.remove('nodes_robust')
         features.remove('single_child_nodes')
+        features.remove('ns')
+        features.remove('Nbranches')
+        # Also: Niter correlates with sitelnL and Ringroup_nucl_parsimony_std
         hr.html(alls.groupby(['duprate_nonzero', 'really_robust'])\
                 .size().unstack()) #.style.caption('Comparison between generax and treebest robustness.'))
-        hr.html(alls.assign(Ndup_nonzero=(alls.Ndup.dropna()>0))\
+        hr.html(alls\
+                .assign(Ndup_nonzero=(analysis_fsa.ns.Ndup.dropna()>0))\
                 .groupby(['duprate_nonzero', 'Ndup_nonzero'])\
                 .size().unstack()) #.style.caption('Comparison between generax and treebest duplications.'))
 
@@ -731,11 +741,10 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
                     ['duprate', 'lossrate'], features,
                     ref_suggested_transform=None,
                     impose_transform=aregr._must_transform,
-                    #must_drop_features=aregr._must_drop_features.union(
-                    #    ('single_child_nodes',)),
+                    must_drop_features=aregr._must_drop_features.union(('Niter',)),
                     to_decorr=aregr._must_decorr,
                     protected_features=aregr._protected_features,
-                    must_drop_data=aregr._must_drop_data,  # TODO: without dropping data.
+                    #must_drop_data=aregr._must_drop_data,  # TODO: without dropping data.
                     out=hr,
                     logger=loggers[0],
                     widget=slideshow_generator(hr)
@@ -747,8 +756,11 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
             print('## Rates computed (spe2spe approx).', file=hr)
             print(reg.cs_rates.head(), file=hr)
             coefs = reg.do()
-            fig, axes = reg.plot_coefs()
-            fig.savefig(str(workdir / 'familyrates_correlates_coefs.pdf'), bbox_inches='tight')
+            fig, axes = reg.plot_coefs(renames=renames)
+            outfig = 'familyrates_correlates_coefs.pdf'
+            fig.savefig(str(workdir / outfig), bbox_inches='tight')
+            plt.close()
+            hr.mkd('\n![Tree features coefficients of regression](%s)\n' % outfig)
         finally:
             return reg
 

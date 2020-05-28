@@ -39,6 +39,7 @@ param_str <- "age150-size10"
 
 param_suffix <- paste0("listens90", param_str)
 source_dir <- "/users/ldog/glouvel/ws2/"
+source_dir2 <- "/users/ldog/glouvel/ws7/"
 div_path   <- "databases/timetree/Opisthokonta-"
 dup_path   <- "DUPLI_data90/"
 
@@ -256,10 +257,13 @@ fuse_divdup_data <- function(div_stats, clade.dup.data, clade.converter, save=TR
 }
 
 combine_maindata <- function(all_stats, maintree, clade.converter) {
-  maintree$tip.label <- clade.converter$div[match(maintree$tip.label,
-                                                  clade.converter$duptree)]
+  # Modifies inplace!
+  #maintree$tip.label <- clade.converter$div[match(maintree$tip.label,
+  #                                                clade.converter$duptree)]
 
   maintreedi <- multi2di(maintree)
+  maintreedi$tip.label <- clade.converter$div[match(maintreedi$tip.label,
+                                                  clade.converter$duptree)]
   # First ensure the correspondance between maintree$tip.label and
   # rownames(all_stats):
   #cat("Ignoring the following branches of the tree:\n")
@@ -317,6 +321,119 @@ if( !interactive() ) {
     allDup=gls(ml.sampl.b2~allDup, maindata$data, phycovar.G),
     allnew=gls(ml.sampl.b2~allnew, maindata$data, phycovar.G))
 
+  gls.tests.B.log <- list(
+    tandemDup=gls(ml.sampl.b2~log(tandemDup), maindata$data, phycovar.B),
+    dispDup=gls(ml.sampl.b2~log(dispDup), maindata$data, phycovar.B),
+    allDup=gls(ml.sampl.b2~log(allDup), maindata$data, phycovar.B),
+    allnew=gls(ml.sampl.b2~log(allnew), maindata$data, phycovar.B))
+  lapply(gls.tests.B.log, summary)  # check p-values.
+
+  # Obviously the two fish clades are outliers: super diverse, very few dup.
+  # Let's remove them and try again.
+
+  tetrapods <- !(rownames(all_stats) %in% c('Percomorphaceae', 'Otophysi'))
+  maindata.tetra <- combine_maindata(all_stats[tetrapods,], maintree, clade.converter)
+
+  pic.b2.tetra        <- pic(maindata.tetra$data[,"ml.sampl.b2"], maindata.tetra$phy)
+  pic.d2.tetra        <- pic(maindata.tetra$data[,"ml.sampl.d2"], maindata.tetra$phy)
+  pic.tandemDup.tetra <- pic(maindata.tetra$data[,"tandemDup"]  , maindata.tetra$phy)
+  pic.dispDup.tetra   <- pic(maindata.tetra$data[,"dispDup"]    , maindata.tetra$phy)
+  pic.allDup.tetra    <- pic(maindata.tetra$data[,"allDup"]     , maindata.tetra$phy)
+  pic.allnew.tetra    <- pic(maindata.tetra$data[,"allnew"]     , maindata.tetra$phy)
+  #pic.GL.tetra        <- pic(maindata.tetra$data[,"GL"]         , maindata.tetra$phy)
+
+  pic.cor.tests.tetra <- list(
+    tandemDup=cor.test(pic.b2.tetra, pic.tandemDup.tetra),
+    dispDup=cor.test(pic.b2.tetra, pic.dispDup.tetra),
+    allDup=cor.test(pic.b2.tetra, pic.allDup.tetra),
+    allnew=cor.test(pic.b2.tetra, pic.allnew.tetra))
+  # None significant, by far.
+
+  phycovar.B.tetra <- corBrownian(1, maindata.tetra$phy)
+  phycovar.G.tetra <- corGrafen(1, maindata.tetra$phy)
+  #phycovar.M <- corMartins
+  #phycovar.P05 <- corPagel(0.5, maindata$phy)
+
+  gls.tests.B.tetra <- list(
+    tandemDup=gls(ml.sampl.b2~tandemDup, maindata.tetra$data, phycovar.B.tetra),
+    dispDup=gls(ml.sampl.b2~dispDup, maindata.tetra$data, phycovar.B.tetra),
+    allDup=gls(ml.sampl.b2~allDup, maindata.tetra$data, phycovar.B.tetra),
+    allnew=gls(ml.sampl.b2~allnew, maindata.tetra$data, phycovar.B.tetra))
+  lapply(gls.tests.B.tetra, summary)  # check p-values.
+
+  gls.tests.G.tetra <- list(
+    tandemDup=gls(ml.sampl.b2~tandemDup, maindata.tetra$data, phycovar.G.tetra),
+    dispDup=gls(ml.sampl.b2~dispDup, maindata.tetra$data, phycovar.G.tetra),
+    allDup=gls(ml.sampl.b2~allDup, maindata.tetra$data, phycovar.G.tetra),
+    allnew=gls(ml.sampl.b2~allnew, maindata.tetra$data, phycovar.G.tetra))
+
+  # TODO:
+  # 1. Add the generation time;
+  # 2. log transform duplication numbers.
+
+  gls.tests.B.log.tetra <- list(
+    tandemDup=gls(ml.sampl.b2~log(tandemDup), maindata.tetra$data, phycovar.B.tetra),
+    dispDup=gls(ml.sampl.b2~log(dispDup), maindata.tetra$data, phycovar.B.tetra),
+    allDup=gls(ml.sampl.b2~log(allDup), maindata.tetra$data, phycovar.B.tetra),
+    allnew=gls(ml.sampl.b2~log(allnew), maindata.tetra$data, phycovar.B.tetra))
+  # Reverse x/y
+  gls.tests.B.log.tetra <- list(
+    tandemDup=gls(log(tandemDup)~ml.sampl.b2, maindata.tetra$data, phycovar.B.tetra),
+    dispDup=gls(  log(dispDup)~ml.sampl.b2, maindata.tetra$data, phycovar.B.tetra),
+    allDup=gls(   log(allDup)~ml.sampl.b2, maindata.tetra$data, phycovar.B.tetra),
+    allnew=gls(   log(allnew)~ml.sampl.b2, maindata.tetra$data, phycovar.B.tetra))
+  lapply(gls.tests.B.log.tetra, summary)  # check p-values.
+  # OK, after this p-hacking, I get dispDup as significant, with slope 0.07
+  pvalues <- lapply(gls.tests.B.log.tetra, function(glsres) {summary(glsres)$tTable['ml.sampl.b2','p-value']})
+  # But with multiple testing correction?
+  p.adjust(pvalues, 'BH')  # -> Doesn't resist it.
+
+  GL <- read.table(paste0(source_dir2, 'databases/Generation_Length_for_Mammals.csv'),
+                                   sep='\t', header=TRUE, as.is=TRUE)
+  GL$Calculated_GL_d <- as.numeric(GL$Calculated_GL_d)
+  standard.clades <- clade.converter$dup[match(rownames(all_stats),
+                                               clade.converter$div)]
+  standard.clades %in% c(GL$Order, GL$Family, GL$Genus)
+  # Need Orders for:
+  Orders <- list(
+    Marsupialia=c('Dasyuromorphia', 'Didelphimorphia', 'Diprotodontia', 'Microbiotheria', 'Notoryctemorphia', 'Paucituberculata', 'Peramelemorphia'),
+    Atlantogenata=c('Cingulata', 'Pilosa', 'Afrosoricida', 'Hyracoidea', 'Macroscelidea', 'Proboscidea', 'Sirenia', 'Tubulidentata'),
+    Insectivora=c('Eulipotyphla'))
+  Families <- list(
+    Haplorrhini=c('Cercopithecidae', 'Hominidae', 'Hylobatidae', 'Aotidae', 'Atelidae', 'Cebidae', 'Pitheciidae', 'Tarsiidae'),
+    Strepsirrhini=c('Daubentoniidae', 'Cheirogaleidae', 'Indriidae', 'Lemuridae', 'Lepilemuridae', 'Galagidae', 'Lorisidae'),
+    Hystricognathi=c('Abrocomidae', 'Bathyergidae', 'Capromyidae', 'Caviidae', 'Chinchillidae', 'Ctenodactylidae', 'Ctenomyidae', 'Cuniculidae',
+                     'Dasyproctidae', 'Dinomyidae', 'Echimyidae', 'Erethizontidae', # 'Hydrochaeridae',
+                     'Hystricidae', 'Diatomyidae', 'Myocastoridae',
+                     'Octodontidae', 'Petromuridae', 'Thryonomyidae'),
+    Murinae=c('Muridae')  # for my sampling
+  )
+
+  clade.GL <- rep(NA, length(standard.clades))
+  names(clade.GL) <- standard.clades
+
+  for (clade in standard.clades) {
+    if(clade %in% GL$Order) {
+      clade.GL[clade] <- mean(GL$Calculated_GL_d[GL$Order==clade], na.rm=TRUE)
+    } else if(clade %in% GL$Family) {
+      clade.GL[clade] <- mean(GL$Calculated_GL_d[GL$Family==clade], na.rm=TRUE)
+    } else if(clade %in% names(Orders)) {
+      clade.GL[clade] <- mean(GL$Calculated_GL_d[GL$Order %in% Orders[[clade]]], na.rm=TRUE)
+    } else if(clade %in% names(Families)) {
+      clade.GL[clade] <- mean(GL$Calculated_GL_d[GL$Family %in% Families[[clade]]], na.rm=TRUE)
+    }
+  }
+  clade.GL['Neognathae'] <- 1000  # I'm making this up.
+  all_stats$GL <- clade.GL
+  # Rerun the combine_maindata()
+
+  gls.tests.B.log.tetra.GL <- list(
+    tandemDup=gls(ml.sampl.b2~GL+log(tandemDup), maindata.tetra$data, phycovar.B.tetra),
+    dispDup=gls(ml.sampl.b2~GL+log(dispDup), maindata.tetra$data, phycovar.B.tetra),
+    allDup=gls(ml.sampl.b2~GL+log(allDup), maindata.tetra$data, phycovar.B.tetra),
+    allnew=gls(ml.sampl.b2~GL+log(allnew), maindata.tetra$data, phycovar.B.tetra))
+  lapply(gls.tests.B.log.tetra.GL, summary)
+  # OK, GL has no effect on diversification. Somewhat surprising.
 }
 
 

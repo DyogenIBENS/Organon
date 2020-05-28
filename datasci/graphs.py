@@ -309,11 +309,31 @@ def get_overlap_lims(ranges_ab, ranges_cd):
     return new_ranges[:2], new_ranges[2:], overlap_lims
 
 
+def iter_nonzero_stretches(v):
+    v = np.asarray(v)
+    begin = 0 if (v[0] > 0) else np.flatnonzero(v)[0]
+    while begin < v.size:
+        # End is the next position where heights==0
+        try:
+            end = begin + np.flatnonzero(v[begin:] == 0)[0]
+        except IndexError:
+            end = v.size
+        yield begin, end
+        try:
+            begin = end + np.flatnonzero(v[end:])[0]
+        except IndexError:
+            break
+
 
 def cathist(x, y, data=None, bins=20, positions=None, scale=1, range=None,
-            order=None, horizontal=False, rwidth=1, ax=None, **barkwargs):
+            order=None, horizontal=False, rwidth=1, style='bar', ax=None, **kwargs):
     """Plot histograms at the selected x position, rescaled so that they all
-    have a width of one."""
+    have a width of one.
+    
+    Accepted style are {'bar', 'step', 'stepfilled'}.
+
+    **kwargs: for plot function: bar, (step)
+    """
     noax = ax is None
     if noax:
         fig, ax = plt.subplots()
@@ -326,13 +346,16 @@ def cathist(x, y, data=None, bins=20, positions=None, scale=1, range=None,
 
     if order is None:
         order = vx.unique()
+    else:
+        assert not isinstance(order, slice), "order slice not supported"
     if positions is None:
         if vx.dtype not in (int, float):
             positions = range(len(order))
         else:
             positions = sorted(order)
 
-    barkwargs = {'edgecolor': 'none', 'align': 'edge', **barkwargs}
+    #if style == 'bar':
+    barkwargs = {'edgecolor': 'none', 'align': 'edge', **kwargs}
 
     if range is None:
         ylim = np.nanmin(vy[np.isfinite(vy)]), np.nanmax(vy[np.isfinite(vy)])
@@ -340,34 +363,64 @@ def cathist(x, y, data=None, bins=20, positions=None, scale=1, range=None,
         ylim = range
 
     global_bins = np.histogram_bin_edges(vy, bins, range)
+    nbins = len(global_bins)-1
     barwidth = global_bins[1] - global_bins[0]  # not working if bins is not a scalar value
-    global_barwidths = rwidth * (global_bins[1:] - global_bins[:-1])
+    #global_barwidths = rwidth * (global_bins[1:] - global_bins[:-1])
 
     if horizontal:
-        bar = ax.barh
+        draw = ax.barh #if style=='bar' else ax.fill_betweenx if style=='stepfilled' else ax.barh)
         set_positionticks = ax.set_xticks
         set_positionlabels = ax.set_xticklabels
     else:
-        bar = ax.bar
+        draw = ax.bar # if style=='bar' else ax.fill_between if style=='stepfilled' else ax.step)
         set_positionticks = ax.set_yticks
         set_positionlabels = ax.set_yticklabels
 
     # Colors should not be cycling.
     all_heights = []
     all_positions = []  # np.ones((len(positions),)*2) * np.array(positions)
+    all_x = np.array(global_bins[:-1].tolist() * len(positions))
     for pos, cat in zip(positions, order):
         heights, bin_edges = np.histogram(vy[vx == cat], bins=global_bins, range=ylim)
         hmax = heights.max()
-        barwidths = rwidth * (bin_edges[1:] - bin_edges[:-1])
-        #bars = bar(bin_edges[:-1], heights/hmax*scale, barwidths, pos, **barkwargs)
-        all_heights += list(heights/hmax*scale)
-        all_positions += [pos]*len(heights)
-    bars = bar(
-               list(global_bins[:-1]) * len(positions),
+        #barwidths = rwidth * (bin_edges[1:] - bin_edges[:-1])
+        #bars = bar(bin_edges[:-1], heights/hmax*scale, barwidths, pos, **kwargs)
+        all_heights += (heights/hmax*scale).tolist()
+        all_positions += [pos]*nbins
+    bars = draw(
+               all_x,
                all_heights,
                barwidth, #list(global_barwidths)*len(positions),
                all_positions,
-               **barkwargs)
+               **barkwargs)  # fill_between better?
+    if style == 'stepfilled':
+        stepkwargs = {'solid_capstyle': 'butt', **kwargs}
+        stepkwargs.pop('zorder', None)
+        #step_xy = []
+        #nsteps = len(global_bins) - 1
+        #for i,p in enumerate(positions):
+        #    step_xy.append((global_bins[:-1],
+        #                    p + np.array(all_heights[(i*nsteps):((i+1)*nsteps)])))
+        #ax.step(*step_xy, where='post')
+
+        # Below: do not draw step lines where bar heights are zero.
+        all_y = np.array(all_positions)+np.array(all_heights)
+        step_xy = []
+        color = bars[0].get_facecolor()[:3]
+        for i,p in enumerate(positions):
+            for begin, end in iter_nonzero_stretches(all_heights[i*nbins:(i+1)*nbins]):
+                #step_xy.extend((all_x[begin:end], all_y[begin:end]))
+                #print(all_x[begin:end+1].shape, all_x[begin:end+1].shape)
+                # Close the first and last bar (draw 1st left edge, and top+right edge)
+                begin += i*nbins
+                end += i*nbins
+                if order[-(i+1)] == 'Simiiformes':
+                    logger.debug('Simiiformes: p=%.2f; b=%d; e=%d', p, begin, end)
+                lx = np.concatenate((all_x[[begin]], all_x[begin:end], [all_x[end-1]+barwidth]))
+                ly = np.concatenate(([p], all_y[begin:end], [p]))
+                lines = ax.step(lx, ly, where='post', color=darken(color, 0.2),
+                                zorder=-1, **stepkwargs)
+            #ax.step(*step_xy, where='post', color='k', alpha=0.7)
 
     if noax:
         set_positionticks(positions)

@@ -110,8 +110,12 @@ def redisplay():
                             .decode()\
                             .replace('DISPLAY=', '')\
                             .rstrip()
+    if correct_localhost == '-DISPLAY':
+        correct_localhost = ''
+        del os.environ['DISPLAY']
+    else:
+        os.environ['DISPLAY'] = correct_localhost
     print('%s -> %s' % (os.environ['DISPLAY'], correct_localhost))
-    os.environ['DISPLAY'] = correct_localhost
 
 
 if __name__=='__main__':
