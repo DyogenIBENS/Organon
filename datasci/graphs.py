@@ -902,6 +902,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             return [(child, 1) for child, _ in get_items_withdist(tree, nodedist)]
 
     if edge_colors is not None:
+        assert not isinstance(edge_colors, pd.Series) or not edge_colors.index.has_duplicates
         extend = 1.1
         edge_range = edge_colors.max() - edge_colors.min()
         #edge_norm = mpl.colors.Normalize(edge_colors.max() - extend*edge_range,
@@ -1075,7 +1076,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                          (nodecoord.x,        nodecoord.y)])
             if edge_colors is not None:
             #    xy.append(edge_colors[ch])
-                line_edge_values.append(edge_colors[ch])
+                line_edge_values.append(edge_colors[get_label(tree, ch)])
         else:
             sorted_items = sorted(items,
                                   key=lambda item: child_coords[item[0]].y)
@@ -1103,7 +1104,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                 elif style=='U':
                     raise NotImplementedError('Edges as Bezier curves')
                 if edge_colors is not None:
-                    line_edge_values.append(edge_colors[ch])
+                    line_edge_values.append(edge_colors[get_label(tree, ch)])
                 if add_edge_axes:
                     # Assuming drawing tree left->right and bottom->top
                     shift = -0.5 if add_edge_axes == 'middle' else 0
@@ -1169,7 +1170,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                     ax.annotate(get_label(tree, child), child_coords[child],
                                 textcoords='offset points', xytext=(offset_x, offset_y),
                                 horizontalalignment=annot_ha,
-                                verticalalignment=va)
+                                verticalalignment=va, **label_params)
         if rootdist>0:
             ax.annotate(get_label(tree, root), child_coords[root],
                         textcoords='offset points', xytext=(offset_x, -1),
