@@ -7,7 +7,7 @@ import argparse as ap
 import ete3
 
 
-def unroot_binarise(intreefile, outtreefile, unroot=True, binarise=True):
+def unroot_binarise(intreefile, outtreefile, unroot=True, binarise=True, format=0):
     tree = ete3.Tree(intreefile.read())
     if binarise:
         tree.resolve_polytomy()
@@ -26,6 +26,8 @@ def main():
                         dest='unroot')
     parser.add_argument('-B', '--no-binarise', '--no-b', action='store_false',
                         dest='binarise')
+    parser.add_argument('-f', '--format', type=int, default=0,
+                        help='Newick format (see ete3.Tree() doc). [%(default)s]')
     args = parser.parse_args()
     unroot_binarise(**vars(args))
 

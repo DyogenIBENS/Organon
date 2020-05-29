@@ -14,7 +14,7 @@ EXAMPLES
   -t 'gene=s/^ENS(G|[A-Z]{3}G)0{5}|^MGP_(SPRET|CAROLI|Pahari)EiJ_G0|^WBGene00/G/'
 """
 
-from sys import stdout
+from sys import stdin, stdout
 import os.path as op
 import re
 import argparse
@@ -49,7 +49,8 @@ special_long2short = {
        'Homo sapiens'            : 'Hsa',
        'Mus spretus': 'Mspre',
        'Mus caroli' : 'Mcaro',
-       'Mus pahari' : 'Mpaha'
+       'Mus pahari' : 'Mpaha',
+       'Mus musculus': 'Mmusc'  # Because there is the 'Mus' genus!
        }
 
 def identify_sp(infos, ensembl_version=ENSEMBL_VERSION):
@@ -182,7 +183,7 @@ def specify(inputfile, outfile, input_fmt=DEFAULT_IN_FMT,
     if file_fmt == 'nwk':
         import ete3
         try:
-            tree = ete3.Tree(inputfile, format=1)
+            tree = ete3.Tree(stdin.read() if inputfile=='-' else inputfile, format=1)
         except ete3.parser.newick.NewickError as err:
             err.args = (err.args[0] + ' ERROR with treefile %s%s' % (
                 inputfile[:70],
@@ -194,6 +195,8 @@ def specify(inputfile, outfile, input_fmt=DEFAULT_IN_FMT,
         else:
             tree.write(outfile=outfile, format=1, format_root_node=True)
     else:
+        if inputfile == '-':
+            inputfile = stdin
         SeqIO.write(seq_specify(inputfile, file_fmt, input_fmt, label_fmt, transforms,
                                 ensembl_version),
                     outfile, file_fmt)
@@ -201,7 +204,7 @@ def specify(inputfile, outfile, input_fmt=DEFAULT_IN_FMT,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, epilog=EXAMPLES)
-    parser.add_argument('inputfile')
+    parser.add_argument('inputfile', help='"-" for stdin (requires -f).')
     parser.add_argument('outfile', nargs='?', default=stdout)
     parser.add_argument('-i', '--input-fmt', default=DEFAULT_IN_FMT,
                         help='[%(default)r]')
@@ -210,7 +213,7 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--transform', action='append',
                         help='[%(default)s]')
     parser.add_argument('-f', '--file-fmt',
-                        help='[automatic detection of nwk/fasta/phylip]')
+                        help='[automatic detection of nwk/fasta/phylip unless using stdin]')
     parser.add_argument('-e', '--ensembl-version', type=int,
                         default=ENSEMBL_VERSION, help='[%(default)r]')
 
