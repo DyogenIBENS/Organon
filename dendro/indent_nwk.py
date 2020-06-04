@@ -4,13 +4,19 @@
 from sys import stdin, stdout, stderr
 import argparse
 import re
+from io import StringIO
 
-RE_SPACE = re.compile(r'\s+')
-RE_STRUCT = re.compile(r',|\(|\)|\[\&\&NHX:|\'|\"') # Exclude contents between quotes and in comments
+
+# The following regex:
+# - matches structural tokens: parentheses and comma;
+# - includes white spaces before/after (stripped later);
+# - matches delimiters to be jumped over: quotes and comments brackets.
+RE_STRUCT = re.compile(r'\s*(?:,|\(|\)|\[\&\&NHX:|\'|\")\s*')
 PROTECT = {'[&&NHX:': ']', 
            '"': '"',
            "'": "'"}
 INDENT = '  '
+
 
 def go_in(nindent, indent):
     nindent += 1
@@ -30,20 +36,15 @@ STRUCT_DO = {',': go_same,
              '(': go_in,
              ')': go_out}
 
+
 def main(inputtree, outputfile, inplace=False, indent=INDENT):
-    #if inputtree is not '-':
-    #with open(inputtree) as intree:
-    #all_treetxt = RE_SPACE.sub('', inputtree.read())
     all_treetxt = inputtree.read()
-    #else:
-    #    all_treetxt = RE_SPACE.sub('', ''.join(line.rstrip() for line in stdin.readlines()))
     all_trees = all_treetxt.rstrip('; \t\n\r').split(';')
     #print(len(all_trees))
     #print(len(all_trees), all_trees)
 
     if inplace:
-        inputtree.close()
-        out = open(inputtree.name, 'w')
+        out = StringIO()  # Buffer the output in-memory, in case of error.
     else:
         out = outputfile
     
@@ -55,7 +56,7 @@ def main(inputtree, outputfile, inplace=False, indent=INDENT):
             #for m in RE_STRUCT.finditer(treetxt):
             structmatch = RE_STRUCT.search(treetxt)
             while structmatch:
-                struct = structmatch.group()
+                struct = structmatch.group().strip()
                 start,end = structmatch.start(), structmatch.end()
                 if struct in STRUCT_DO:
                     nindent, newstruct = STRUCT_DO[struct](nindent, indent)
@@ -75,6 +76,10 @@ def main(inputtree, outputfile, inplace=False, indent=INDENT):
 
                 structmatch = RE_STRUCT.search(treetxt)
             out.write(treetxt + ';\n')
+        if inplace:
+            inputtree.close()
+            with open(inputtree.name, 'w') as realout:
+                realout.write(out.getvalue())
     
     except BrokenPipeError:  # IOError in Python2.7
         if out is stdout:

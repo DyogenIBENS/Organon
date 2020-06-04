@@ -8,9 +8,11 @@ import ete3
 
 
 def unroot_binarise(intreefile, outtreefile, unroot=True, binarise=True, format=0):
-    tree = ete3.Tree(intreefile.read())
+    tree = ete3.Tree(intreefile.read(), format=format)
     if binarise:
         tree.resolve_polytomy()
+        while len(tree.children) == 1:
+            tree = tree.children[0]
     if unroot:
         tree.unroot()
     outtreefile.write(tree.write(format=5, quoted_node_names=False))
