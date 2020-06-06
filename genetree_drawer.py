@@ -28,8 +28,9 @@ import matplotlib as mpl
 #mpl.use('Agg')
 if __name__=='__main__': mpl.use('Agg')
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import matplotlib.lines as lines
+from matplotlib import patches
+from matplotlib import lines
+#from matplotlib.transforms import Affine2D
 from matplotlib.backends.backend_pdf import PdfPages, FigureCanvas
 from matplotlib.path import Path
 MOVETO, CURVE3, LINETO = Path.MOVETO, Path.CURVE3, Path.LINETO
@@ -49,11 +50,18 @@ logger = logging.getLogger(__name__)
 ENSEMBL_VERSION = 85
 PHYLTREEFILE = "/users/ldog/glouvel/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf"
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS') # NOT USED
-FIGSIZE = re.compile(r':(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)$')
+FIGSIZE = re.compile(r'(?<=:)(?:(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)|a[0-4])$', re.I)
+PAPERSIZE = {'a4': (8.27, 11.7),
+             'a3': (11.7, 16.54),
+             'a2': (16.54, 23.4),
+             'a1': (23.4, 33.1),
+             'a0': (33.1, 46.8)}
+fontsizes=['xx-small', 'x-small', 'small', 'medium', 'large', 'x-large', 'xx-large']
+basefontsize='medium'  #'x-small'
 
 ### Matplotlib graphical parameters ###
 grey10 = '#1a1a1a'
-mpl.rcParams['figure.figsize'] = [11.7, 8.27] # a4
+mpl.rcParams['figure.figsize'] = (8.27, 11.7) # a4
 mpl.rcParams['lines.linewidth'] = 0.8
 mpl.rcParams['lines.markersize'] = 3
 mpl.rcParams['text.color'] = grey10
@@ -123,8 +131,8 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
         'log': use log10(1 + species age)
         else: just the topology, real branch lengths are ignored.
 
-    X-axis is left-to-right; older nodes on the left;
-    Y-axis is bottom-to-top; leaves encountered first are at the top, 
+    X-axis is left-to-right; older nodes on the left, leaves at 0;
+    Y-axis is bottom-to-top; leaves encountered first are at the top (top at 0). 
         internal nodes encountered first are at the bottom .....
     """
     # Store the graph coords (x,y) of a node, and its weight w (number of leaves)
@@ -238,7 +246,7 @@ class GenetreeDrawer(object):
     
     def __init__(self, phyltreefile=None, ensembl_version=None,
                  colorize_clades=None, commonname=False, latinname=False,
-                 treebest=False, show_cov=False, debug=False):
+                 angle_style=0, ages=False, internal=None, treebest=False, show_cov=False, debug=False):
         """Options:
             - colorize_clades: grouping of species names to colorize
             - commonname: display the common english name of the species
@@ -255,10 +263,13 @@ class GenetreeDrawer(object):
         self.get_taxon = get_taxon_treebest if treebest else get_taxon
         self.commonname = commonname
         self.latinname = latinname
+        self.angle_style = angle_style
+        self.ages = ages
 
         self.phyltree = PhylTree.PhylogeneticTree(self.phyltreefile.format(
                                                         self.ensembl_version))
-        
+        self.internal = set() if internal is None else internal
+
         # add legend elements for coverage information
         self.show_cov = show_cov
         if show_cov:
@@ -274,10 +285,11 @@ class GenetreeDrawer(object):
         if colorize_clades is not None:
             cmap = plt.get_cmap('Set3', len(colorize_clades))
             for i, clade in enumerate(colorize_clades):
-                self.legend_clades.append(patches.Patch(color=cmap(i),
+                self.legend_clades.append(patches.Patch(color=cmap(i, alpha=0.7),
                                                          label=clade))
-                self.colorize_species.update({sp: cmap(i) for sp in
+                self.colorize_species.update({sp: cmap(i, alpha=0.7) for sp in
                                               self.phyltree.species[clade]})
+        self.clade_cmap = cmap
 
         self.ancgene2sp = re.compile('(' + 'root|'
                         + '|'.join(re.escape(s) for s in
@@ -354,6 +366,8 @@ class GenetreeDrawer(object):
 
             # Only needed for the TreeBest format
             rerooted_genetree.add_feature('S', lower_root)
+            # See the meaning of the 'P' ("paralogy") and 'A' ("asymmetrical")
+            # in dendro/reconciledtree2paralogytree.py
             rerooted_genetree.add_feature('P', getattr(genetree, 'P', 0))
             rerooted_genetree.add_child(child=genetree)
             self.genetrees.append(rerooted_genetree)
@@ -374,21 +388,30 @@ class GenetreeDrawer(object):
         #else:
         
         #print("Roots: " + ", ".join(roots))
+        if self.ages:
+            lca = self.phyltree.lastCommonAncestor(list(roots.difference(("root",))))
+            self.max_age = self.phyltree.ages[lca]
+            print('roots: %s; max_age: %g' % (roots, self.max_age))
+
         root = "root" if "root" in roots else self.phyltree.lastCommonAncestor(list(roots))
         self.taxa.add(root)
         
-    def draw_species_tree(self, figsize=None, angle_style=0, branch_width=0.8,
-                          colorize_clades=None, ages=False):
+
+    def draw_species_tree(self, branch_width=0.8):
         """Init figure + draw branches of the species tree.
         
         branch_width: proportion of vertical space between two branches taken
                       by the branch polygon.
-        angle_style: See the parser help."""
+        angle_style: See the parser help.
+        rootwardgrowth: widening factor of the branches towards the root, per x unit.
+        internal: restricted list/set of internal nodes to print, or "all".
+        """
+        #TODO: implement the colorize_clades as branch color
         self.species_coords   = {}
         self.species_branches = {}  # Back link to the parent, and branch length.
+        rootwardgrowth = 3./self.max_age if self.ages else 0.1 
 
-        if figsize is None: figsize = (8, 8) # 20x20cm # or mpl.rcParams['figure.figsize']
-        self.fig, ax0 = plt.subplots(figsize=figsize) #frameon=False) # set figsize later
+        self.fig, ax0 = plt.subplots() #frameon=False) # set figsize later
         #ax0 = self.fig.add_axes([0.1,0.1,0.9,0.9]) #, adjustable='box-forced')
         #ax0 = self.fig.add_axes([0.1, 0.1, 0.9, 0.9])
         if not self.debug: ax0.axis('off')
@@ -397,24 +420,26 @@ class GenetreeDrawer(object):
         ymin = 0
         any_show_cov = False
         for parent, (px, py, _), child, (cx, cy, _) in \
-              iter_species_coords(self.phyltree, self.taxa, angle_style, ages):
+              iter_species_coords(self.phyltree, self.taxa, self.angle_style, self.ages):
 
-            logger.debug('%-16s %-16s (%g, %g) -> (%g, %g)', parent, child,
-                         px, py, cx, cy)
-            self.species_branches[child] = (parent, cx - px, cy - py)
+            py += branch_width*abs(px)*rootwardgrowth*0.5
+            cy += branch_width*abs(cx)*rootwardgrowth*0.5
+            pwidth = branch_width*(1+rootwardgrowth*abs(px))
+            cwidth = branch_width*(1+rootwardgrowth*abs(cx))
+            logger.debug('%-16s %-16s (%g, %g) -> (%g, %g); widths: %g -> %g', parent, child,
+                         px, py, cx, cy, pwidth, cwidth)
+            self.species_branches[child] = (parent, cx - px, cy - py, cwidth)
 
-            self.species_coords[child] = (cx, cy)
+            self.species_coords[child] = (cx, cy, cwidth)
             if cy < ymin:  # update ymin.
                 ymin = cy
             coords = np.array([(px, py),
                                (cx, cy),
-                               (cx, cy - branch_width),
-                               (px, py - branch_width)])
+                               (cx, cy - cwidth),
+                               (px, py - pwidth)])
             ax0.add_patch(patches.Polygon(coords, 
                                           facecolor='#e5e5e5',
                                           edgecolor='#e5e5e5'))
-            ha = 'center' if cx < 0 else 'left'
-            va = 'bottom' if cx < 0 else 'top'
             # data-specific coloring (low-coverage)
             alpha = 1
             if self.show_cov and child in getattr(self.phyltree, "lstEsp6X", ()):
@@ -426,6 +451,9 @@ class GenetreeDrawer(object):
 
             bgcolor = self.colorize_species.get(child, '#ffffff00')
 
+            text_xy = (cx, cy)
+            ha = 'right'
+            va = 'top'
             if cx >= 0:
                 # It is a species, add the common name
                 if not self.latinname:
@@ -434,16 +462,24 @@ class GenetreeDrawer(object):
                         child = common_name
                     elif common_name:
                         child += ', %s' % common_name
+                ha = 'left'
+            elif cy-py >= 0:  # Branch going up
+                va = 'bottom'
+                alpha = 0.75
+            else:  # Branch going down
+                text_xy = (cx, cy-cwidth)
+                alpha = 0.75
 
-            ax0.annotate(child, (cx, cy), (2, 0), textcoords='offset points',
-                         ha=ha, va=va, fontsize='x-small',
-                         fontstyle='italic', family='serif', alpha=alpha,
-                         bbox={'facecolor': bgcolor, 'pad':0, 'edgecolor': 'none'})
-            #logger.debug()
+            if 'all' in self.internal or child in self.internal or cx >= 0:
+                ax0.annotate(child, text_xy, (2, 0), textcoords='offset points',
+                             ha=ha, va=va, fontsize=basefontsize,
+                             fontstyle='italic', family='serif', alpha=alpha,
+                             bbox={'facecolor': bgcolor, 'pad': 0, 'edgecolor': 'none'})
+                #logger.debug()
 
         # include root.
-        self.species_coords[parent] = (px, py)
-        ax0.text(px, py, parent, ha='right', fontsize='x-small',
+        self.species_coords[parent] = (px, py, pwidth)
+        ax0.text(px, py, parent, ha='right', fontsize=basefontsize,
                  fontstyle='italic', family='serif')
         
         # Add legend in case of coverage information
@@ -452,7 +488,7 @@ class GenetreeDrawer(object):
                                     loc="upper left",
                                     bbox_to_anchor=(0, 1),
                                     title="Sequencing coverage",
-                                    prop={'size': 'x-small', 'family': 'serif',
+                                    prop={'size': basefontsize, 'family': 'serif',
                                           'style': 'italic'},
                                     handlelength=0,
                                     facecolor='inherit')
@@ -467,7 +503,7 @@ class GenetreeDrawer(object):
                        loc="upper left",
                        bbox_to_anchor=(0, 0.9),
                        title="Clades",
-                       prop={'size': 'x-small', 'family': 'serif', 'style': 'italic'},
+                       prop={'size': basefontsize, 'family': 'serif', 'style': 'italic'},
                        facecolor='inherit')
             if self.show_cov and any_show_cov: ax0.add_artist(legend_cov)
 
@@ -477,6 +513,7 @@ class GenetreeDrawer(object):
             ax0.set_xlim(px, 0)
             ax0.set_ylim(ymin - 1, 1)
         self.ax0 = ax0
+        return self.fig
 
 
     def minimize_gene_branch_crossing(self):
@@ -592,7 +629,7 @@ class GenetreeDrawer(object):
         self.genetrees = sorted(self.genetrees, key=deletion_count.get)
 
 
-    def set_gene_coords(self, asymmetric=False):
+    def set_gene_coords(self, asymmetric=False, colorize_descent=None):
         """- asymmetric: whether to draw *asymmetric* divisions in the gene
                         tree. If True, the tree nodes descending from a
                         duplication must contain a "A=1" tag when they are
@@ -615,6 +652,11 @@ class GenetreeDrawer(object):
 
         self.minimize_gene_branch_crossing()
 
+        descent_i = 0
+        # Node names triggering special color for all descendant lines.
+        self.colorize_descent = []  # Sorted in the order they were found.
+        if not colorize_descent: colorize_descent = set()
+
         for nodeid, node in enumerate(n for genetree in self.genetrees \
                                       for n in genetree.traverse('postorder')):
             # set up a *unique* node ID, to avoid relying on node.name.
@@ -627,7 +669,16 @@ class GenetreeDrawer(object):
             children_taxa = set(interspecies_trees[ch.id]['taxon'] for ch
                                 in node.children)
             event = infer_gene_event(node, taxon, children_taxa)
+            #FIXME: take a decision on whether to copy those features or just use the ete3.TreeNode object.
             node_features = {ft: getattr(node, ft) for ft in node.features}
+            if node.name in colorize_descent:
+                node_features['C'] = descent_i  # colorize the *leading* branch
+                for descendant in node.iter_descendants():
+                    self.branchings[descendant.id][5]['C'] = descent_i
+                descent_i += 1
+                self.colorize_descent.append(node.name)
+            elif colorize_descent:
+                node_features['C'] = -1  # falls under the colormap range -> black
 
             if event == 'leaf':
                 taxon_gene_coords.append(nodeid)
@@ -637,17 +688,31 @@ class GenetreeDrawer(object):
                                               'ndup': 0,
                                               'x': 1,
                                               'y': node_y,
-                                              'asymmetry': int(getattr(node, 'A', 0))}
+                                              'asymmetry': int(getattr(node, 'A', 0)),
+                                              'features': node_features}
                 self.branchings[nodeid] = [taxon, 0, node_y, 'leaf', [], node_features]
             elif event == 'dup':
 
                 # It is a **duplication**
+                # At this stage, branchings[nodeid] is unset, it will only be set
+                # on the second pass (preorder from the ancestral speciation).
                 children_ys   = []
                 children_ndup = []
                 for ch in node.children:
                     children_ys.append(interspecies_trees[ch.id]['y'])
                     children_ndup.append(interspecies_trees[ch.id]['ndup'])
-
+                if not colorize_descent and not node.is_root():
+                    # We added a fake root node in load_reconciled_genetree but it's recognized as a dup.
+                    # Colorize by duplication fork, as initially implemented.
+                    for ch in node.children:
+                        interspecies_trees[ch.id]['features']['C'] = descent_i
+                        logger.debug('Child of dup: set color #%d at %s' % (descent_i, ch.name))
+                        # NOTE: very implicit behavior: if child is a speciation, 
+                        # its branchings dict will not be updated. However the 
+                        # node_features in interspecies_trees and branchings is
+                        # the same object, so this will be updated in both places.
+                    descent_i += 1
+                        
                 # TODO: tilt according to the parent speciation node.
                 # should fit in the triangle defined by parent and descendants.
                 #node_y    = (min(children_ys) + max(children_ys)) / 2
@@ -660,7 +725,7 @@ class GenetreeDrawer(object):
                     node_y   /= (sum(children_ndup) + len(children_ndup))
                 else:
                     main_branches = [ch for ch in node.children
-                                     if not interspecies_trees[ch.id]['asymmetry']
+                                     if not interspecies_trees[ch.id]['asymmetry'] # int(['features'].get('A', 0))
                                     ] or node.children
                     node_y = interspecies_trees[main_branches[0].id]['y']
 
@@ -669,7 +734,8 @@ class GenetreeDrawer(object):
                         'ndup': node_ndup,
                         'x': 1, # modified later
                         'y': node_y,
-                        'asymmetry': int(getattr(node, 'A', 0))}
+                        'asymmetry': int(getattr(node, 'A', 0)),
+                        'features': node_features}
             if event == 'spe' or node.is_root():
             #else:
                 # It is a **speciation**
@@ -684,11 +750,13 @@ class GenetreeDrawer(object):
                             'ndup': node_ndup,#0, 
                             'x': node_x,
                             'y': node_y,
-                            'asymmetry': int(getattr(node, 'A', 0))}
+                            'asymmetry': int(getattr(node, 'A', 0)),
+                            'features': node_features}
                 else:
                     # If it is the root, place it in the middle of the branch.
                     node_x = 1 - node_ndup/(node_ndup+1)
                     interspecies_trees[nodeid]['x'] = node_x
+                    #interspecies_trees[nodeid]['features']['C'] = -1  # Black root edge, always.
 
                 self.branchings[nodeid] = [taxon, node_x, node_y, event,
                                            [ch.id for ch in node.children],
@@ -719,6 +787,7 @@ class GenetreeDrawer(object):
                             nextnode_y = interspecies_trees[nextnode.id]['y']
                             nextnode_taxon = interspecies_trees[nextnode.id]['taxon']
                             nextnode_ch = [nnch.id for nnch in nextnode.children]
+                            nextnode_features = interspecies_trees[nextnode.id]['features']
 
                             self.branchings[nextnode.id] = [
                                                             nextnode_taxon,
@@ -726,7 +795,7 @@ class GenetreeDrawer(object):
                                                             nextnode_y,
                                                             'dup',
                                                             nextnode_ch,
-                                                            node_features]
+                                                            nextnode_features]
                             nextnodes.extend(nextnode.children)
 
                         interspecies_trees.pop(nextnode.id)
@@ -737,7 +806,7 @@ class GenetreeDrawer(object):
 
 
     def draw_gene_tree(self, extratitle='', genenames=False, tags="",
-                       branch_width=0.8, fork_style='curved'):
+                       fork_style='curved'):
         print(' --- Drawing genetree ---')
         # Duplicate the species tree axis to separate the plotting
         self.ax1 = self.ax0.twinx()
@@ -750,10 +819,18 @@ class GenetreeDrawer(object):
         
         self.real_gene_coords = {}
 
-        cmap = plt.get_cmap('Dark2', 10) # TODO: as many as duplications
-                                         # Or colorize by descendant genes.
-
-        color_index = 0
+        # Colors for edges
+        #cmap = plt.get_cmap('Dark2', 10)
+        #colorcycle = mpl.rcParams['axes.prop_cycle'].by_key()['color']
+        # Based on Seaborn 'bright' palette, without the dark grey color, extended with some colors from 'colorblind'
+        # dark:['#001c7f', '#b1400d', '#12711c', '#8c0800', '#591e71', '#592f0d', '#a23582', '#006374', '#b8850a', # too dark
+        # muted:['#4878d0', '#ee854a', '#6acc64', '#d65f5f', '#956cb4', '#8c613c', '#dc7ec0', '#82c6e2', '#d5bb67', # Ok.
+        # default:['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#17becf', '#bcbd22',
+        cmap = mpl.colors.ListedColormap(
+            ['#023eff', '#ff7c00', '#1ac938', '#e8000b', '#8b2be2', '#9f4800', '#f14cc1', '#00d7ff', '#ffc400',
+             '#fbafe4', '#56b4e9', '#ece133', '#029e73'], name='custom')
+        cmap.set_under('k')  # Better grey0.1 ?
+        #color_index = 0
 
         # Gene node names to be displayed (dup, leaf, spe)
         genenames = "leaf,dup,spe" if genenames in (True,"all") else genenames
@@ -773,7 +850,7 @@ class GenetreeDrawer(object):
                      for n in genetree.traverse('postorder')):
             nodeid = node.id
             
-            species, rel_x, rel_y, event, children, _ = self.branchings[nodeid]
+            species, rel_x, rel_y, event, children, features = self.branchings[nodeid]
             pos_list = self.gene_coords[species]
             nranks = len(pos_list) + 1
             children_real_coords = [self.real_gene_coords[ch] for ch in children]
@@ -783,19 +860,18 @@ class GenetreeDrawer(object):
             if event == 'dup':
 
                 # coordinates of the **species** branch vector
-                # Dx = x (taxon) - x (ancestor)
-                parent_sp, Dx, Dy = self.species_branches[species]
-                parent_x, parent_y = self.species_coords[parent_sp]
+                # Dx = x (taxon) - x (ancestor) >0
+                parent_sp, Dx, Dy, width = self.species_branches[species]
+                parent_x, parent_y, parent_width = self.species_coords[parent_sp]
+                # When branch width is constant, it's something like that:
+                #branch_transform = Affine2D().translate(parent_x, parent_y-width).scale(abs(Dx), abs(Dy)).skew(0, np.arctan2(Dy, abs(Dx)))
+                #real_x, real_y = branch_transform.transform_point((rel_x, rel_y))
+                # Branch width at the x position of the node
+                branch_width = parent_width * (1-rel_x) + width * rel_x
                 real_x = parent_x + Dx * rel_x
                 real_y = parent_y + Dy * rel_x - branch_width * (rel_y+1)/nranks
                 
-                if not node.is_root():
-                    nodecolor = 'red'
-                    branches_color = cmap(color_index)
-                    color_index = (color_index + 1) % cmap.N
-                else:
-                    nodecolor='black'
-                    branches_color = 'black'
+                nodecolor = 'black' if node.is_root() else 'red'
 
                 nch = len(children)
                 children_rel_ys = [self.branchings[ch][2] for ch in children]
@@ -815,21 +891,24 @@ class GenetreeDrawer(object):
                     # Draw thicker line when it represents a paralogy
                     linewidth = 4 if int(ch_ft.get('P', 0)) else 1
                     
-                    delta_y = (rel_y - ch_rel_y)/nranks * branch_width
+                    delta_y = (rel_y - ch_rel_y)/nranks
                     fork_coords = [(ch_real_x, ch_real_y),
                                    (real_x, real_y + delta_y),
                                    (real_x, real_y)]
+                    color_cat = ch_ft.get('C', -1)
+                    branch_color = cmap(color_cat) if color_cat<0 else cmap(color_cat % cmap.N)
                     u_fork_finger = patches.PathPatch(
                                     Path(fork_coords, fork_instructions),
                                     fill=False,
-                                    edgecolor=('black' if int(ch_ft.get('A', -1))==0 else branches_color),
+                                    edgecolor=('k' if int(ch_ft.get('A', -1))==0
+                                               else branch_color),
                                     alpha=0.5,
                                     linewidth=linewidth,
                                     joinstyle='round')  # don't see a change
                     self.ax1.add_patch(u_fork_finger)
 
             else:  # event == 'spe' or 'leaf'
-                real_x, real_y = self.species_coords[species]
+                real_x, real_y, branch_width = self.species_coords[species]
                 pos = pos_list.index(nodeid) + 1
                 real_y -= branch_width * pos/nranks
                 nodecolor = 'blue'
@@ -838,11 +917,12 @@ class GenetreeDrawer(object):
                 for ch, (ch_real_x, ch_real_y), ch_ft in \
                         zip(children, children_real_coords, children_features):
                     linewidth = 4 if int(ch_ft.get('P', 0)) else 1
+                    color_cat = ch_ft.get('C', -1)
                     v_fork_finger = patches.PathPatch(
                                              Path([(real_x, real_y),
                                                    (ch_real_x, ch_real_y)],
                                                   [MOVETO, LINETO]),
-                                             edgecolor='black',
+                                             edgecolor=(cmap(color_cat) if color_cat<0 else cmap(color_cat % cmap.N)),
                                              alpha=0.5,
                                              linewidth=linewidth,
                                              joinstyle='round')
@@ -859,37 +939,46 @@ class GenetreeDrawer(object):
                 #self.ax1.text(real_x, real_y, species, fontsize='xxx-small',
                 #              color=nodecolor)
             if event in genenames:
-                node_text = node.name
-                for ft in tags:
+                node_annot = [] if '-name' in tags else [node.name]
+                for ft in tags.difference(('-name',)):
                     try:
-                        node_text += " %s=%s" % (ft, getattr(node, ft))
-                    except AttributeError:
+                        node_annot.append("%s=%s" % (ft, features[ft]))
+                    except KeyError:
                         logger.debug("Attribute %r not found in node %s",
-                                     ft, node_text)
+                                     ft, ' '.join(node_annot))
                         pass
 
-                self.ax1.text(real_x, real_y, node_text, alpha=0.5,
-                              fontsize='xx-small',
+                self.ax1.text(real_x, real_y, ' '.join(node_annot), alpha=0.5,
+                              fontsize=fontsizes[max(0, fontsizes.index(basefontsize)-1)],
                               ha=('left' if event=='leaf' else 'right'),
                               va='top')
-
 
             self.real_gene_coords[nodeid] = (real_x, real_y)
             #self.fig.draw(self.fig.canvas.get_renderer())
             #plt.show()
             #input('Press Enter to continue.')
             ### TODO: add onpick action: display node name
+        if self.colorize_descent:
+            self.ax1.legend(handles=[lines.Line2D([],  [], color=cmap(i % cmap.N))
+                            for i,_ in enumerate(self.colorize_descent)],
+                       labels=self.colorize_descent,
+                       loc="lower left",
+                       title="Descending from:",
+                       prop={'size': basefontsize, 'family': 'serif', 'style': 'italic'},
+                       facecolor='#e5e5e5', framealpha=1)  # Same as species branch.
 
-    def draw(self, genetree, extratitle='', angle_style=0, ages=False,
-             figsize=None, genenames=False, tags="", asymmetric=False):
+    def draw(self, genetree, extratitle='',
+             genenames=False, tags="", asymmetric=False,
+             colorize_descent=None):
              #fork_style="curved"):
         """Once phyltree is loaded, perform all drawing steps."""
         self.load_reconciled_genetree(genetree)
-        self.draw_species_tree(figsize=figsize, angle_style=angle_style, ages=ages)
-        self.set_gene_coords(asymmetric=asymmetric)
+        self.draw_species_tree()
+        self.set_gene_coords(asymmetric, colorize_descent)
         self.draw_gene_tree(extratitle, genenames=genenames, tags=tags,
                             fork_style=("square" if asymmetric else "curved"))
         self.fig.tight_layout()
+        return self.fig
 
 
 ###
@@ -983,24 +1072,32 @@ TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/
 
 
 def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
-        phyltreefile=None, colorize_clades=None, commonname=False,
-        latinname=False, treebest=False, show_cov=False, ages=False,
-        genenames=False, tags="", asymmetric=False, debug=False):  #, fork_style="curved"
+        phyltreefile=None, colorize_clades=None, commonname=False, 
+        latinname=False, internal=None, treebest=False, show_cov=False,
+        ages=False, genenames=False, tags="", asymmetric=False, debug=False,
+        colorize_descent=None):  #, fork_style="curved"
     #global plt
 
-    figsize = (8.2, 11.7)  # A4
-    #figsize = (33.1, 46.8)  # A0
+    figsize = PAPERSIZE['a4']
     match_figsize = FIGSIZE.search(outfile)
+    sizestr = match_figsize.group().lower()
     if match_figsize:
-        outfile = outfile[:match_figsize.start()]
-        figsize = [float(x) for x in match_figsize.groups()]
+        outfile = outfile[:match_figsize.start()-1]
+        print(match_figsize.group())
+        try:
+            figsize = PAPERSIZE[sizestr]
+        except KeyError:
+            figsize = tuple(float(x) for x in match_figsize.groups())
     logger.debug('Will set output figsize to: %d x %d inches.', *figsize)
     gd = GenetreeDrawer(phyltreefile=phyltreefile,
                         ensembl_version=ensembl_version,
-                        colorize_clades=colorize_clades,
+                        colorize_clades=colorize_clades.split(','),
                         commonname=commonname,
                         latinname=latinname,
                         treebest=treebest,
+                        angle_style=angle_style,
+                        ages=ages,
+                        internal=internal.split(','),
                         show_cov=show_cov,
                         debug=debug)
     display = lambda: plt.show() # Display function for shell or notebook usage
@@ -1016,7 +1113,8 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
         #from importlib import reload; reload(plt)
     elif outfile.endswith('.pdf'):
         pdf = PdfPages(outfile)
-        display = lambda: (pdf.savefig(bbox_inches='tight', papertype='a4'),
+        display = lambda: (pdf.savefig(bbox_inches='tight',
+                           papertype=(sizestr if sizestr in PAPERSIZE else 'a4')),
                            plt.close())
     else:
         assert len(genetrees) <= 1, "multipage output only supported for pdf"
@@ -1024,17 +1122,21 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
                            plt.close())
 
     for genetree in genetrees:
-        genetree, *extratitles = genetree.split(',')
-        extratitle = ', '.join(extratitles)
-        print('INPUT FILE:', genetree, '(%s)' % extratitle)
-        gd.draw(genetree, extratitle, angle_style=angle_style, ages=ages,
-                figsize=figsize, genenames=genenames, tags=tags,
-                asymmetric=asymmetric)  #, fork_style=fork_style
-
-        display()
+        try:
+            genetree, *extratitles = genetree.split(',')
+            extratitle = ', '.join(extratitles)
+            print('INPUT FILE:', genetree, '(%s)' % extratitle)
+            gd.draw(genetree, extratitle, genenames=genenames, tags=tags,
+                    asymmetric=asymmetric, colorize_descent=colorize_descent.split(','))  #, fork_style=fork_style
+            gd.fig.set_size_inches(figsize)
+            display()
+        except BaseException as err:
+            if outfile.endswith('.pdf'):
+                pdf.close()
+            raise
 
     if not genetrees:
-        gd.draw_species_tree(figsize=figsize, angle_style=angle_style, ages=ages)
+        gd.draw_species_tree().set_size_inches(figsize)
         display()
 
     if outfile.endswith('.pdf'):
@@ -1086,10 +1188,16 @@ if __name__ == '__main__':
                         help='Species common names only')
     parser.add_argument('-L', '--latinname', action='store_true', 
                         help='Species scientific names only')
+    parser.add_argument('-i', '--internal', default='',
+                        help='Internal node names to display or "all" (comma-separated).')
     
-    parser.add_argument('-c', '--colorize-clade', action='append',
-                        dest='colorize_clades',
-                        help='species in these clades will have a specific color')
+    parser.add_argument('-c', '--colorize-clade',
+                        dest='colorize_clades', metavar='CLADES', default='',
+                        help='Set a specific label color to species in these '\
+                             'clades (comma-separated)')
+    parser.add_argument('-l', '--colorize-descent', default='', metavar='NODE NAMES',
+                        help='Set a specific color to all gene lines descending'\
+                             'from the given node (comma-separated)')
     parser.add_argument('-s', '--show-cov', action='store_true',
                         help='Show genome coverage information (grey shading)')
     parser.add_argument('-A', '--ages', action='store_true',
@@ -1115,7 +1223,7 @@ if __name__ == '__main__':
     if dictargs.pop('fromfile'):
         assert len(dictargs['genetrees']) == 1
         genetreelistfile = dictargs.pop('genetrees')[0]
-        with open(genetreelistfile) as stream:
+        with (sys.stdin if genetreelistfile=='-' else open(genetreelistfile)) as stream:
             dictargs['genetrees'] = [line.rstrip() for line in stream
                                         if not line.startswith('#')]
             

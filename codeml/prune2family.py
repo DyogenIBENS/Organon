@@ -65,7 +65,7 @@ def parse_substitution_expr(subst):
     """
     assert subst.startswith('s')
     delim = subst[1]
-    _, pattern, repl, _ = subst.split(delim)
+    _, pattern, repl, _ = subst.split(delim) # fails (good thing) if wrong number of delimiters
     return pattern, repl
 
 def print_if_verbose(*args, **kwargs):
@@ -852,11 +852,12 @@ def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #anc
         latest_ancestor=False, #ensembl_version=ENSEMBL_VERSION,
         outdir='.',
         only_dup=False, one_leaf=False, outgroups=0, allowed_outgroups=None,
+        reverse=False,
         dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
     #print("treebest = %s" % treebest, file=stderr)
     logger.debug('save_subtrees(\n'
-        '   treenb = %d,\n' % treenb,
+        '   treenb = %d,\n' % treenb +
         '   treefile = %r,\n' % (treefile if len(treefile)<100
                         else (treefile[:45] + ' ... ' + treefile[-45:])) +
         '   ancestor_descendants = %.60r [...],\n' % ancestor_descendants  +
@@ -872,8 +873,10 @@ def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #anc
         '   one_leaf = %r,\n' % one_leaf +
         '   outgroups = %r,\n' % outgroups +
         '   allowed_outgroups = %.50r [...],\n' % allowed_outgroups +
+        '   reverse = %r,\n' % reverse +
         '   dry_run = %r)' % dry_run)
     outtrees_set = set() # check whether I write twice the same tree
+    outnodes_set = set()
     #FIXME: should not allow stdin here:
     if treefile == '-': treefile = '/dev/stdin'
     #try:
@@ -916,9 +919,9 @@ def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #anc
             #print(node.name)
             #print(node.get_ascii())
             logger.debug('Got %s', node.name)
-            if len(leafnames) > 1 or one_leaf:
+            if len(leafnames) > 1 or one_leaf or reverse:
                 # check that there is at least one duplication
-                if not only_dup or with_dup(leafnames):
+                if not only_dup or with_dup(leafnames) or reverse:  #FIXME: DaFuQ, this misses dubious dup.
                     ### TODO: when you *know* there can be duplicated node
                     ###       names, use a custom unique id for each node.
                     outname = root_regex.sub(root_repl, node.name).format(
@@ -941,8 +944,13 @@ def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #anc
                     if outname in outtrees_set:
                         #raise RuntimeError("Cannot output twice the same tree (%s)"
                         #                   % outname)
-                        logger.error("Should not output twice the same tree (%s)" % outname)
-
+                        logger.error("Should not output twice the same subtree (%s)" % outname)
+                    if reverse:
+                        # Collapse the node
+                        #node.children = []  # Might be better to child.detach()
+                        #node.name = outname
+                        outnodes_set.add((node, outname))
+                        continue
                     outfile = None if outdir == '-' else op.join(outdir, outname + '.nwk')
                     #elif outfile in outfiles_set:
                         # Not sure this case can happen, but better prevent it.
@@ -959,6 +967,7 @@ def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #anc
                         # NOT OUTPUTTED!
                         continue
 
+                    outtrees_set.add(outname)
                     if dry_run:
                         print("node %r (%s) -> %s"
                               % (node.name, ancestor, outfile))
@@ -976,10 +985,40 @@ def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #anc
                         if outtree is not None:
                             print(outtree)
                     #outfiles_set.add(outfile)
-                    outtrees_set.add(outname)
             else:
                 logger.debug('Not outputted')
     #print_if_verbose("Output %d trees." % len(outfiles_set))
+    if reverse:
+        # Better to collapse nodes after search, because of the parse_species_genename warning.
+        for outnode, outname in outnodes_set:
+            outnode.children = []
+            outnode.name = outname
+        root_regex, root_repl = ancestor_regexes['__root__']
+        outname = root_regex.sub(root_repl, tree.name).format(
+                        rootname=tree.name,
+                        nodeid=-1,
+                        basename=op.basename(treefile),
+                        treenb=treenb)
+        outfile = None if outdir == '-' else op.join(outdir, outname + '.nwk')
+        if dry_run:
+            print("node %r (root) -> %s"
+                  % (tree.name, outfile))
+            tree.write(format=1,
+                       format_root_node=True,
+                       outfile=None,
+                       features=output_features)
+        else:
+            #print_if_verbose("Writing to %r." % outfile)
+            logger.info("Writing to %r.", outfile)
+            outtree = tree.write(format=1,
+                                 format_root_node=True,
+                                 outfile=outfile,
+                                 features=output_features)
+            if outtree is not None:
+                print(outtree)
+        #outfiles_set.add(outfile)
+        outtrees_set = set((outname,))
+
     return outtrees_set
 
 
@@ -1019,7 +1058,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                            latest_ancestor=False, outgroups=0, dry_run=False,
                            ignore_errors=False,
                            ensembl_version=ENSEMBL_VERSION,
-                           rename_root_subst=RENAME_ROOT_SUBST):
+                           rename_root_subst=RENAME_ROOT_SUBST, reverse=False):
     ### WARNING: uses global variables here, that are changed by command line
     phyltree = PhylTree.PhylogeneticTree(PHYLTREE_FMT.format(ensembl_version))
     # Crucial point: the pattern alternatives must be sorted by age, so that
@@ -1040,6 +1079,14 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                        descendants=r'|'.join(descendants).replace(' ', r'.'),
                        ancestor=ancestor)),
             rename_root_repl)
+    if reverse:
+        descendants = sorted(phyltree.allNames, key=lambda anc: -phyltree.ages[anc])
+        # By default, substitute any taxon name with the PhylTree root.
+        ancestor_regexes['__root__'] = (
+            re.compile(rename_root_pattern.format(
+                       descendants=r'|'.join(phyltree.allNames).replace(' ', r'.'),
+                       ancestor=r'|'.join(ancestors)).replace(' ', r'.')),
+            rename_root_repl.replace(r'{ancestor}', phyltree.root.replace(' ', r'.')))
 
     try:
         diclinks = phyltree.dicLinks.common_names_mapper_2_dict()
@@ -1112,6 +1159,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
                       one_leaf,
                       outgroups,
                       allowed_outgroups,
+                      reverse,
                       dry_run,
                       ignore_errors] for i, treefile in enumerate(treefiles)]
 
@@ -1151,6 +1199,8 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
 
 def parse_treefiles(treefiles_file):
     try:
+        if treefiles_file=='-':
+            return [line.rstrip() for line in stdin]
         with open(treefiles_file) as stream:
             return [line.rstrip() for line in stream]
     except BrokenPipeError:
@@ -1172,7 +1222,9 @@ if __name__ == '__main__':
                                help="the first argument contains "\
                                     "multiple trees in one file")
     parser.add_argument("-o", "--outdir", default='./{0}',
-                        help="'-' to output trees to stdout. [%(default)s]")
+                        help="'-' to output trees to stdout. [%(default)s]. "\
+                             "The basename is automatic based on the root node"\
+                             " (but you can use --rename-root-subst).")
     parser.add_argument("-s", "--outsub", help="alternative splitting " \
                         "character to remove the extension from the basename "\
                         "of the treefile (used by '{0}' in --outdir).")
@@ -1216,7 +1268,7 @@ if __name__ == '__main__':
                              "tree, otherwise it's necessarily in sister "\
                              "species. If specified, DO NOT output trees "\
                              "without outgroups. [Default $(metavar)s=%(default)s]")
-    parser.add_argument('-r', '--rename-root-subst', '--rr',
+    parser.add_argument("-r", "--rename-root-subst", "--rr",
                         default=RENAME_ROOT_SUBST,
                         help="sed substitution expression to build output "\
                             "filenames from the root node information." \
@@ -1227,6 +1279,8 @@ if __name__ == '__main__':
                             "(replacement).\n" \
                             "Example to always prefix with the input tree index: "\
                             "'s/^/{treenb}/'.")
+    parser.add_argument("-R", "--reverse", action="store_true",
+                        help="Output the super tree (ancestral) with ancestors as leaves.")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="only print out the output files it would produce")
     parser.add_argument("--ncores", type=int, default=1, help="Number of cores")
