@@ -193,7 +193,12 @@ def test_reroot_with_outgroup():
     def print_if_verbose(*args, **kwargs):
         pass
 
+    passed = []
+    total = 0
+
     def check(orig_tree, tree, outsize, treetype, rootname, expect_outsize, outgroupnodes, childset=None):
+        nonlocal total
+        print('\n## TEST %d' % (total+1))
         try:
             assert not orig_tree.search_nodes(is_outgroup=1), "Left outgroup marks."
             assert not orig_tree.search_nodes(has_ingroup=1), "Left ingroup marks."
@@ -211,7 +216,7 @@ def test_reroot_with_outgroup():
             assert outsize == expect_outsize, outsize
         except AssertionError as err:
             logger.exception('Failed check:')
-            print('occured on:\n', 'None' if tree is None else tree.write(features=['is_outgroup', 'has_ingroup', 'event'], format=1, format_root_node=True))
+            print('occured on:\n   ', 'None' if tree is None else tree.write(features=['is_outgroup', 'has_ingroup', 'event'], format=1, format_root_node=True))
             return False
         return True
 
@@ -220,9 +225,6 @@ def test_reroot_with_outgroup():
     insert_species_nodes_back(tree, this_parse_species_genename, diclinks, ages,
                               fix_suffix=True, force_mrca=False)
     
-    passed = []
-    total = 0
-
     print(tree.get_ascii())
     for leaf in tree.iter_leaves():
         total += 1
@@ -357,6 +359,35 @@ def test_reroot_with_outgroup():
                     expect_outsize=2, outgroupnodes=set('bc'))
     total += 1
     passed.append(int(result))
+
+    ## Test the maxsize < -N which should go up N nodes (and return full clades).
+    tree = ete3.Tree('((a,b)x,c)r;', format=1)
+    root, outsize = reroot_with_outgroup(tree&'a', maxsize=-1)
+    result = check(tree, root, outsize, treetype=ete3.TreeNode, rootname='x',
+                    expect_outsize=1, outgroupnodes=set('b'))
+    total += 1
+    passed.append(int(result))
+    ## Idem with maxsize=-2 (two nodes back)
+    tree = ete3.Tree('((a,b)x,(c,d,e)y)r;', format=1)
+    root, outsize = reroot_with_outgroup(tree&'a', maxsize=-2)
+    result = check(tree, root, outsize, treetype=ete3.TreeNode, rootname='r',
+                    expect_outsize=4, outgroupnodes=set('by'))
+    total += 1
+    passed.append(int(result))
+    ## Check that using the same input tree does not leave unwanted annotations (is_outgroup):
+    root, outsize = reroot_with_outgroup(tree&'c', maxsize=-2)
+    result = check(tree, root, outsize, treetype=ete3.TreeNode, rootname='r',
+                   expect_outsize=4, outgroupnodes=set('dex'))
+    total += 1
+    passed.append(int(result))
+    ## Now that feature with single child nodes along the way
+    tree = ete3.Tree('(((a,b)x)xx,(c,d,e)y)r;', format=1)
+    root, outsize = reroot_with_outgroup(tree&'a', maxsize=-2)
+    result = check(tree, root, outsize, treetype=ete3.TreeNode, rootname='r',
+                    expect_outsize=4, outgroupnodes=set('by'))
+    total += 1
+    passed.append(int(result))
+
 
     ## END: summary
     print('-' * 20)

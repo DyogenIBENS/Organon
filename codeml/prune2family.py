@@ -724,7 +724,26 @@ def reroot_with_outgroup(node, maxsize=0, minsize=-1,
     realsize = sum(len(sister) for sister in orig_outgroups)
 
     if maxsize < 0 and is_allowed_outgroup is None and minsize<=0:
-        # We accept the full outgroup subtrees.
+        # We include the full outgroup subtrees.
+        # Store the recursive child indices to find the same node in the copy.
+        ingroup_indices = [root.children.index(node)]
+        while root.up and maxsize < -1:
+            next_outgroups = root.get_sisters()
+            if next_outgroups:  # Else, let's skip the single-child node.
+                maxsize += 1
+                orig_outgroups += next_outgroups
+                realsize += sum(len(sister) for sister in next_outgroups)
+                ingroup_indices.insert(0, root.up.children.index(root))
+            else:
+                ingroup_indices.insert(0, 0)
+            root = root.up
+        root = root.copy()  # Because we can add the `is_outgroup` mark only on a copy.
+        ingroup = root  # re-traverse leafwards to annotate the outgroups.
+        for i in ingroup_indices:
+            for child in ingroup.children[:i] + ingroup.children[i+1:]:
+                child.add_feature('is_outgroup', 1)
+            ingroup = ingroup.children[i]
+
         return root, realsize
 
     if maxsize > 0 or is_allowed_outgroup is not None:
@@ -1186,16 +1205,17 @@ if __name__ == '__main__':
                         "gene, output one tree per paralog and root each tree"\
                         " at the latest gene, (instead of rooting at the " \
                         "ancestral gene)")
-    parser.add_argument("-O", "--outgroups", metavar='S', default=0, 
-                        help="Save the subtree including the outgroup sister "\
-                             "clade of maximum size %(metavar)s. Set to '-1' "\
-                             " to keep the full clade [Default S=%(default)s]."\
-                             " Set to a comma-separated list of species to "\
+    parser.add_argument("-O", "--outgroups", metavar='N', default=0, 
+            help="Save the subtree including outgroups: `%(metavar)s` can be: "\
+                "1) a positive integer: the exact number of outgroup *leaves*; "\
+                "2) a negative number: the number of *ancestors* to go back "\
+                "(return complete sister clades); "\
+                             "3) a comma-separated list of species to "\
                              "restrict to a given set of species."
                              "NOTE: with `-l`, the outgroup can be a paralog "\
                              "tree, otherwise it's necessarily in sister "\
-                             "species. If specified, DO NOT output trees "
-                             "without outgroups.")
+                             "species. If specified, DO NOT output trees "\
+                             "without outgroups. [Default $(metavar)s=%(default)s]")
     parser.add_argument('-r', '--rename-root-subst', '--rr',
                         default=RENAME_ROOT_SUBST,
                         help="sed substitution expression to build output "\
