@@ -22,6 +22,7 @@ try:
     import argparse_custom as argparse # Less verbose help message
 except ImportError:
     import argparse
+from itertools import zip_longest
 
 import numpy as np
 import matplotlib as mpl
@@ -1071,12 +1072,8 @@ def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
 TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.b.a.b.b.a.b.c.a.a.a.nwk"
 
 
-def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION, 
-        phyltreefile=None, colorize_clades=None, commonname=False, 
-        latinname=False, internal=None, treebest=False, show_cov=False,
-        ages=False, genenames=False, tags="", asymmetric=False, debug=False,
-        colorize_descent=None):  #, fork_style="curved"
-    #global plt
+def run(genetrees, gene_params, outfile, genenames=False, tags="", asymmetric=False,
+        colorize_descent=None, **kwargs):
 
     figsize = PAPERSIZE['a4']
     match_figsize = FIGSIZE.search(outfile)
@@ -1089,17 +1086,7 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
         except KeyError:
             figsize = tuple(float(x) for x in match_figsize.groups())
     logger.debug('Will set output figsize to: %d x %d inches.', *figsize)
-    gd = GenetreeDrawer(phyltreefile=phyltreefile,
-                        ensembl_version=ensembl_version,
-                        colorize_clades=colorize_clades.split(','),
-                        commonname=commonname,
-                        latinname=latinname,
-                        treebest=treebest,
-                        angle_style=angle_style,
-                        ages=ages,
-                        internal=internal.split(','),
-                        show_cov=show_cov,
-                        debug=debug)
+    gd = GenetreeDrawer(**kwargs)
     display = lambda: plt.show() # Display function for shell or notebook usage
     if __name__=='__main__' and outfile == '-':
         try:
@@ -1121,13 +1108,16 @@ def run(outfile, genetrees, angle_style=0, ensembl_version=ENSEMBL_VERSION,
         display = lambda: (plt.savefig(outfile, bbox_inches='tight'),
                            plt.close())
 
-    for genetree in genetrees:
+    for (genetree, gene_kwargs) in zip_longest(genetrees, gene_params, fillvalue={}):
+        # Use global gene kwargs as default:
+        gene_kwargs = {'genenames': genenames, 'tags': tags,
+                       'asymmetric': asymmetric, 'colorize_descent': colorize_descent,
+                       **gene_kwargs}
         try:
             genetree, *extratitles = genetree.split(',')
             extratitle = ', '.join(extratitles)
             print('INPUT FILE:', genetree, '(%s)' % extratitle)
-            gd.draw(genetree, extratitle, genenames=genenames, tags=tags,
-                    asymmetric=asymmetric, colorize_descent=colorize_descent.split(','))  #, fork_style=fork_style
+            gd.draw(genetree, extratitle, **gene_kwargs)
             gd.fig.set_size_inches(figsize)
             display()
         except BaseException as err:
@@ -1149,6 +1139,9 @@ if __name__ == '__main__':
 
     logging.basicConfig(format='%(levelname)s:%(name)s:l.%(lineno)d:%(funcName)s:%(message)s')
 
+    def commasplit(arg):
+        return arg.split(',')
+
     parser = argparse.ArgumentParser(description=__doc__,
                         #formatter_class=CustomHelpFormatter)
                         formatter_class=argparse.RawTextHelpFormatter)
@@ -1157,11 +1150,11 @@ if __name__ == '__main__':
                               "display the figure. You can control the figsize"
                               " by suffixing with for example \":6x8\" (width "
                               "6, height 8 inches)."))
-    #input_g = parser.add_argument_group("Input data arguments")
     parser.add_argument('genetrees', nargs='*', default=[],
         help=("must be a genetree (nwk format with internal nodes labelling) "
             "reconciled with species tree, or a genetree formatted like "
             "`TreeBest` output. '-' means standard input."))
+    #parser.add_argument_group("Common arguments")
     parser.add_argument('--fromfile', action='store_true',
                         help='take genetree paths and description from a file')
     parser.add_argument('-p', '--phyltreefile', default=PHYLTREEFILE,
@@ -1171,7 +1164,6 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--treebest', action='store_true',
                         help='The input genetree is a treebest output')
     
-    #drawing_g = parser.add_argument_group("Drawing options")
     parser.add_argument('-a', '--angle-style', type=int, choices=range(6),
                         default=0,
                         help=(
@@ -1193,26 +1185,30 @@ if __name__ == '__main__':
     
     parser.add_argument('-c', '--colorize-clade',
                         dest='colorize_clades', metavar='CLADES', default='',
+                        type=commasplit,
                         help='Set a specific label color to species in these '\
                              'clades (comma-separated)')
-    parser.add_argument('-l', '--colorize-descent', default='', metavar='NODE NAMES',
-                        help='Set a specific color to all gene lines descending'\
-                             'from the given node (comma-separated)')
     parser.add_argument('-s', '--show-cov', action='store_true',
                         help='Show genome coverage information (grey shading)')
     parser.add_argument('-A', '--ages', action='store_true',
                         help='Place species nodes at their real age.')
-    parser.add_argument('-g', '--genenames',
+    parser.add_argument('-d', '--debug', action='store_true',
+                        help='More verbose output and graphical hints (axes tick values)')
+    g_pars = parser.add_argument_group("Gene tree control",
+                        "Can be superseeded by key=value pairs in the input file (--fromfile)")
+    g_pars.add_argument('-g', '--genenames',
                         help='Display gene names: \n' \
                              '- comma-sep list of "leaf", "dup", "spe";\n'
                              '- "all" (identical to "leaf,dup,spe").')
-    parser.add_argument('-T', '--tags', default="",
+    g_pars.add_argument('-T', '--tags', default="",
                         help="Additional node tags to write")
-    parser.add_argument('-k', '--asymmetric', action='store_true',
+    g_pars.add_argument('-k', '--asymmetric', action='store_true',
                         help='Draw *asymmetric* gene duplications: one branch'\
                              ' stays the main branch, and other are children.')
-    parser.add_argument('-d', '--debug', action='store_true',
-                        help='More verbose output and graphical hints (axes tick values)')
+    g_pars.add_argument('-l', '--colorize-descent', default='', metavar='NODE NAMES',
+                        type=commasplit,
+                        help='Set a specific color to all gene lines descending'\
+                             'from the given node (comma-separated)')
                         
     #parser.add_argument('-m', '--multiple-pdfs', action='store_true',
     #                    help='output one pdf file per genetree. [NOT implemented]')
@@ -1220,17 +1216,24 @@ if __name__ == '__main__':
     dictargs = vars(args)
     #if not dictargs.get('genetrees'):
     #    dictargs['genetrees'] = [TESTTREE]
+    genetrees = dictargs.pop('genetrees')
+    gene_params = []
     if dictargs.pop('fromfile'):
-        assert len(dictargs['genetrees']) == 1
-        genetreelistfile = dictargs.pop('genetrees')[0]
+        genetreelistfile = genetrees.pop()
+        if genetrees:
+            print('Argument error: only one input file allowed with --fromfile')
+            sys.exit(2)
         with (sys.stdin if genetreelistfile=='-' else open(genetreelistfile)) as stream:
-            dictargs['genetrees'] = [line.rstrip() for line in stream
-                                        if not line.startswith('#')]
+            for line in stream:
+                if not line.startswith('#'):
+                    genetree_str, *gene_kwargs = line.rstrip().split('\t')
+                    genetrees.append(genetree_str)
+                    gene_params.append(dict(keyval.split('=') for keyval in gene_kwargs))
             
     # TODO: add into run()
     #ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)%s' % ancgene_regex)
 
     logger.setLevel(logging.DEBUG if args.debug else logging.INFO)
 
-    gd = run(**dictargs)
+    gd = run(genetrees, gene_params, **dictargs)
 
