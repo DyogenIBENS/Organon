@@ -5,6 +5,12 @@
 Append the species name to a gene name in a sequence alignment.
 Can convert ensembl gene names to species, as well as assembly names
 (ex: loxAfr3).
+
+CAVEATS:
+
+Because of Biopython Bio.SeqIO parser, spaces are not allowed in sequence
+labels. To include the whole fasta identifier line, use record.description.
+
 """
 
 EXAMPLES="""
@@ -77,7 +83,12 @@ def parse_label(label, input_fmt=DEFAULT_IN_FMT, ensembl_version=ENSEMBL_VERSION
         infos['sp'] = infos.pop('sp_dot').replace('.', ' ')
     for key in KEYS[1:]:
         if key not in infos:
-            infos[key] = identifiers[key](infos, ensembl_version)
+            try:
+                infos[key] = identifiers[key](infos, ensembl_version)
+            except KeyError as err:
+                err.args += ('%s is unidentifiable from label %r using pattern %r'
+                             % (key, label, input_fmt),)
+                raise
     return infos
 
 
@@ -113,7 +124,7 @@ DEFAULT_TRANSFORMS = dict(sp=lambda string: string.replace(' ', '.'))
 # ~~> genomicustools.identify
 def makelabel(elements, get_label, input_fmt=DEFAULT_IN_FMT, label_fmt=DEFAULT_OUT_FMT,
             transforms=DEFAULT_TRANSFORMS,
-            ensembl_version=ENSEMBL_VERSION):
+            ensembl_version=ENSEMBL_VERSION):  # uniq=True
     seen_labels = {}
     for elem in elements:
         infos = parse_label(get_label(elem), input_fmt, ensembl_version)
@@ -141,7 +152,6 @@ def seq_specify(inputfile, file_fmt="fasta",
                                     ensembl_version):
         record.id = label
         record.description = ''
-        #print(record.id)
         yield record
 
 

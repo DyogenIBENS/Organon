@@ -414,6 +414,7 @@ def grep_gene(filename, geneID, cprot=2, cgene=0):
     with myopen(filename) as IN:
         for line in IN:
             fields = line.rstrip('\r\n').split('\t')
+            
             if fields[cgene] == geneID:
                 return fields[cprot]
 
@@ -440,13 +441,75 @@ def load_assembly2species(filename="~/ws2/UCSC_genome_releases_full.tsv",
             conversion[fields[fromcol]] = fields[tocol]
     return conversion
 
+def try_load_assembly2species(ucsc_conv_filename='~/ws2/UCSC_genome_releases_full.tsv'):
+    try:
+        return load_assembly2species(ucsc_conv_filename)
+    except FileNotFoundError:
+        logger.warning("Conversion file not found: %r", ucsc_conv_filename)
+        return {}
 
-ucsc_conv_filename = '~/ws2/UCSC_genome_releases_full.tsv'
-try:
-    assembly2species = load_assembly2species(ucsc_conv_filename)
-except FileNotFoundError:
-    logger.warning("Conversion file not found: %r", ucsc_conv_filename)
-    assembly2species = {}
+class OnDemandData(object):
+    """A dictionary-like object that is filled only when someone queries it.
+    Read-only.
+
+    Allows to save loading time if unused (e.g. Disk I/O...).
+    """
+    #data = None  # Default *class* attribute needed during unpickling.
+    def __init__(self, loader):
+        """loader: function returning a dictionary"""
+        self.data = None
+        self.loader = loader
+        self.loaded = False
+
+    def load(self):
+        """Load or reload"""
+        self.data = self.loader()
+
+    def _load_on_error(method):
+        """Tries first, or load data"""
+        def newmethod(self, *args, **kwargs):
+            try:
+                # For example, try: dict.__getitem__(None, 'a')  -> TypeError
+                return method(self, *args, **kwargs)
+            except AttributeError:  # Because data is None
+                self.data = self.loader()
+                self.loaded = True
+                return method(self, *args, **kwargs)
+        return newmethod
+
+    @_load_on_error
+    def __getitem__(self, key):
+        return self.data.__getitem__(key)
+
+    @_load_on_error
+    def __iter__(self):
+        return self.data.__iter__()
+
+    @_load_on_error
+    def __len__(self):
+        return self.data.__len__()  # Why two definitions of length...
+
+    @_load_on_error
+    def get(self, key, default):
+        return self.data.get(key, default)
+
+    @_load_on_error
+    def items(self):
+        return self.data.items()
+
+    @_load_on_error
+    def keys(self):
+        return self.data.keys()
+
+    @_load_on_error
+    def __contains__(self, key):
+        return self.data.__contains__(key)
+
+    def __repr__(self):
+        return '%s(loader=%s)' % ((self.__class__.__name__, self.loader))
+
+
+assembly2species = OnDemandData(try_load_assembly2species)
 
 
 def ultimate_seq2sp(seqname, ensembl_version=ENSEMBL_VERSION):

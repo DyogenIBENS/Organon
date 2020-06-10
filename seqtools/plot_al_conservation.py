@@ -1116,7 +1116,9 @@ def main():
                              'codons/nucleotides.')
     parser.add_argument('-c', '--compare-parts',
                         help='Plot the per-column correlation between two ' \
-                             'groups of data, e.g "(0,1);(2,3,4)"')
+                             'groups of data, e.g "(0,1);(2,3,4)". The last '\
+                             'part is calculated automatically. slices and '\
+                             'regex (matching sequence names) allowed')
     parser.add_argument('-C', '--compare-only', action='store_true',
                         help='Do not display global scores')
     parser.add_argument('-W', '--figwidth', default=16, type=float,

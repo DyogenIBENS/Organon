@@ -109,7 +109,7 @@ def rewrite_fastafile(fastafile, gene_info, outputformat="{0}_genes.fa", cprot=2
                         logger.error(notfound_msg)
                     unknowns += 1
                     species = convert_prot2species(protID, ensembl_version, 'unknown')
-                    geneID = "%s_gene_%d" % (species, unknowns)
+                    geneID = "UNKNOWN_prot2gene_%s_%d" % (species.replace(' ', '.'), unknowns)
                 else:
                     found.setdefault(geneID, 0)
                     found[geneID] += 1
