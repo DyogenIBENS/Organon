@@ -176,10 +176,11 @@ def freq_matrix(vint, minlength=66):
 
 # ~~> arrayal
 def presence_matrix(vint, minlength=66):
-    """Convert a sequence of integers into a boolean matrix of presence of each value."""
+    """Convert a sequence of integers into a boolean matrix of presence of each value.
+    Zero encodes gaps. >minlength encodes ambiguous/invalid residues."""
 
     assert len(vint.shape) == 2 and vint.shape[0] == 1, \
-            "Can't give more than one sequence." + str(vint.shape)
+            "Can't input more than one sequence " + str(vint.shape)
     count_mat = count_matrix(vint, minlength)
     # Convert gaps (integer zero) and 'N' (integer minlength-1) to unknown: True everywhere.
     presence = count_mat[1:(minlength-1), :].astype(bool)
@@ -190,6 +191,15 @@ def presence_matrix(vint, minlength=66):
 
     return presence
 
+    ### WTF
+def presence_matrice(vint, minlength=66):
+    assert len(vint.shape) == 2 and vint.shape[0] == 1, \
+            "Can't input more than one sequence " + str(vint.shape)
+    count_mat = count_matrix(vint, minlength)
+    presence = count_mat.astype(bool)
+    # Convert gaps (integer zero) and 'N' (integer minlength-1) to unknown: True everywhere.
+    presence[0, :] = True
+    return presence
 
 def filename2format(filename):
     _, ext = os.path.splitext(filename)
@@ -297,133 +307,184 @@ def comp_parts(alint, compare_parts=None):
 
 
 # ~~> arrayal/evol
-def parsimony_score(alint, tree, seqlabels, minlength=66, get_children=None,
-                    parts=None):
-    """Computes the column-wise parsimony score based on the provided tree.
+class Parsimony(object):
+    #def parsimony_score(alint, tree, seqlabels, minlength=66, get_children=None,
+    #                parts=None):
+    """
+    Computes the column-wise parsimony score based on the provided tree.
     
     parts: [tuples of indices] e.g. [(0,1,2)] represents leaves 0,1,2 as a clade.
     The outgroup must NOT be added into parts.
     """
+    def __init__(self, alint, tree, seqlabels, minlength=66, get_children=None,
+                 parts=None):
 
-    if get_children is None: get_children = lambda tree, node: node.clades
-    try:
-        root = tree.clade
-    except AttributeError:
-        root = tree
-    iter_tree = rev_dfw_descendants(tree, get_children, include_leaves=True,
-                                    queue=[root])
+        self.alint = alint
+        self.tree = tree
+        self.seqlabels = seqlabels
+        assert alint.shape[0] == len(seqlabels)
+        self.minlength = minlength
+        # Bio.Phylo by default.
+        self.get_children = (lambda tree, node: node.clades) if get_children is None else get_children
+        try:
+            self.root = tree.clade
+        except AttributeError:
+            self.root = tree
+        self.iter_tree = list(rev_dfw_descendants(tree, self.get_children, include_leaves=True,
+                                        queue=[self.root]))
 
-    # Holds the currently seen nodes, and their parsimony score and sequence.
-    process_sequences = {}
+        # Holds the currently seen nodes, and their parsimony score and sequence.
+        self.process_sequences = {}
+        self.anc_states = {}  # These could be stored as the same object.
 
-    # Index of encountered leaves/sequences
-    leaf_nb = alint.shape[0] - 1
-    assert leaf_nb+1 == len(seqlabels)
+        # column-wise parsimony score
+        self.score = np.zeros(alint.shape[1], dtype=int)
+        
+        self.parts = [set(p) for p in parts] if parts is not None else []
+        self.node_to_part = {leaf_n: i for i,p in enumerate(self.parts)
+                        for leaf_n in p}
+        self.part_scores = [self.score.copy() for p in self.parts]
+        self.part_branch_nbs = [0] * len(self.parts)
 
-    # column-wise parsimony score
-    score = np.zeros(alint.shape[1], dtype=int)
-    
-    parts = [set(p) for p in parts] if parts is not None else []
-    node_to_part = {leaf_n: i for i,p in enumerate(parts)
-                    for leaf_n in p}
-    merged_parts = [dict() for _ in parts]  # {node: set(seen_part_leaves)}
-    part_scores = [score.copy() for p in parts]
-    part_branch_nbs = [0] * len(parts)
-    # When merged_parts[i][node] == parts[i]: we found the MRCA of part.
+    def rootwards(self):
+        # Index of encountered leaves/sequences
+        leaf_nb = self.alint.shape[0] - 1
 
-    branch_nb = 0
-    for parent, children in iter_tree:
-        logger.debug('* %r -> %s', parent, children)
-        if len(children) > 2:
-            logger.warning("%d > 2 children at %r", len(children), parent)
-        if not children:
-            # Parent is a leaf. Obtain the sequence.
-            assert parent.name == seqlabels[leaf_nb], \
-                "The alignment is not ordered as the tree. Seq %d: %s != leaf %s" \
-                    % (leaf_nb, seqlabels[leaf_nb], parent.name)
-            process_sequences[parent] = presence_matrix(alint[np.newaxis,leaf_nb,:], minlength)
-            try:
-                p = node_to_part[parent] = node_to_part[leaf_nb]
-                merged_parts[p][parent] = set((leaf_nb,))
-                logger.info('Assigned leaf %d %r to part %d', leaf_nb, parent, p)
-            except KeyError:  # When there is no part for this leaf.
-                pass
+        process_sequences = self.process_sequences
+        parts = self.parts
+        merged_parts = [dict() for _ in parts]  # {node: set(seen_part_leaves)}
+        # When merged_parts[i][node] == parts[i]: we found the MRCA of part.
+        branch_nb = 0
+        for parent, children in self.iter_tree:
+            logger.debug('* %r -> %s', parent, children)
+            if len(children) > 2:
+                logger.warning("%d > 2 children at %r", len(children), parent)
+            if not children:
+                # Parent is a leaf. Obtain the sequence.
+                assert parent.name == self.seqlabels[leaf_nb], \
+                    "The alignment is not ordered as the tree. Seq %d: %s != leaf %s" \
+                        % (leaf_nb, self.seqlabels[leaf_nb], parent.name)
+                process_sequences[parent] = presence_matrix(self.alint[np.newaxis,leaf_nb,:], self.minlength)
+                try:
+                    p = self.node_to_part[parent] = self.node_to_part[leaf_nb]
+                    merged_parts[p][parent] = set((leaf_nb,))
+                    logger.info('Assigned leaf %d %r to part %d', leaf_nb, parent, p)
+                except KeyError:  # When there is no part for this leaf.
+                    pass
 
-            leaf_nb -= 1
-        else:
-            # .pop(ch) ?
-            try:
-                children_seqs = [process_sequences[ch] for ch in children]
-            except KeyError as err:
-                #logger.debug('Processed sequences:\n%s',
-                #             '\n'.join('%r: %s' % (node, pseq.astype(np.int32))
-                #                       for node, pseq in process_sequences.items()))
-                logger.error('parent = %r; leaf_nb = %s', parent, leaf_nb)
-                raise
-            children_inter = reduce(np.logical_and, children_seqs)
-            children_union = reduce(np.logical_or, children_seqs)
-            #print(children_inter, children_union, sep='\n')
-            # Add one to each column where a substitution is needed
-            empty_inter = ~children_inter.any(axis=0)
+                leaf_nb -= 1
+            else:
+                # .pop(ch) ?
+                try:
+                    children_seqs = [process_sequences[ch] for ch in children]
+                except KeyError as err:
+                    #logger.debug('Processed sequences:\n%s',
+                    #             '\n'.join('%r: %s' % (node, pseq.astype(np.int32))
+                    #                       for node, pseq in process_sequences.items()))
+                    logger.error('parent = %r; leaf_nb = %s', parent, leaf_nb)
+                    raise
+                children_inter = reduce(np.logical_and, children_seqs)
+                children_union = reduce(np.logical_or, children_seqs)
+                #print(children_inter, children_union, sep='\n')
+                # Add one to each column where a substitution is needed
+                empty_inter = ~children_inter.any(axis=0)
 
-            # The new nucleotide set is the intersection if it's not empty,
-            # otherwise the union
-            process_sequences[parent] = children_inter
-            process_sequences[parent][:, empty_inter] = children_union[:, empty_inter]
-            #process_sequences[parent] = np.where(empty_inter,
-            #                                     children_union,
-            #                                     children_inter)
+                # The new nucleotide set is the intersection if it's not empty,
+                # otherwise the union
+                process_sequences[parent] = children_inter
+                process_sequences[parent][:, empty_inter] = children_union[:, empty_inter]
+                #process_sequences[parent] = np.where(empty_inter,
+                #                                     children_union,
+                #                                     children_inter)
 
-            if parts:
-                children_parts = list(set((node_to_part.get(ch) for ch in children)))
-                if len(children_parts) == 1:
-                    # Still inside the same clade. This must be exclusive (monophyletic).
-                    #assert all descendant leaves are in the same part.
-                    p = children_parts[0]
-                    try:
-                        merged_parts[p][parent] = set.union(*(merged_parts[p][ch] for ch in children))
-                        node_to_part[parent] = p
-                        logger.info('Assigned node %r to part %d', parent, p)
-                        # Just update the intra-clade score.
-                        part_scores[p] += empty_inter
-                        part_branch_nbs[p] += len(children)
-                        # Still inside one clade, so skip updating the *global* score.
-                        continue
-                    except TypeError:
-                        # When p is None
-                        pass  # So we update the outgroup score...
-                else:
-                    # We leave out one or more clades. Assert at least one is monophyletic.
-                    part_oldest_node = []
-                    for ch in children:
+                if parts:
+                    children_parts = list(set((self.node_to_part.get(ch) for ch in children)))
+                    if len(children_parts) == 1:
+                        # Still inside the same clade. This must be exclusive (monophyletic).
+                        #assert all descendant leaves are in the same part.
+                        p = children_parts[0]
                         try:
-                            p = node_to_part[ch]
-                        except KeyError:
+                            merged_parts[p][parent] = set.union(*(merged_parts[p][ch] for ch in children))
+                            self.node_to_part[parent] = p
+                            logger.info('Assigned node %r to part %d', parent, p)
+                            # Just update the intra-clade score.
+                            self.part_scores[p] += empty_inter
+                            self.part_branch_nbs[p] += len(children)
+                            # Still inside one clade, so skip updating the *global* score.
                             continue
-                        if merged_parts[p][ch] == parts[p]:
-                            # The child is the MRCA.
-                            # We will update the score.
-                            part_oldest_node.append(ch)
+                        except TypeError:
+                            # p is None because no child was found in node_to_part
+                            pass  # So we update the outgroup score...
+                    else:
+                        # We leave one or more clades.
+                        # 1. assert that at least one is monophyletic.
+                        part_oldest_node = []  # Monophyly check variable
+                        # 2. TODO: Map substitutions to the descendent clades
+                        for ch in children:
+                            try:
+                                p = self.node_to_part[ch]
+                            except KeyError:
+                                # this is the outgroup, skip. The global score should be updated though
+                                continue
+                            if merged_parts[p][ch] == parts[p]:
+                                # The child is the exclusive MRCA (It contains exactly the part species).
+                                # We update the score of the clade:
+                                # NOTE: this can't be done on the first postorder traversal...
+                                # Because we need to know the parent state to orient the substitution!
 
-                    if not part_oldest_node:
-                        raise ValueError("The given parts do not make monophyletic clades."
-                                         + ';'.join('(%s)' % (
-                                                 ','.join(seqlabels[i] for i in p))
-                                                 for p in parts))
-                    # Here, the current score will be updated (see just below)
+                                # Uncomment this to add the stem substitutions:
+                                #part_scores[p] += empty_inter
+                                #part_branch_nbs[p] += 1  # Add the stem branch
+                                part_oldest_node.append(ch)
 
-            branch_nb += len(children)  # Except if children & merged_parts
-            score += empty_inter
-        #print(process_sequences[parent])
+                        if not part_oldest_node:
+                            raise ValueError("The given parts do not make monophyletic clades."
+                                             + ';'.join('(%s)' % (
+                                                     ','.join(self.seqlabels[i] for i in p))
+                                                     for p in parts))
+                        # Here, the current score will be updated (see just below)
 
-    # Number of branches of the **unrooted** tree:
-    branch_nb -= 1
+                branch_nb += len(children)  # Except if children & merged_parts
+                self.score += empty_inter
+            #print(process_sequences[parent])
 
-    if parts:
-        return (score.astype(float), *part_scores), (branch_nb, *part_branch_nbs)
+        # Number of branches of the **unrooted** tree:
+        branch_nb -= 1
 
-    return score.astype(float) / branch_nb
+        if parts:
+            return (self.score.astype(float), *self.part_scores), (branch_nb, *self.part_branch_nbs)
 
+        self.branch_nb = branch_nb
+        return self.score.astype(float) / branch_nb
+    
+    def leafwards(self):
+        # Retraverse leafwards to get the ancestral states. Must have traversed rootwards first.
+        self.score_leafward = np.zeros(self.alint.shape[1], dtype=int)
+        anc_states = self.anc_states
+        anc_states[self.root] = self.process_sequences.pop(self.root)
+        for parent, children in reversed(self.iter_tree):
+            parent_state = anc_states[parent]
+            for ch in children:
+                child_possibles = self.process_sequences.pop(ch)
+                branch_inter = np.logical_and(parent_state, child_possibles)  # No substitution needed.
+                branch_union = np.logical_or(parent_state, child_possibles)  # choice needed
+                non_empty_inter = branch_inter.any(axis=0)
+                self.score_leafward += (~non_empty_inter).sum()  # How many sites with empty intersection (i.e. change)
+
+                # If non empty intersection, the child nucleotides are intersected with those of the parent
+                # otherwise, unchanged.
+                anc_states[ch] = child_possibles
+                anc_states[ch][:, non_empty_inter] = branch_inter[:, non_empty_inter]
+        #TODO: change self.part_scores
+        return self.score_leafward / self.branch_nb
+
+    def __call__(self):
+        self.rootwards()
+        return self.leafwards()
+
+# For backward compatibility:
+def parsimony_score(*args, **kwargs):
+    return Parsimony(*args, **kwargs).leafwards()
 
 # ~~> arrayal
 def get_position_stats(align, nucl=False, allow_N=False):
@@ -632,7 +693,7 @@ class AlignPlotter(object):
                                     'ylabel': 'manhattan distance'},
                            'pearson': {'ylabel': "Pearson's correlation coefficient"},
                            'part_sp': {'ylabel': 'sum of pair differences'},
-                           'part_pars': {'ylabel': 'parsimony score between parts'},
+                           'part_pars': {'ylabel': 'parsimony score within parts'},
                            'tree': {}}
 
         default_step = ('step', {'where': 'mid', 'alpha': 0.65})

@@ -13,7 +13,9 @@ logger.addHandler(ch)
 
 URL = "http://www.ensembl.org/biomart/"
 #ARCHIVE = "http://{}.archive.ensembl.org/biomart/"
-ARCHIVES = {87: "http://dec2016.archive.ensembl.org/biomart/",
+ARCHIVES = {
+            93: "http://jul2018.archive.ensembl.org/biomart/",
+            87: "http://dec2016.archive.ensembl.org/biomart/",
             86: "http://oct2016.archive.ensembl.org/biomart/",
             85: "http://jul2016.archive.ensembl.org/biomart/",
             84: "http://mar2016.archive.ensembl.org/biomart/"}
@@ -77,7 +79,7 @@ def do_query(query, outfile='-', ensembl_version=None):
 def main(**kwargs):
     if kwargs.get('queryfile'):
         for kw in ('formatter', 'header', 'uniqueRows', 'count', 'dataset', 
-                   'filter', 'attribute'):
+                   'filters', 'attributes'):
             kwargs.pop(kw)
 
         query_fromfile(**kwargs)

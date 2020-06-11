@@ -49,7 +49,7 @@ class itembased(TreeMethod):
     """
     @classmethod
     def get_children(cls, tree, node):
-        return [child for child, dist in cls.get_items(node, [])]
+        return [child for child, _ in cls.get_items(tree, (node, None))]
 
 
 class ete3(nodebased):

@@ -290,7 +290,7 @@ class GenetreeDrawer(object):
                                                          label=clade))
                 self.colorize_species.update({sp: cmap(i, alpha=0.7) for sp in
                                               self.phyltree.species[clade]})
-        self.clade_cmap = cmap
+            self.clade_cmap = cmap
 
         self.ancgene2sp = re.compile('(' + 'root|'
                         + '|'.join(re.escape(s) for s in
@@ -675,7 +675,13 @@ class GenetreeDrawer(object):
             if node.name in colorize_descent:
                 node_features['C'] = descent_i  # colorize the *leading* branch
                 for descendant in node.iter_descendants():
-                    self.branchings[descendant.id][5]['C'] = descent_i
+                    try:
+                        # Not working if that is a dup.
+                        self.branchings[descendant.id][5]['C'] = descent_i
+                    except KeyError:
+                        #print('%s (id=%d) ... %s leaf=%s' % (node.name, nodeid, descendant.name, descendant.is_leaf()), file=sys.stderr)
+                        #print('branchings:', sorted(self.branchings), 'interspecies_trees', sorted(interspecies_trees), file=sys.stderr)
+                        interspecies_trees[descendant.id]['features']['C'] = descent_i
                 descent_i += 1
                 self.colorize_descent.append(node.name)
             elif colorize_descent:
@@ -1077,8 +1083,9 @@ def run(genetrees, gene_params, outfile, genenames=False, tags="", asymmetric=Fa
 
     figsize = PAPERSIZE['a4']
     match_figsize = FIGSIZE.search(outfile)
-    sizestr = match_figsize.group().lower()
+    sizestr = 'a4'
     if match_figsize:
+        sizestr = match_figsize.group().lower()
         outfile = outfile[:match_figsize.start()-1]
         print(match_figsize.group())
         try:
@@ -1184,7 +1191,7 @@ if __name__ == '__main__':
                         help='Internal node names to display or "all" (comma-separated).')
     
     parser.add_argument('-c', '--colorize-clade',
-                        dest='colorize_clades', metavar='CLADES', default='',
+                        dest='colorize_clades', metavar='CLADES', default=None,
                         type=commasplit,
                         help='Set a specific label color to species in these '\
                              'clades (comma-separated)')
@@ -1205,10 +1212,14 @@ if __name__ == '__main__':
     g_pars.add_argument('-k', '--asymmetric', action='store_true',
                         help='Draw *asymmetric* gene duplications: one branch'\
                              ' stays the main branch, and other are children.')
-    g_pars.add_argument('-l', '--colorize-descent', default='', metavar='NODE NAMES',
+    g_pars.add_argument('-l', '--colorize-descent', default=None, metavar='NODE NAMES',
                         type=commasplit,
                         help='Set a specific color to all gene lines descending'\
                              'from the given node (comma-separated)')
+    gene_param_converter = {'colorize_descent': commasplit,
+                            'asymmetric': lambda v: (True if v.lower()=='true' else
+                                                      False if v.lower()=='false' else v)
+                            }
                         
     #parser.add_argument('-m', '--multiple-pdfs', action='store_true',
     #                    help='output one pdf file per genetree. [NOT implemented]')
@@ -1226,9 +1237,17 @@ if __name__ == '__main__':
         with (sys.stdin if genetreelistfile=='-' else open(genetreelistfile)) as stream:
             for line in stream:
                 if not line.startswith('#'):
-                    genetree_str, *gene_kwargs = line.rstrip().split('\t')
+                    genetree_str, *gene_kwarg_str = line.rstrip().split('\t')
                     genetrees.append(genetree_str)
-                    gene_params.append(dict(keyval.split('=') for keyval in gene_kwargs))
+                    gene_kwargs = {}
+                    for keyval in gene_kwarg_str:
+                        key, val = keyval.split('=')
+                        try:
+                            gene_kwargs[key] = gene_param_converter[key](val)
+                        except KeyError:
+                            gene_kwargs[key] = val
+                    gene_params.append(gene_kwargs)
+                    
             
     # TODO: add into run()
     #ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)%s' % ancgene_regex)
