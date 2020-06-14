@@ -693,12 +693,10 @@ def reroot_with_outgroup(node, maxsize=0, minsize=-1,
     want to add the two 2 closest outgroups, give a minsize >= 0.
 
     param: uniq_allowed_value:
-    if is_allowed_outgroup return a not False or None value, only one leaf
+    if is_allowed_outgroup returns a not False or None value, only one leaf
     for each value must be returned.
     Example 1: Use it to exclude paralog sequences.
     Example 2: In combination with minsize>=0, select *mandatory* species.
-    Example 3: In combination with maxsize<0, avoid limiting the search to the 
-              `maxsize` closest nodes.
     """
     logger.debug('Rerooting %r:%s...', node,
                  node.get_ascii(show_internal=False, compact=True))
@@ -723,7 +721,9 @@ def reroot_with_outgroup(node, maxsize=0, minsize=-1,
     orig_outgroups = node.get_sisters()
     realsize = sum(len(sister) for sister in orig_outgroups)
 
-    if maxsize < 0 and is_allowed_outgroup is None and minsize<=0:
+    if maxsize < 0 and minsize<=0:
+        # Attention: ignores the value of is_allowed_outgroups.
+        #
         # We include the full outgroup subtrees.
         # Store the recursive child indices to find the same node in the copy.
         ingroup_indices = [root.children.index(node)]
@@ -856,10 +856,16 @@ def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #anc
         dry_run=False):
     #print_if_verbose("* treefile: " + treefile)
     #print("treebest = %s" % treebest, file=stderr)
+    if isinstance(treefile, ete3.TreeNode):
+        tree = treefile
+        treefilename = tree.name
+    else:
+        treefilename = treefile
+    
     logger.debug('save_subtrees(\n'
         '   treenb = %d,\n' % treenb +
-        '   treefile = %r,\n' % (treefile if len(treefile)<100
-                        else (treefile[:45] + ' ... ' + treefile[-45:])) +
+        '   treefilename = %r,\n' % (treefilename if len(treefilename)<100
+                        else (treefilename[:45] + ' ... ' + treefilename[-45:])) +
         '   ancestor_descendants = %.60r [...],\n' % ancestor_descendants  +
         '   ancestor_regexes = %.60r [...],\n' % ancestor_regexes +
         '   parse_species_genename = %r,\n' % parse_species_genename +
@@ -877,14 +883,18 @@ def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #anc
         '   dry_run = %r)' % dry_run)
     outtrees_set = set() # check whether I write twice the same tree
     outnodes_set = set()
-    #FIXME: should not allow stdin here:
-    if treefile == '-': treefile = '/dev/stdin'
-    #try:
-    tree, *extratrees = iter_from_ete3(treefile, format=1)
-    #except ete3.parser.newick.NewickError as err:
-    #    err.args = (err.args[0] + 'ERROR with treefile %r ...' % treefile[:50],)
-    #    raise
-    if extratrees: logger.warning('Ignoring additional trees from: %s', treefile[:50])
+
+    if not isinstance(treefile, ete3.TreeNode):
+        #FIXME: should not allow stdin here:
+        if treefile == '-': treefile = '/dev/stdin'
+        #try:
+        tree, *extratrees = iter_from_ete3(treefile, format=1)
+        #except ete3.parser.newick.NewickError as err:
+        #    err.args = (err.args[0] + 'ERROR with treefile %r ...' % treefile[:50],)
+        #    raise
+    else:
+        treefile = treefilename
+        extratrees = []
 
     if allowed_outgroups:
         def is_allowed_outgroup(leaf):
@@ -1019,6 +1029,20 @@ def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #anc
         #outfiles_set.add(outfile)
         outtrees_set = set((outname,))
 
+    if extratrees:
+        logger.warning('Processing additional trees from: %s', treefile[:50])
+        for extratree in extratrees:
+            extra_outtrees = save_subtrees(treenb, extratree, ancestor_descendants, ancestor_regexes, #ancgene2sp,
+                parse_species_genename,
+                diclinks, #treebest=False,
+                ages=ages, fix_suffix=fix_suffix, force_mrca=force_mrca,
+                latest_ancestor=latest_ancestor, #ensembl_version=ENSEMBL_VERSION,
+                outdir=outdir,
+                only_dup=only_dup, one_leaf=one_leaf, outgroups=outgroups, allowed_outgroups=allowed_outgroups,
+                reverse=reverse,
+                dry_run=dry_run)
+            assert not extra_outtrees & outtrees_set, "Duplicated outtrees from a multi-newick: %s" % (extra_outtrees & outtrees_set)
+            outtrees_set |= extra_outtrees
     return outtrees_set
 
 
@@ -1127,7 +1151,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
 
     try:
         outgroups = int(outgroups)
-        allowed_outgroups = phyltree.lstEspFull
+        allowed_outgroups = phyltree.lstEspFull  # Is this really needed?
     except ValueError:
         allowed_outgroups = outgroups.split(',')
         outgroups = len(allowed_outgroups)
@@ -1197,9 +1221,9 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
     return all_outtrees
 
 
-def parse_treefiles(treefiles_file):
+def parse_treelist(treelist_file):
     try:
-        if treefiles_file=='-':
+        if treelist_file=='-':
             return [line.rstrip() for line in stdin]
         with open(treefiles_file) as stream:
             return [line.rstrip() for line in stream]
@@ -1305,10 +1329,11 @@ if __name__ == '__main__':
     elif verbosity > 1:
         logger.setLevel(logging.DEBUG)
 
-    if dargs.pop("fromfile"):
-        treefiles = parse_treefiles(dargs.pop("treefile"))
-        dargs.pop("multi_newick")
-    elif dargs.pop("multi_newick"):
+    fromfile = dargs.pop('fromfile')
+    multi_newick = dargs.pop("multi_newick")
+    if fromfile:
+        treefiles = parse_treelist(dargs.pop("treefile"))
+    elif multi_newick:
         treefile = dargs.pop("treefile")
         try:
             with (open(treefile) if treefile != '-' else stdin) as tree_input:

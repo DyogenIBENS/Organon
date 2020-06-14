@@ -387,6 +387,22 @@ def test_reroot_with_outgroup():
                     expect_outsize=4, outgroupnodes=set('by'))
     total += 1
     passed.append(int(result))
+    ## Outgroup should NOT be still contain resinserted single child nodes when using negative maxsize
+    tree = ete3.Tree('(((a,b)x)xx,(c)y)r;', format=1)
+    root, outsize = reroot_with_outgroup(tree&'a', maxsize=-2)
+    result = check(tree, root, outsize, treetype=ete3.TreeNode, rootname='r',
+                    expect_outsize=2, outgroupnodes=set('by'))
+    print(root.get_ascii())
+    total += 1
+    passed.append(int(result))
+    tree = ete3.Tree('(((a,b)x)xx,(c)y)r;', format=1)
+    root, outsize = reroot_with_outgroup(tree&'a', maxsize=-2, minsize=2,
+                        is_allowed_outgroup=lambda n: n.name in set('bcy'))
+    result = check(tree, root, outsize, treetype=ete3.TreeNode, rootname='r',
+                    expect_outsize=2, outgroupnodes=set('by'))
+    print(root if root is None else root.get_ascii())
+    total += 1
+    passed.append(int(result))
 
 
     ## END: summary
