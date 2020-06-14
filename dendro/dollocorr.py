@@ -343,7 +343,8 @@ def maddison_test(observed_1, tot, tree, roots_1, root=None, roots_0=None,
     :param: `roots_1`:    list of node names whose leading branch+subtree have
                           the background state of 1
     :param: `observed_0`: Observed state changes in branches with background state 0
-    :param: `observed_1`: Observed state changes in branches with background state 1.
+    :param: `tot`:        All observed state changes.
+    :param: `roots_0`:    nodes where the background state reverted from 1 to 0.
 
     Return the probability of at least observed_1 changes in branches_1.
     """
@@ -373,7 +374,8 @@ def maddison_test(observed_1, tot, tree, roots_1, root=None, roots_0=None,
     else:
         roots_1_counts = np.array([place_single_events(tot, tree, root=r)
                                    for r in roots_1])
-        roots_1_counts[:,1] += 1  # One possibility of 1 event on the leading branches.
+        if tot:
+            roots_1_counts[:,1] += 1  # One possibility of 1 event on the leading branches.
     init_leaf1_counts = np.zeros((n1, tot+1), dtype=int)
 
     #if tree.root not in roots_1:
@@ -448,7 +450,7 @@ def maplosses(phyltree, leaf_states, root=None):
     for parent, children in rev_dfw_descendants(phyltree, get_phylchildren,
                                                 queue=[root]):
         # The parent state is 0 if and only if both children are 0.
-        node_states[parent] = any(node_states[ch] for ch in children)
+        node_states[parent] = int(any(node_states[ch] for ch in children))
 
         for ch in children:
             if node_states[parent] ^ node_states[ch]:

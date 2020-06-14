@@ -143,3 +143,9 @@ maddison_test(1, 2, tree_Maddison2, ['G', 'uv'], roots_0=['ab'], alternative='='
 maddison_test(0, 2, tree_Maddison2, ['G', 'uv'], roots_0=['ab'], alternative='=')
 
 assert (55,69) == maddison_test(1, 2, tree_Maddison2, ['G', 'uv'], roots_0=['ab'])
+
+
+# Test with 0 loss. The result should be NaN? Or 1?
+assert (1, 1) == print(maddison_test(0, 0, tree_Maddison2, ['G', 'uv']))
+
+print('All tests passed.')
