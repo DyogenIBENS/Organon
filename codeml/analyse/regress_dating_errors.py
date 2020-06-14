@@ -127,6 +127,12 @@ pd.set_option("display.show_dimensions", True)  # even on non truncated datafram
 # wide_screen_style
 mpl.rcParams['figure.figsize'] = (14, 10) # width, height
 
+# Calculation: fit 2 figures/page. margins: side=2.5cm top/bottom=3cm (+header)
+# --> imposes a ratio height/width < 0.6
+# available width = 7.28, height<4.43
+thesisfigsize = (8.74, 5.25)  # visual fontsize = 10
+thesisfigsize = (9.71, 5.85)  # visual fontsize = 9
+#thesisfigsize = (10.92, 6.59)  # visual fontsize = 8
 
 # Useful variables: the name of statistics of interest:
 ## Piping of the metrics:
@@ -3372,7 +3378,7 @@ class full_dating_regression(fullRegression):
             raise RuntimeError(msg)
 
 
-def predict_nonrobust(reg_approx, same_alls, hr, renames):
+def predict_nonrobust(reg_approx, same_alls, hr, renames, lang_fr=False):
     """Essentially compare the histogram of response in the training VS testing
     dataset. Then check feature distributions relative to the 90% decile of
     fitted response.
@@ -3624,26 +3630,52 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames):
     ax1.xaxis.set_minor_formatter(mpl.ticker.ScalarFormatter())
     xt_labels = [xtl.get_text() for xtl in ax1.get_xticklabels(minor=True)]
     for i, xt in enumerate(ax1.get_xticks(minor=True)):
-        if xt in (0.5,2,3,5):
+        if xt in (0.5,2,3,5,20,50):
             xt_labels[i] = '%g' % xt
     ax1.set_xticklabels(xt_labels, minor=True)
     ax1.set_xlabel('Predicted error')
     hr.show(fig)
     plt.close()
+    return predict_nonrobust_paperfig(reg_approx, renames, lang_fr, hr)
 
-    # Figure saved out of the html report.
-    fig = plt.figure(figsize=(10, 7))  # contrained_layout=True
-    gridspec = fig.add_gridspec(4,2, hspace=0.4)  #width_ratios=[2,1]
+def predict_nonrobust_paperfig(reg_approx, renames, lang_fr=False, hr=None):
+    """Figure to save for the paper/thesis."""
+    training_observations2 = reg_approx.a_n_inde2.index
+    prediction_data = reg_approx.prediction.a_n_inde2
+    predicted = reg_approx.prediction.predicted
+    err_threshold = reg_approx.fitted_highest_min_tr
+
+    low_err_trained = predicted[training_observations2] <= err_threshold
+    low_err_tested = predicted.drop(training_observations2) <= err_threshold
+    n_low_err_trained = low_err_trained.sum()
+    n_low_err_tested = low_err_tested.sum()
+
+    response_transform = reg_approx.suggested_transform[reg_approx.responses[0]]
+    response_retro_trans = make_retro_trans(response_transform.__name__)
+    predicted_retro = response_retro_trans(predicted)  #TODO: Move to reg.predict()
+    #predicted_data = pd.DataFrame({'predicted': reg_approx.prediction.predicted})
+    #predicted_data['data'] = 'testing'
+    #predicted_data.loc[training_observations2, 'data'] = 'training'
+    #predicted_data['predicted_retro'] = response_retro_trans(predicted_data['predicted'])
+    retro_err_thr = response_retro_trans(err_threshold)
+    cycled = mpl.rcParams['axes.prop_cycle'].by_key()['color']
+    colorpairs = [func(c, frac)
+                  for c in cycled
+                  for func, frac in [(fade_color_hex, 0.7), (darken_hex, 0.3)]]
+
+    fig = plt.figure(figsize=thesisfigsize)  # contrained_layout=True
+    gridspec = fig.add_gridspec(4,2, hspace=0.45)  #width_ratios=[2,1]
     ax = fig.add_subplot(gridspec[:,0])  # Entire first column
-    retro_err_bins = response_retro_trans(np.histogram(predicted_data['predicted'], 50)[1])
+    retro_err_bins = response_retro_trans(np.histogram(predicted, 50)[1])
     heights, bins, _ = ax.hist(
-            [predicted_data.loc[predicted_data.data=='training', 'predicted_retro'],
-             predicted_data.loc[predicted_data.data=='testing', 'predicted_retro']],
+            [predicted_retro.loc[training_observations2],
+             predicted_retro.drop(training_observations2)],
             bins=retro_err_bins,
-            histtype='barstacked', label=['training', 'testing'],
+            histtype='barstacked',
+            label=(['entraînement', 'test'] if lang_fr else ['training', 'testing']),
             linewidth=0, edgecolor='none', alpha=0.7) #, rwidth=1.1)
     bin_lim = np.searchsorted(retro_err_bins, retro_err_thr)
-    print('len(retro_err_bins)=%d; len(heights)=%d' % (len(retro_err_bins), len(heights)))
+    print('len(retro_err_bins)=%d; len(heights)=%d' % (len(retro_err_bins), len(heights)), file=hr)
     ax.fill_between([retro_err_thr] + retro_err_bins[bin_lim:-1].tolist(),
                     0, heights[0][bin_lim-1:],
                     step='post', color=darken_hex(cycled[0])) #, rwidth=1.1)
@@ -3653,20 +3685,24 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames):
     ax.step(bins, heights[0].tolist() + [heights[0][-1]],
             bins, heights[1].tolist() + [heights[1][-1]],
             color='k', alpha=0.8, where='post')
-    ax.axvline(retro_err_thr, linestyle='--', color='k', alpha=0.8, label='err=%.2f\n(9th decile of fit)' % retro_err_thr)
+    ax.axvline(retro_err_thr, linestyle='--', color='k', alpha=0.8,
+               label='err=%.2f\n' % retro_err_thr + ('(9e décile du fit)' if lang_fr else '(9th decile of fit)'))
     #ax.annotate('err = %.2f' % retro_err_thr, (retro_err_thr, )
     print('err threshold = %g (%s-transformed) -> original scale: %g'
           %(err_threshold, response_retro_trans.__name__, retro_err_thr), file=hr)
-    ax.legend()
+    lx, ly = retro_err_thr, max(heights[1])/2.
+    #_, xright = ax.get_xlim()
+    #_, ytop = ax.get_ylim()
+    #ax.legend(loc='upper left', bbox_to_anchor=(lx, ly, xright-lx, ytop-ly), bbox_transform=ax.transData)
     ax.set_xscale('log')
     ax.xaxis.set_major_formatter(mpl.ticker.ScalarFormatter())
     xt_labels = [xtl.get_text() for xtl in ax.get_xticklabels(minor=True)]
     for i, xt in enumerate(ax.get_xticks(minor=True)):
-        if xt in (0.5, 2,3,4,5):
+        if xt in (0.5, 2,3,4,5, 20,50):
             xt_labels[i] = '%g' % xt
     ax.set_xticklabels(xt_labels, minor=True)
-    ax.set_xlabel('Predicted error (My/tree)')
-    ax.set_ylabel('Number of trees')
+    ax.set_xlabel('Erreur prédite (Ma/nœud)' if lang_fr else 'Predicted error (My/node)')
+    ax.set_ylabel("Nombre d'arbres" if lang_fr else 'Number of trees')
     for i, ft in enumerate(reg_approx.refitlasso2.params.drop('const').index[:3]):
         axi = fig.add_subplot(gridspec[1+i, 1])
         trained_data = prediction_data[ft].loc[training_observations2]
@@ -3683,17 +3719,17 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames):
                   tested_data[low_err_tested],
                   tested_data[~low_err_tested]],
                  bins=50, histtype='barstacked',
-                 label=['training (err ≤ %.2f) (n=%4d)' % (retro_err_thr, n_low_err_trained),
-                        'training (err > %.2f) (n=%4d)' % (retro_err_thr, n_trained - n_low_err_trained),
-                        'testing  (err ≤ %.2f) (n=%4d)' % (retro_err_thr, n_low_err_tested),
-                        'testing  (err > %.2f) (n=%4d)' % (retro_err_thr, n_tested - n_low_err_tested)])
+                 label=[('entraînement' if lang_fr else 'training')+ ' (err ≤ %.2f) (n=%4d)' % (retro_err_thr, n_low_err_trained),
+                        ('entraînement' if lang_fr else 'training')+ ' (err > %.2f) (n=%4d)' % (retro_err_thr, n_trained - n_low_err_trained),
+                        ('test   ' if lang_fr else 'testing')+ '  (err ≤ %.2f) (n=%4d)' % (retro_err_thr, n_low_err_tested),
+                        ('test   ' if lang_fr else 'testing')+ '  (err > %.2f) (n=%4d)' % (retro_err_thr, n_tested - n_low_err_tested)])
         axi.step(bins, heights[1].tolist() + [heights[1][-1]], 
              bins, heights[3].tolist() + [heights[3][-1]],
              where='post', color='k', alpha=0.8)
         axi.set_xlabel(renames[ft])
         #axi.legend()
     axl = fig.add_subplot(gridspec[0,1])
-    axl.legend(*axi.get_legend_handles_labels(), loc='upper center')
+    axl.legend(*axi.get_legend_handles_labels(), loc='upper right')
     axl.axis('off')
     return fig
 
