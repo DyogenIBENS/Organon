@@ -39,7 +39,8 @@ def centered_background_gradient(s, cmap='PRGn', center=0, extend=0):
     """Color background in a range according to the data, centered around the given value.
     Adapted from pandas.io.formats.style.Styler.background_gradient()"""
     smin, smax = s.min(), s.max()
-    assert smin <= center and center <= smax
+    if not smin <= center <= smax:
+        raise ValueError('Invalid center %s for data in [%g, %g]' % (center, smin, smax))
     most_distant_absval = max(center - smin, smax - center)
     rng = 2 * most_distant_absval
     # extend lower / upper bounds, compresses color range

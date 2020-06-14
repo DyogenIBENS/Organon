@@ -548,8 +548,9 @@ def detailed_pca(alls_normed, features, FA=False, abs_cov=True, make_corr=True,
     ft_order = ft_dendro['leaves']
 
     #.sort_values(["PC1", "PC2"])
+            #apply(centered_background_gradient, cmap="PRGn", extend=0.15).\
     styled_components = components.loc[ordered_ft].style.\
-            apply(centered_background_gradient, cmap="PRGn", extend=0.15).\
+            background_gradient(cmap="PRGn", low=0.85, high=0.85).\
             set_caption("Principal Components loadings").\
             set_properties(**{'max-width': '60px', 'font-size': '1pt'}).\
             set_table_styles(magnify())
