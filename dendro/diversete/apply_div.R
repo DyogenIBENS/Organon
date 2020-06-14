@@ -322,10 +322,10 @@ if( !interactive() ) {
     allnew=gls(ml.sampl.b2~allnew, maindata$data, phycovar.G))
 
   gls.tests.B.log <- list(
-    tandemDup=gls(ml.sampl.b2~log(tandemDup), maindata$data, phycovar.B),
-    dispDup=gls(ml.sampl.b2~log(dispDup), maindata$data, phycovar.B),
-    allDup=gls(ml.sampl.b2~log(allDup), maindata$data, phycovar.B),
-    allnew=gls(ml.sampl.b2~log(allnew), maindata$data, phycovar.B))
+    tandemDup=gls(log(tandemDup)~ml.sampl.b2, maindata$data, phycovar.B),
+    dispDup=gls(  log(dispDup)  ~ml.sampl.b2, maindata$data, phycovar.B),
+    allDup=gls(   log(allDup)   ~ml.sampl.b2, maindata$data, phycovar.B),
+    allnew=gls(   log(allnew)   ~ml.sampl.b2, maindata$data, phycovar.B))
   lapply(gls.tests.B.log, summary)  # check p-values.
 
   # Obviously the two fish clades are outliers: super diverse, very few dup.
@@ -351,6 +351,7 @@ if( !interactive() ) {
 
   phycovar.B.tetra <- corBrownian(1, maindata.tetra$phy)
   phycovar.G.tetra <- corGrafen(1, maindata.tetra$phy)
+  nophycovar.tetra <- corBrownian(0, maindata.tetra$phy)
   #phycovar.M <- corMartins
   #phycovar.P05 <- corPagel(0.5, maindata$phy)
 
@@ -387,6 +388,26 @@ if( !interactive() ) {
   pvalues <- lapply(gls.tests.B.log.tetra, function(glsres) {summary(glsres)$tTable['ml.sampl.b2','p-value']})
   # But with multiple testing correction?
   p.adjust(pvalues, 'BH')  # -> Doesn't resist it.
+
+  # Non phylogenetic regression
+  ols.tests.log.tetra <- list(
+    tandemDup=gls(log(tandemDup)~ml.sampl.b2, maindata.tetra$data, nophycovar.tetra),
+    dispDup=gls(  log(dispDup)~ml.sampl.b2,   maindata.tetra$data, nophycovar.tetra),
+    allDup=gls(   log(allDup)~ml.sampl.b2,    maindata.tetra$data, nophycovar.tetra),
+    allnew=gls(   log(allnew)~ml.sampl.b2,    maindata.tetra$data, nophycovar.tetra))
+  lapply(ols.tests.log.tetra, summary)  # check p-values.
+  # Hmmm still seems to have used phylogenetic covariance. Much different from:
+  # Control:
+  summary(lm(log(dispDup)~ml.sampl.b2, maindata.tetra$data))
+  
+  # Double-check: PGLS from caper:
+  library(caper)
+  caperdata.tetra <- comparative.data(maindata.tetra$phy,
+                                      cbind(maindata.tetra$data, clades=rownames(maindata.tetra$data)),
+                                      'clades',
+                                      vcv=TRUE)
+  pglsfit <- pgls(log(dispDup)~ml.sampl.b2, caperdata.tetra)
+  # Ouf, les coefs et p-values sont suffisamment proches.
 
   GL <- read.table(paste0(source_dir2, 'databases/Generation_Length_for_Mammals.csv'),
                                    sep='\t', header=TRUE, as.is=TRUE)

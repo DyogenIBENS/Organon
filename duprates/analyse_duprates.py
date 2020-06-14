@@ -54,7 +54,9 @@ import seaborn as sb
 #sb.set_palette('pastel')
 #sb.set_palette('Set2')
 
-mpl.rcParams['figure.figsize'] = (12,7)
+# For page width 18.5 cm, fontsize 9, fig ratio 0.6
+thesisfigsize = (9.71, 5.85)
+mpl.rcParams['figure.figsize'] = thesisfigsize
 #myslideshow_js = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.js') 
 #myslideshow_css = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.css') 
 
@@ -162,7 +164,7 @@ distrib_symbols = {'betaprime': r"$\beta'$",
     'gompertz': 'Gompertz',
     'gamma': r'$\Gamma$',
     'gengamma': r'Generalised $\Gamma$',
-    'invgamma': r'$Inv-\Gamma$',
+    'invgamma': r'$\mathrm{Inv-}\Gamma$',
     'invgauss': 'Inv-Gaussian',
     'pareto': 'Pareto',
     'genpareto': 'Generalised Pareto',
@@ -191,9 +193,9 @@ def fmt_params(distrib, params, prec=4, scalename='s', floc=None, sep=', '):
 
 def fmt_params_gamma(params, prec=4, floc=None, sep=', '):
     fmt='%%.%dg' % prec
-    template = sep.join([r'$\alpha={0}$', r'$\beta={2}$'])
-    if floc is not None:
-        template += sep + '$\mathrm{{loc}}={1}$'
+    template = sep.join([r'$\alpha\!=\!{0}$', r'$\beta\!=\!{2}$'])
+    if floc is None:
+        template += sep + r'$\mathrm{{loc}}\!=\!{1}$'
     return template.format(*(fmt % p for p in inverse_scale(params)))
 
 
@@ -213,6 +215,7 @@ def fit_distribs(distribs, df, nodup, x=None, nbins=100, stream=None, lang_fr=Tr
             df.lossrate.values,
             df.lossrate[~nodup].values,
             df.lossrate[nodup].values)
+    hist_kwargs = dict(density=True, edgecolor='none', alpha=0.7, rwidth=1.05)  # stacked=True
     for i, distrib in enumerate(distribs, start=1):
         floc = fix_loc #floc = None if distrib in strictly_positive_distribs else fix_loc
         # TODO: fix loc for Pareto for datas[1]
@@ -232,11 +235,13 @@ def fit_distribs(distribs, df, nodup, x=None, nbins=100, stream=None, lang_fr=Tr
         # Y axis with a broken scale : ---//---
         fig.subplots_adjust(hspace=0.1)
         axes_dup = brokenAxes(ax0bottom, ax0top)
-        (h_dup, b_dup, _), _ = axes_dup.hist(df.duprate, bins=nbins, density=True,
-                                             label=r'$\delta$ observ' + ('é' if lang_fr else 'ed'))
+        (h_dup, b_dup, _), _ = axes_dup.hist(df.duprate, bins=nbins,
+                                             label=r'$\delta$ observ' + ('é' if lang_fr else 'ed'),
+                                             **hist_kwargs)
         # Move the color cycler one-step forward:
         axes_dup.plot([])
-        axes_dup.dobreak(max(h_dup[1:]))
+        # overfitted break position: 3rd max height:
+        axes_dup.dobreak(sorted(h_dup)[-3]*1.02)
 
         axes_loss = brokenAxes(ax1bottom, ax1top)
         ((h_loss,h_loss_nodup), b_loss, _), _ = axes_loss.hist(
@@ -246,7 +251,8 @@ def fit_distribs(distribs, df, nodup, x=None, nbins=100, stream=None, lang_fr=Tr
                                     label=[
                                         r'$\lambda_{\delta\! >\! 0}$ observ' + ('é' if lang_fr else 'ed'),
                                         r'$\lambda_{\delta\! =\! 0}$ observ' + ('é' if lang_fr else 'ed')],
-                                    bins=nbins, density=True, stacked=True)
+                                    bins=nbins, stacked=True,
+                                    **hist_kwargs)
         ymax = h_loss.max()
         axes_loss.dobreak(max(h_loss[h_loss<ymax]))
 
@@ -264,10 +270,11 @@ def fit_distribs(distribs, df, nodup, x=None, nbins=100, stream=None, lang_fr=Tr
                       label='%s(%s)' % (distrib_symbols.get(distrib.name, distrib.name.capitalize()),
                                         fmt_fit(fits[0])))
         axes_dup.plot(xdup, dup_density_nonzero,
-                      label=r'%s(%s)  $\delta\! >\! 0$' % (
+                      label=r'%s(%s);  $\delta\! >\! 0$' % (
                                 distrib_symbols.get(distrib.name, distrib.name),
                                 fmt_fit(fits[1])))
-        ax0top.legend()
+        # Overfitted legend position
+        ax0top.legend(loc='upper left', bbox_to_anchor=(0.1, 1), fontsize='small')
         ax0bottom.set_ylabel("% d'arbres de gènes" if lang_fr else '% of gene trees')
         ax0top.set_title(('Taux de duplication' if lang_fr else 'Duplication rates') + r' $\delta$')
 
@@ -293,10 +300,10 @@ def fit_distribs(distribs, df, nodup, x=None, nbins=100, stream=None, lang_fr=Tr
         axes_loss.plot(xloss, loss_density,
                        label=fmt_fit(fits[2]))
         axes_loss.plot(xloss, loss_density_dup,
-                       label=r'%s  $\delta\!>\!0$' % fmt_fit(fits[3]))
+                       label=r'%s;  $\delta\!>\!0$' % fmt_fit(fits[3]))
         axes_loss.plot(xloss, loss_density_nodup,
-                       label=r'%s  $\delta\!=\!0$' % fmt_fit(fits[4]))
-        ax1top.legend()
+                       label=r'%s;  $\delta\!=\!0$' % fmt_fit(fits[4]))
+        ax1top.legend(fontsize='small')
         ax1top.set_title(('Taux de perte' if lang_fr else 'Loss rates') + r' $\lambda$')
         fig.suptitle('Fitting %s' % distrib.name)
         logger.info('Fitted %-16s [%2d/%d]' % (distrib.name, i, len(distribs)))
@@ -490,7 +497,8 @@ def analysis_2_alldistribs(lang_fr=True, dark=False, restrict_distribs=True,
                                          stream=hr, lang_fr=lang_fr, dark=dark,
                                          fix_loc=fix_loc)):
                 hr.show(fig)
-                pdfdoc.savefig(fig, bbox_inches='tight', facecolor='k', transparent=True)
+                pdfdoc.savefig(fig, bbox_inches='tight', transparent=True,
+                               facecolor=('k' if dark else 'none'))
                 plt.close()
                 all_kl.append(kl)
                 all_aic.append(aic)

@@ -10,7 +10,7 @@ library(coda)  # Analysis of MCMC
 
 
 treefile_Opistho <- '~/ws7/databases/timetree/Opisthokonta_species.taxa.nwk'
-ClaDS_filename <- 'div_clads_mcmc.txt'  #TODO: .RData
+ClaDS_filename <- 'div_clads_mcmc.RData'  #TODO: .RData
 
 run <- function() {
   tree_Opistho <- read.tree(treefile_Opistho)
@@ -28,7 +28,11 @@ run <- function() {
   # Hedges & Kumar 2015 (Supp table 4) sampling effort for Primates: 0.73.
   # I suppose there has been species added since then.
 
-  clads.div.result <- fit_ClaDS(tree_Simii, primates_sampling, 500000, nCPU=3, file_name=ClaDS_filename, it_save=1000, model_id="ClaDS2")
+  #clads.div.sampler <- fit_ClaDS(tree_Simii, primates_sampling, 500000, nCPU=3, file_name=ClaDS_filename, it_save=1000, model_id="ClaDS2")
+  prev.run <- new.env()
+  load('div_clads_mcmc1.RData', prev.run)
+  clads.div.sampler <- fit_ClaDS(tree_Simii, primates_sampling, 500000, nCPU=3, file_name=ClaDS_filename,
+                                 it_save=1000, model_id="ClaDS2", mcmcSampler=prev.run$mcmcSampler)
 
   ## From RPANDA doc ##
   ## # 0.85
@@ -46,7 +50,7 @@ check_running <- function() {
   check.env <- new.env()
   load(ClaDS_filename, check.env)
   nparams <- ncol(check.env$mcmcSampler$chains[[1]])
-  # clads.div.result has a $chains attribute (mcmc.list object)
+  # clads.div.sampler has a $chains attribute (mcmc.list object)
   cat('\nChains:', check.env$mcmcSampler$Nchain,
       ' Parameters:', nparams,
       ' Thinning:', check.env$mcmcSampler$thin,
