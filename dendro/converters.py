@@ -95,6 +95,34 @@ def PhylTree_draw(phyltree, images=None):
 def ete3_to_ete3(tree):
     return tree
 
+def BioPhylo_to_BioNexusTree(tree):
+    raise NotImplementedError
+
+def BioNexusTrees_to_BioPhylo(ntrees, id_as_names=True):
+    from Bio.Phylo.BaseTree import Clade, Tree
+    trees = []
+    for idx, ntree in enumerate(ntrees):
+        nroot = ntree.node(ntree.root)
+        root = Clade(branch_length=nroot.data.branchlength,
+                     name=str(nroot.id) if id_as_names else nroot.data.taxon,
+                     confidence=nroot.data.support)
+        tree = Tree(root, id=idx, name=ntree.name)
+        matching_clades = {nroot: root}  # nexus node -> Phylo.BaseTree.Clade
+        queue = [nroot]
+        while queue:
+            nnode = queue.pop(0)
+            node = matching_clades.pop(nnode)
+            nchildren = [ntree.node(ch_id) for ch_id in nnode.succ]
+            for nchild in nchildren:
+                child = Clade(branch_length=nchild.data.branchlength,
+                             name=str(nchild.id) if id_as_names else nchild.data.taxon,
+                             confidence=nchild.data.support)
+                child.comment = nchild.data.comment
+                matching_clades[nchild] = child
+                node.clades.append(child)
+                queue.append(nchild)
+        trees.append(tree)
+    return trees
 
 
 converterchoice = {'PhylTree': {'Ete3': PhylTree_to_ete3},

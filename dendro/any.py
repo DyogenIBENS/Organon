@@ -76,6 +76,16 @@ class ete3(nodebased):
         for child in new_children:
             node.add_child(child)
 
+    @staticmethod
+    def print_newick(tree, stream=None, root=None, format=1, format_root_node=True, **kwargs):
+        if root is not None:
+            tree = tree&root
+        print(tree.write(outfile=None, format=format,
+                         format_root_node=format_root_node, **kwargs), file=stream)
+
+    @classmethod
+    def set_dist(cls, tree, node, dist):
+        node.dist = dist
 
 class BioPhylo(nodebased):
     
@@ -107,6 +117,10 @@ class myProteinTree(itembased):
         return tree.data.get(nodedist[0], [])
 
     @staticmethod
+    def set_items(tree, nodedist, items):
+        tree.data[nodedist[0]] = items
+
+    @staticmethod
     def get_label(tree, node):
         return tree.info[node].get('family_name')
 
@@ -116,7 +130,7 @@ class myPhylTree(itembased):
     @staticmethod
     def get_dist(tree, node):
         if node == tree.root:
-            return getattr(tree, rootdist, None)
+            return getattr(tree, 'rootlength', None)
         else:
             return tree.parent.get(node, (None, None))[1]
     
@@ -128,6 +142,46 @@ class myPhylTree(itembased):
     def set_items(tree, nodedist, items):
         tree.items[nodedist[0]] = items
 
+    @staticmethod
+    def print_newick(tree, stream=None, root=None, commonnames=True, symbols=True, **kwargs):
+        tree.printNewick(stream, root=root, commonnames=commonnames, symbols=symbols, **kwargs)
+
+    @classmethod
+    def set_dist(cls, tree, node, dist):
+        if node == cls.get_root(tree):
+            tree.rootlength = dist
+        else:
+            parent = tree.parents[node]
+            cls.set_items(tree, (parent, None),
+                    [(child, (dist if child==node else chdist)) for
+                        child,chdist in cls.get_items(tree, (parent, None))])
+
 
 def skip_set_children(tree, node, children):
     pass
+
+
+class BioNexus(TreeMethod):
+    @staticmethod
+    def get_root(tree):
+        return tree.node(tree.root)
+
+    @staticmethod
+    def get_label(tree, node):
+        return node.data.taxon
+
+    @staticmethod
+    def get_children(tree, node):
+        """Take an instance of Bio.Nexus.Trees.Tree and a Bio.Nexus.Nodes.Node"""
+        return [tree.node(child_id) for child_id in node.get_succ()]
+
+    @staticmethod
+    def get_dist(tree, node):
+        return node.data.branchlength
+
+
+methodchoice = {'phyltree': myPhylTree,
+                'proteintree': myProteinTree,
+                'ete3': ete3,
+                'biophylo': BioPhylo,
+                'bionexus': BioNexus}
