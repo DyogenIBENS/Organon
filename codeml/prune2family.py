@@ -1030,7 +1030,7 @@ def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #anc
         outtrees_set = set((outname,))
 
     if extratrees:
-        logger.warning('Processing additional trees from: %s', treefile[:50])
+        logger.warning('Processing additional trees from: %s', op.basename(treefile))
         for extratree in extratrees:
             extra_outtrees = save_subtrees(treenb, extratree, ancestor_descendants, ancestor_regexes, #ancgene2sp,
                 parse_species_genename,
@@ -1213,8 +1213,8 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
         all_outtrees |= outtrees
         matching_inputs += bool(outtrees)  # +1 if not empty.
 
-    logger.info("\nFinished processing %d/%d input trees.\n"
-                "Output %d trees found in %d input trees%s%s.",
+    logger.info("  \nFinished processing %d/%d input trees.\n"
+                "  Output %d trees found in %d input trees%s%s.",
                 progress, n_input, len(all_outtrees), matching_inputs,
                 ' [DRY-RUN]' if dry_run else '',
                 ' [ignore errors]' if ignore_errors else '')
@@ -1243,8 +1243,7 @@ if __name__ == '__main__':
                                help="read treefile"\
                                     " names from the first argument")
     intype_parser.add_argument("-m", "--multi-newick", action="store_true",
-                               help="the first argument contains "\
-                                    "multiple trees in one file")
+                               help="Parallelize over multiple trees from a single input file.")
     parser.add_argument("-o", "--outdir", default='./{0}',
                         help="'-' to output trees to stdout. [%(default)s]. "\
                              "The basename is automatic based on the root node"\
@@ -1341,6 +1340,7 @@ if __name__ == '__main__':
                 treefiles = list(read_multinewick(tree_input))
         except BrokenPipeError:
             logger.warning('Broken pipe.')
+        dargs['outdir'] = dargs['outdir'].format(op.basename(treefile))
     else:
         treefiles = [dargs.pop("treefile")]
 

@@ -31,6 +31,7 @@ if __name__=='__main__': mpl.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib import patches
 from matplotlib import lines
+from matplotlib import patheffects
 #from matplotlib.transforms import Affine2D
 from matplotlib.backends.backend_pdf import PdfPages, FigureCanvas
 from matplotlib.path import Path
@@ -233,8 +234,9 @@ def iter_species_coords(phyltree, taxa, angle_style=0, ages=False):
 
         coords[parent] = (parent_x, parent_y, parent_w)
 
-        for child in children:
-            yield parent, coords[parent], child, coords[child]
+        #for child in children:
+        #    yield parent, coords[parent], child, coords[child]
+        yield parent, coords[parent], [(child, coords[child]) for child in children]
 
 
 
@@ -266,6 +268,7 @@ class GenetreeDrawer(object):
         self.latinname = latinname
         self.angle_style = angle_style
         self.ages = ages
+        self.drawn_count = 0
 
         self.phyltree = PhylTree.PhylogeneticTree(self.phyltreefile.format(
                                                         self.ensembl_version))
@@ -302,6 +305,7 @@ class GenetreeDrawer(object):
         
         self.taxa = set(self.phyltree.allNames)
         # Cleared and refilled if a genetree is given
+        self.max_age = self.phyltree.ages[self.phyltree.root]
 
     def load_reconciled_genetree(self, filename, format=1, genetreename=None):
         """Load gene tree with all species nodes present.
@@ -411,6 +415,7 @@ class GenetreeDrawer(object):
         self.species_coords   = {}
         self.species_branches = {}  # Back link to the parent, and branch length.
         rootwardgrowth = 3./self.max_age if self.ages else 0.1 
+        #rootwardgrowth = 0
 
         self.fig, ax0 = plt.subplots() #frameon=False) # set figsize later
         #ax0 = self.fig.add_axes([0.1,0.1,0.9,0.9]) #, adjustable='box-forced')
@@ -418,65 +423,120 @@ class GenetreeDrawer(object):
         if not self.debug: ax0.axis('off')
         # TODO: if ages: keep x axis with xlabel "age"
 
+        # I need a width from data coordinates to linewidth units:
         ymin = 0
         any_show_cov = False
-        for parent, (px, py, _), child, (cx, cy, _) in \
+        for parent, (px, py, _), children_coords in \
               iter_species_coords(self.phyltree, self.taxa, self.angle_style, self.ages):
-
             py += branch_width*abs(px)*rootwardgrowth*0.5
-            cy += branch_width*abs(cx)*rootwardgrowth*0.5
             pwidth = branch_width*(1+rootwardgrowth*abs(px))
-            cwidth = branch_width*(1+rootwardgrowth*abs(cx))
-            logger.debug('%-16s %-16s (%g, %g) -> (%g, %g); widths: %g -> %g', parent, child,
-                         px, py, cx, cy, pwidth, cwidth)
-            self.species_branches[child] = (parent, cx - px, cy - py, cwidth)
+            # Sort branches by their angle (branches going down first)
+            sorted_children_coords = sorted(children_coords, key=lambda item: (item[1][1]-py) / (item[1][0]-px))
+            #sorted_children_coords = list(reversed(children_coords))
+            for i, (child, (cx, cy, _)) in enumerate(sorted_children_coords):
+                cy += branch_width*abs(cx)*rootwardgrowth*0.5
+                cwidth = branch_width*(1+rootwardgrowth*abs(cx))
+                logger.debug('%-16s %-16s (%g, %g) -> (%g, %g); widths: %g -> %g', parent, child,
+                             px, py, cx, cy, pwidth, cwidth)
+                self.species_branches[child] = (parent, cx - px, cy - py, cwidth)
 
-            self.species_coords[child] = (cx, cy, cwidth)
-            if cy < ymin:  # update ymin.
-                ymin = cy
-            coords = np.array([(px, py),
-                               (cx, cy),
-                               (cx, cy - cwidth),
-                               (px, py - pwidth)])
-            ax0.add_patch(patches.Polygon(coords, 
-                                          facecolor='#e5e5e5',
-                                          edgecolor='#e5e5e5'))
-            # data-specific coloring (low-coverage)
-            alpha = 1
-            if self.show_cov and child in getattr(self.phyltree, "lstEsp6X", ()):
-                alpha = 0.6
-                any_show_cov = True
-            elif self.show_cov and child in getattr(self.phyltree, "lstEsp2X", ()):
-                alpha = 0.3
-                any_show_cov = True
+                self.species_coords[child] = (cx, cy, cwidth)
+                if cy < ymin:  # update ymin.
+                    ymin = cy
+                coords = np.array([(px, py),
+                                   (cx, cy),
+                                   (cx, cy - cwidth),
+                                   (px, py - pwidth)])
+                    
+                if i>0:
+                    # If this not the first child (i.e. drawn over the others), update the polygon coords,
+                    # so that shadows fall correctly at the fork.
+                    # Compute the intersection of the bottom line going to child i, 
+                    # and the top line going to child i-1
+                    orig_yi = -pwidth  # Origin is at py
+                    slope_i = (cy-cwidth - (py-pwidth)) / (cx-px)
 
-            bgcolor = self.colorize_species.get(child, '#ffffff00')
+                    child2, (cx2, cy2, _) = sorted_children_coords[i-1]
+                    cy2 += branch_width*abs(cx2)*rootwardgrowth*0.5
 
-            text_xy = (cx, cy)
-            ha = 'right'
-            va = 'top'
-            if cx >= 0:
-                # It is a species, add the common name
-                if not self.latinname:
-                    common_name = get_common_name(self.phyltree, child)
-                    if self.commonname:
-                        child = common_name
-                    elif common_name:
-                        child += ', %s' % common_name
-                ha = 'left'
-            elif cy-py >= 0:  # Branch going up
-                va = 'bottom'
-                alpha = 0.75
-            else:  # Branch going down
-                text_xy = (cx, cy-cwidth)
-                alpha = 0.75
+                    #ax0.plot([px, cx2], [py, cy2], '-.', [px, cx], [py-pwidth, cy-cwidth], '-')
+                    orig_y2 = 0
+                    slope_2 = (cy2 - py)/(cx2-px)
 
-            if 'all' in self.internal or child in self.internal or cx >= 0:
-                ax0.annotate(child, text_xy, (2, 0), textcoords='offset points',
-                             ha=ha, va=va, fontsize=basefontsize,
-                             fontstyle='italic', family='serif', alpha=alpha,
-                             bbox={'facecolor': bgcolor, 'pad': 0, 'edgecolor': 'none'})
-                #logger.debug()
+                    #assert slope_2 < slope_i
+                    x_inter = (orig_yi - orig_y2) / (slope_2 - slope_i) 
+
+                    y_inter = slope_i*x_inter + orig_yi
+                    #y_inter2 = slope_2*x_inter + orig_y2
+                    #assert np.isclose(y_inter, y_inter2), '%g != %g' %(y_inter, y_inter2)
+
+                    logger.debug('Child list: [%s]', ' '.join('%s(%g)'%(ch,achy) for ch,(_,achy,_), in sorted_children_coords))
+                    logger.debug('cy2=%g VS species_coords[%s] = ... %g ...', cy2, child2, self.species_coords[child2][1])
+                    logger.debug('intersect %s: %g + %g*x with %s: %g + %g*x at x=%g',
+                                 child, orig_yi, slope_i, child2, orig_y2, slope_2, x_inter)
+                    #assert x_inter > 0
+                    #assert x_inter < cx - px
+                    
+                    #assert py-pwidth < y_inter < cy-cwidth, "%g %g %g" % (py-pwidth, y_inter, cy-cwidth)
+                    #assert py > y_inter > cy2, "%g %g %g" % (py, y_inter, cy2)
+                    coords[3,:] = [px + x_inter, py + y_inter]
+                    #ax0.plot([px, px+x_inter, cx2], [py, py+line_2_start_y+line_2_slope*x_inter, cy2], '-')
+                    #ax0.plot([px, px+x_inter, cx], [py-pwidth, py+line_i_start_y+line_i_slope*x_inter, cy-cwidth], '-')
+                #else:
+                #    logger.debug('No shade update needed at %s', child)
+                # Shadow
+                if coords[2,0] > coords[3,0]:
+                    ax0.fill_between(coords[2:,0], coords[2:,1], coords[2:,1]-0.03, color='k', alpha=0.2,
+                             zorder=-1)
+                ax0.add_patch(patches.Polygon(coords, #facecolor='#e5e5e5', edgecolor='none')) #color='#808080'))
+                                              facecolor='#80808033', edgecolor='none'))
+                                              #edgecolor='#80808033'))
+                              #path_effects=[patheffects.withSimplePatchShadow((1,-1))]))
+                              #path_effects=[patheffects.Normal(),
+                              #      patheffects.Normal(),
+                              #      patheffects.Normal(),
+                              #      patheffects.SimpleLineShadow((0.1, 0.1))]))
+                              #path_effects=[patheffects.Normal(),
+                              #      patheffects.SimplePatchShadow((0.1, 0.1)),
+                              #      patheffects.Normal(),
+                              #      patheffects.SimplePatchShadow((0.1, 0.1))]))
+
+                # data-specific coloring (low-coverage)
+                alpha = 1
+                if self.show_cov and child in getattr(self.phyltree, "lstEsp6X", ()):
+                    alpha = 0.6
+                    any_show_cov = True
+                elif self.show_cov and child in getattr(self.phyltree, "lstEsp2X", ()):
+                    alpha = 0.3
+                    any_show_cov = True
+
+                bgcolor = self.colorize_species.get(child, '#ffffff00')
+
+                text_xy = (cx, cy)
+                ha = 'right'
+                va = 'top'
+                if cx >= 0:
+                    # It is a species, add the common name
+                    if not self.latinname:
+                        common_name = get_common_name(self.phyltree, child)
+                        if self.commonname:
+                            child = common_name
+                        elif common_name:
+                            child += ', %s' % common_name
+                    ha = 'left'
+                elif cy-py >= 0:  # Branch going up
+                    va = 'bottom'
+                    alpha = 0.75
+                else:  # Branch going down
+                    text_xy = (cx, cy-cwidth)
+                    alpha = 0.75
+
+                if 'all' in self.internal or child in self.internal or cx >= 0:
+                    ax0.annotate(child, text_xy, (2, 0), textcoords='offset points',
+                                 ha=ha, va=va, fontsize=basefontsize,
+                                 fontstyle='italic', family='serif', alpha=alpha,
+                                 bbox={'facecolor': bgcolor, 'pad': 0, 'edgecolor': 'none'})
+                    #logger.debug()
 
         # include root.
         self.species_coords[parent] = (px, py, pwidth)
@@ -814,7 +874,8 @@ class GenetreeDrawer(object):
 
     def draw_gene_tree(self, extratitle='', genenames=False, tags="",
                        fork_style='curved'):
-        print(' --- Drawing genetree ---')
+        self.drawn_count += 1
+        print(' --- Drawing genetree %d ---' % self.drawn_count)
         # Duplicate the species tree axis to separate the plotting
         self.ax1 = self.ax0.twinx()
         self.ax1.set_ylim(self.ax0.get_ylim())
@@ -1087,7 +1148,7 @@ def run(genetrees, gene_params, outfile, genenames=False, tags="", asymmetric=Fa
     if match_figsize:
         sizestr = match_figsize.group().lower()
         outfile = outfile[:match_figsize.start()-1]
-        print(match_figsize.group())
+        #print(match_figsize.group())
         try:
             figsize = PAPERSIZE[sizestr]
         except KeyError:
