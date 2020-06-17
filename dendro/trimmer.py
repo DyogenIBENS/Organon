@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+
 """Cut tree branches in various ways"""
 # Anc. gr. name: tom
 
+from copy import copy, deepcopy
 
-import dendro.bates as dclimb
+from dendro.bates import rev_dfw_descendants, iter_distleaves
 import logging
 logger = logging.getLogger(__name__)
 
@@ -121,3 +123,29 @@ def fuse_single_child_nodes_ete3(tree, copy=True):
 
     logger.debug('Fused %d nodes', count)
     return tree
+
+
+def collapse_clades(tree, get_items, set_items, clades, make_new_clade=None):
+    """Note: this modifies tree **inplace**. Make a copy accordingly.
+    
+    make_new_clade: function to create the new node. Takes (clade, cladesize) as argument.
+    By default, prefix the number of leaves to the clade name.
+    Useful for PhylTree which does not support duplicated node names.
+    """
+    if make_new_clade is None:
+        def make_new_clade(clade, cladesize):
+            if isinstance(clade, str):
+                return '%d %s' % (cladesize, clade)
+            elif hasattr(clade, 'name'):
+                new = copy(clade)
+                setattr(new, 'name', '%d %s' % (cladesize, clade.name))
+                return new
+    leaf_numbers = []
+    for clade in clades:
+        leafdists = list(iter_distleaves(tree, get_items, root=clade))
+        leaf_numbers.append(len(leafdists))
+        maxdist = max(d for l,d in leafdists)
+        #TODO: add the mindist information -> draw non ultrametric triangles
+        set_items(tree, (clade, None), [(make_new_clade(clade, len(leafdists)), maxdist)])  # (clade, mindist)
+    return leaf_numbers
+

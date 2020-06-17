@@ -414,8 +414,8 @@ def cathist(x, y, data=None, bins=20, positions=None, scale=1, range=None,
                 # Close the first and last bar (draw 1st left edge, and top+right edge)
                 begin += i*nbins
                 end += i*nbins
-                if order[-(i+1)] == 'Simiiformes':
-                    logger.debug('Simiiformes: p=%.2f; b=%d; e=%d', p, begin, end)
+                #if order[-(i+1)] == 'Simiiformes':
+                #    logger.debug('Simiiformes: p=%.2f; b=%d; e=%d', p, begin, end)
                 lx = np.concatenate((all_x[[begin]], all_x[begin:end], [all_x[end-1]+barwidth]))
                 ly = np.concatenate(([p], all_y[begin:end], [p]))
                 lines = ax.step(lx, ly, where='post', color=darken(color, 0.2),
@@ -877,7 +877,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
              topology_only=False,
              label_params=None, label_nodes=False, edge_colors=None,
              edge_cmap='afmhot', add_edge_axes=None, style='squared', yscale=1,
-             constant_anc_space=False, leftleaves=False,
+             constant_anc_space=False, leftleaves=False, collapsed=None,
              **kwargs):
              #edge_norm=None
     """Plot an ete3 tree, from left to right.
@@ -885,6 +885,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     param: edge_colors dict-like object with keys being the nodes, and values ~~a color string~~
             a scalar value mapped to a color using a cmap.
     param: add_edge_axes can be None, "top", or "middle".
+    param: triangles: taxa to be represented as triangles. Tree need to be collapsed *before*.
     """
 
     if root is None:
@@ -907,6 +908,11 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
         edge_range = edge_colors.max() - edge_colors.min()
         #edge_norm = mpl.colors.Normalize(edge_colors.max() - extend*edge_range,
         #                            edge_colors.min() + extend*edge_range)
+    
+    if collapsed is None:
+        collapsed = []
+    triangle_rwidth = 0.67  # relative width between the 2 surrounding edges
+    triangle_ewidth = 0     # extra width occupied by the triangle -> shift all following leaves
 
     #depth = tree.get_farthest_leaf()[1]
     leafdists = sorted(iter_distleaves(tree, get_items, root), key=lambda x: x[1])
@@ -942,7 +948,9 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     child_coords = {}  # x (node depth), y (leaf number)
 
     segments = []
-    line_edge_values = []
+    line_edge_values = []  # Hold the edge numbers converted to colors.
+    triangles = []
+    triangle_values = []
 
     ticklabels = []
     tickpositions = []
@@ -981,6 +989,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
         anc_rank = 0
         prev_anc = None
         leaves_in_interval = []
+        all_leaf_intervals = {}  # dict of leaf: nspaces (needed because of collapsed)
         #prev_children = set()
         for node in sorted_nodes:
             items = get_items(tree, (node,))
@@ -1025,6 +1034,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                     leaves_loc[leaf] = prev_lim + (anc_loc[node] - prev_lim)*(j+.5)/nspaces
                     logger.debug('Placing leaf %d %r in [%f, %f]-> %f', j, leaf,
                                  prev_lim, anc_loc[node], leaves_loc[leaf])
+                all_leaf_intervals.update({leaf: nspaces for leaf in leaves_in_interval})
                 prev_anc, leaves_in_interval = node, []
                 # But it should be a "soft" boundary for all its direct leaves.
         # Placing the last created leaf group:
@@ -1052,6 +1062,14 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                 #logger.debug('%r %s %s (%s)', node, node in leafdists, node in leaves_loc, leaves_loc)
                 child_coords[node] = Coord(leafdists[node], leaves_loc[node])
                 pass
+            elif node in collapsed:
+                # Make extra space for:
+                # - a half leafstep before the triangle start, 
+                # - a half triangle width
+                # Must check that the previous one wasn't also a triangle...
+                #if (leafloc/leafstep) // (leafloc/leafstep) != ()
+                leafloc += triangle_ewidth * 0.5 * leafstep
+                child_coords[node] = Coord(leafdists[node], leafloc)
             else:
                 child_coords[node] = Coord(leafdists[node], leafloc)
             tickpositions.append(child_coords[node].y)
@@ -1060,7 +1078,9 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             if abs(child_coords[node].x - present) > 0:
                 extended_x.extend((present, child_coords[node].x, None))
                 extended_y.extend((leafloc, leafloc, None))
-            leafloc += leafstep  # if not constant_anc_space
+            if node in collapsed:
+                leafloc += triangle_ewidth * 0.5 * leafstep
+            leafloc += leafstep # if not constant_anc_space
         elif len(items) == 1:
             (ch, chdist), = items
             child_coords[node] = nodecoord = Coord(child_coords[ch].x - time_dir*chdist,
@@ -1071,12 +1091,23 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             #xy += [(child_coords[ch].x, nodecoord.x)
             #       (child_coords[ch].y, nodecoord.y)]
             # segments for LinesCollection
-            segments.append(
-                        [(child_coords[ch].x, child_coords[ch].y),
-                         (nodecoord.x,        nodecoord.y)])
-            if edge_colors is not None:
-            #    xy.append(edge_colors[ch])
-                line_edge_values.append(edge_colors[get_label(tree, ch)])
+            if ch in collapsed:
+                triang_w = leafstep/all_leaf_intervals[ch] if constant_anc_space else leafstep*(1+triangle_ewidth)
+                triang_w *= triangle_rwidth
+                triangles.append(
+                       [(child_coords[ch].x, child_coords[ch].y - triang_w/2.),
+                        (child_coords[ch].x, child_coords[ch].y + triang_w/2.),
+                        (nodecoord.x, nodecoord.y)])
+                if edge_colors is not None:
+                #    xy.append(edge_colors[ch])
+                    triangle_values.append(edge_colors[get_label(tree, ch)])
+            else:
+                segments.append(
+                            [(child_coords[ch].x, child_coords[ch].y),
+                             (nodecoord.x,        nodecoord.y)])
+                if edge_colors is not None:
+                #    xy.append(edge_colors[ch])
+                    line_edge_values.append(edge_colors[get_label(tree, ch)])
         else:
             sorted_items = sorted(items,
                                   key=lambda item: child_coords[item[0]].y)
@@ -1140,12 +1171,32 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     #lines = plot(x, y, *args, **default_kwargs)
     #lines = ax.plot(*xy, **default_kwargs)
     lines = mc.LineCollection(segments, colors=line_color, cmap=edge_cmap, **kwargs)#, norm=edge_norm)
+    triang_colors = [edge_cmap(v) for v in triangle_values]
+    triangle_col = mc.PolyCollection(triangles, edgecolors=triang_colors,
+                                    #facecolors=[line_color],
+                                    facecolors=triang_colors,
+                                    #cmap=edge_cmap,
+                                    **kwargs)
 
     if edge_colors is not None:
         lines.set_array(np.array(line_edge_values))  # Value to be converted to colors.
+        #print(triangle_col.get_array(), triangle_col.get_cmap())
+        #triangle_col.set_array(np.array(triangle_values))  # Value to be converted to colors.
+        #print('Triangles:',
+        #      triangle_col.get_cmap().name +' '+ str(triangle_col.get_cmap()),
+        #      '%s %s' % (triangle_col.get_array(), triangle_col.get_array().dtype),
+        #      triangle_col.get_facecolors()[-1],
+        #      edge_cmap(triangle_col.get_array()[-1]),
+        #      triangle_col.get_cmap()(triangle_col.get_array()[-1]),
+        #      'Lines:',
+        #      lines.get_array()[-1],
+        #      lines.get_array().dtype,
+        #      lines.get_edgecolors()[-1], sep='\n')
 
     lines.set_clip_on(False)
+    triangle_col.set_clip_on(False)
     ax.add_collection(lines)
+    ax.add_collection(triangle_col)
     #ax.set(**kwargs)
     #for node, (x, y) in dfw_child_coords.items():
 
@@ -1154,6 +1205,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             linewidth=kwargs.pop('linewidth', mpl.rcParams['lines.linewidth'])/2.,
             **kwargs)
 
+    if label_params is None: label_params = {}  # Also used in yticklabels
     if label_nodes:
         for (node, dist), items in rev_dfw_descendants(tree, get_items,
                                                    include_leaves=False,
@@ -1167,6 +1219,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                     else:
                         offset_y = -1
                         va = 'top'
+                    # TODO: do not annotate crown of collapsed clades.
                     ax.annotate(get_label(tree, child), child_coords[child],
                                 textcoords='offset points', xytext=(offset_x, offset_y),
                                 horizontalalignment=annot_ha,
@@ -1201,7 +1254,6 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     #print('new tickpositions:', tickpositions)
     ax.set_yticks(tickpositions)
     #ax.set_yticks(np.linspace(0, (len(ticklabels)-1)*yscale, num=len(ticklabels)))
-    if label_params is None: label_params = {}
     #if invert: ticklabels.reverse()
     ax.set_yticklabels(ticklabels, **label_params)
 
