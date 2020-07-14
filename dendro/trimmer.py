@@ -147,5 +147,6 @@ def collapse_clades(tree, get_items, set_items, clades, make_new_clade=None):
         maxdist = max(d for l,d in leafdists)
         #TODO: add the mindist information -> draw non ultrametric triangles
         set_items(tree, (clade, None), [(make_new_clade(clade, len(leafdists)), maxdist)])  # (clade, mindist)
+        #TODO: some cleanup is needed in PhylTree (parents, dicLinks, ages)
     return leaf_numbers
 

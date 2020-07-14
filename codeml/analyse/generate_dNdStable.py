@@ -989,7 +989,7 @@ def timescale_paths(previous_node, previous_path, nodename, subtree,
         ages = (previous_age - cal_ages.min()) * (meanpath - cal_paths) * corrections
         ages /= (previous_path - cal_paths)
     elif correct_unequal_calibs=='pathd8':
-        # Classical MPL. See PATHd8 (Britton et al. 2007)
+        # Classical MPL. See PATHd8 (Britton et al. 2007, appendix 1)
         # But it's theoretically wrong (non homogeneous formula)
         ages = (cal_ages + (previous_age-cal_ages) * (meanpath-cal_paths)) / (previous_path - cal_paths)
     elif correct_unequal_calibs=='ignore':

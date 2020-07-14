@@ -4113,7 +4113,7 @@ class regressAncs(object):
                         #.set_table_attributes(title=))
 
             # Paper figures: top coefficients
-            hr.print('## Top 5 coefficients, sorted by their mean absolute value across ancestors')
+            hr.print('## Top 5 coefficients, sorted by their mean absolute value across ancestors/imposed order')
 
             if ncoefs is None:
                 ncoefs = len(sorted_union_top5_coefs)
@@ -4134,8 +4134,9 @@ class regressAncs(object):
             cmap = plt.get_cmap('tab20b', n_anc)  # 'set3', 'viridis'
             barcolors = [cmap(i) for i in range(n_anc)]
 
+            letters = 'abcdefghijklmnopqrstuvwxyz'
             x = np.arange(n_anc)
-            for ax, coef in zip(axes.flat, sorted_union_top5_coefs[startcoef:]):
+            for lett, ax, coef in zip(letters, axes.flat, sorted_union_top5_coefs[startcoef:]):
                 heights = plotdata.loc[coef, ordered_simii_anc_byage]
                 yerr = np.abs(spec_conf_int.loc[coef].unstack(level=-1).values.T - heights.values)
                 ax.bar(x, heights, color=barcolors, width=0.9, yerr=yerr,
@@ -4145,6 +4146,7 @@ class regressAncs(object):
                 ax.yaxis.set_ticks_position('right')
                 ax.grid(True, axis='y')
                 ax.grid(False, axis='x')
+                ax.annotate(lett+')', (-0.1, 1.1), weight='bold', xycoords='axes fraction')
             ax.set_xticks(x)
 
             #x_shared_group = axes[-1, -1].get_shared_x_axes()

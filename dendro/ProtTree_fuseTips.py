@@ -34,6 +34,7 @@ species2sub = {'Heterocephalus glaber': ['Heterocephalus glaber female',
                'Cricetulus griseus': ['Cricetulus griseus Crigri',
                                       'Cricetulus griseus CHOK1GS']}
 
+# Ordered by priority: the fusion will keep the first encountered sequence.
 species2seq = {'Heterocephalus glaber': ['ENSHGLG00000',
                                          'ENSHGLG00100'],
                'Cricetulus griseus': ['ENSCGRG00000',

@@ -6,7 +6,7 @@
 
 from __future__ import print_function
 
-from sys import stderr
+from sys import stderr, stdin
 import os.path as op
 import re
 from functools import partial
@@ -401,6 +401,7 @@ def convert_gene2species(modernID, ensembl_version=ENSEMBL_VERSION):
                                "Ensembl %d)" % (modernID, ensembl_version))
 
 
+# "Legacy" (worst idea ever)
 def grep_prot(filename, protID, cprot=2, cgene=0):
     #print(cprot, cgene)
     with myopen(filename) as IN:
@@ -441,12 +442,13 @@ def load_assembly2species(filename="~/ws2/UCSC_genome_releases_full.tsv",
             conversion[fields[fromcol]] = fields[tocol]
     return conversion
 
-def try_load_assembly2species(ucsc_conv_filename='~/ws2/UCSC_genome_releases_full.tsv'):
+def try_load_assembly2species(ucsc_conv_filename='~/ws7/UCSC_genome_releases_full.tsv'):
     try:
         return load_assembly2species(ucsc_conv_filename)
     except FileNotFoundError:
         logger.warning("Conversion file not found: %r", ucsc_conv_filename)
         return {}
+
 
 class OnDemandData(object):
     """A dictionary-like object that is filled only when someone queries it.
@@ -649,3 +651,19 @@ def test_convert2species(ensembl_version, default=None,
                 raise
             assert sp == predicted_sp, "%s: %r ≠ %r" % (prot, sp, predicted_sp)
             
+
+def main():
+    import argparse as ap
+    parser = ap.ArgumentParser(description=__doc__)
+    parser.add_argument('infile', nargs='?', default=stdin, type=ap.FileType('r'),
+                        help='One identifier per line.')
+    parser.add_argument('-e', '--ensembl-version', type=int, default=93)
+    # Return the corresponding species
+    args = parser.parse_args()
+
+    for line in args.infile:
+        print(ultimate_seq2sp(line.rstrip(), args.ensembl_version))
+
+
+if __name__ == '__main__':
+    main()

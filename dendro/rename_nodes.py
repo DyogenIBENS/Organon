@@ -5,14 +5,14 @@
 from sys import stdin
 import argparse as ap
 import ete3
-
+from dendro.converters import PhylTree_to_ete3
 
 def load_conversion(conversionfile):
     with open(conversionfile) as stream:
         conversion = {}
         for line in stream:
             if not line.startswith('#'):
-                field1, field2, *extra = line.rstrip().split('\t')
+                field1, field2, *extra = line.rstrip('\r\n').split('\t')
                 if field1 and field2:
                     conversion[field1] = field2
     return conversion
@@ -37,7 +37,7 @@ def main(conversionfile, treefile=None, parser='ete3'):
         from LibsDyogen import myPhylTree
         if treefile is None:
             treefile = stdin
-        tree = myPhylTree.PhylogeneticTree(treefile).to_ete3(nosinglechild=False)
+        tree = PhylTree_to_ete3(myPhylTree.PhylogeneticTree(treefile), nosinglechild=False)
     
     rename(tree, conversion)
 
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--parser', default='ete3',
                         choices=['ete3', 'myPhylTree', 'myProteinTree'],
                         help='How to load the tree. `myPhylTree` allows to ' \
-                             'automatically set unique node names.')
+                             'automatically set unique node names [%(default)s].')
     
     args = parser.parse_args()
     main(**vars(args))

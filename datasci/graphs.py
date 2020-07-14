@@ -878,6 +878,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
              label_params=None, label_nodes=False, edge_colors=None,
              edge_cmap='afmhot', add_edge_axes=None, style='squared', yscale=1,
              constant_anc_space=False, leftleaves=False, collapsed=None,
+             zero_weight_children=None, edge_styles=None,
              **kwargs):
              #edge_norm=None
     """Plot an ete3 tree, from left to right.
@@ -886,6 +887,9 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             a scalar value mapped to a color using a cmap.
     param: add_edge_axes can be None, "top", or "middle".
     param: triangles: taxa to be represented as triangles. Tree need to be collapsed *before*.
+    param: zero_weight_children: list of nodes that do not shift the y-position of the parent
+            (ie. the parent position is only determined by the other children)
+    param: edge_styles: dictionary of node to linestyle string
     """
 
     if root is None:
@@ -913,6 +917,8 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
         collapsed = []
     triangle_rwidth = 0.67  # relative width between the 2 surrounding edges
     triangle_ewidth = 0     # extra width occupied by the triangle -> shift all following leaves
+    if zero_weight_children is None:
+        zero_weight_children = set()
 
     #depth = tree.get_farthest_leaf()[1]
     leafdists = sorted(iter_distleaves(tree, get_items, root), key=lambda x: x[1])
@@ -937,18 +943,13 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             except AttributeError:
                 rootdist = getattr(tree, 'rootdist', None)  # myPhylTree
         if rootdist is None: rootdist = 0
-    if leftleaves:
-        annot_ha = 'left'
-        offset_x = -time_dir
-    else:
-        annot_ha = 'right'
-        offset_x = time_dir
     logger.debug('depth = %g; leafstep = %g; present = %g', depth, leafstep, present)
 
     child_coords = {}  # x (node depth), y (leaf number)
 
     segments = []
     line_edge_values = []  # Hold the edge numbers converted to colors.
+    linestyles = 'solid' if edge_styles is None else []
     triangles = []
     triangle_values = []
 
@@ -1101,6 +1102,8 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                 if edge_colors is not None:
                 #    xy.append(edge_colors[ch])
                     triangle_values.append(edge_colors[get_label(tree, ch)])
+                #if edge_styles is not None:
+                #    triangle_styles.append(edge_styles[get_label(tree, ch)])
             else:
                 segments.append(
                             [(child_coords[ch].x, child_coords[ch].y),
@@ -1108,12 +1111,20 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                 if edge_colors is not None:
                 #    xy.append(edge_colors[ch])
                     line_edge_values.append(edge_colors[get_label(tree, ch)])
+                if edge_styles is not None:
+                    linestyles.append(edge_styles[get_label(tree, ch)])
         else:
             sorted_items = sorted(items,
                                   key=lambda item: child_coords[item[0]].y)
             ch0, ch0dist = sorted_items[0]
             ch1, ch1dist = sorted_items[-1]
+
             node_y = (child_coords[ch0].y + child_coords[ch1].y)/2.
+            if zero_weight_children:
+                weighting = [ch for ch,_ in sorted_items if ch not in zero_weight_children]
+                if weighting:
+                    node_y = sum(child_coords[ch].y for ch in weighting) / float(len(weighting))
+
             child_coords[node] = nodecoord = Coord(
                     child_coords[ch0].x - time_dir*ch0dist,
                     anc_loc.get(node, node_y) if constant_anc_space else node_y)
@@ -1136,6 +1147,8 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                     raise NotImplementedError('Edges as Bezier curves')
                 if edge_colors is not None:
                     line_edge_values.append(edge_colors[get_label(tree, ch)])
+                if edge_styles is not None:
+                    linestyles.append(edge_styles[get_label(tree, ch)])
                 if add_edge_axes:
                     # Assuming drawing tree left->right and bottom->top
                     shift = -0.5 if add_edge_axes == 'middle' else 0
@@ -1152,6 +1165,8 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
         if edge_colors is not None:
         #    xy.append(edge_colors.get(root))
             line_edge_values.append(edge_colors.get(root, np.NaN))
+        if edge_styles is not None:
+            linestyles.append(edge_styles.get(root, 'solid'))
         if add_edge_axes:
             # Assuming drawing tree left->right and bottom->top
             shift = -0.5 if add_edge_axes == 'middle' else 0
@@ -1165,21 +1180,27 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     #    # or not args[0][0] in 'bgrcmykw'):
     #    edge_cmap = None
     line_color = kwargs.pop('color', mpl.rcParams['text.color'])
+    if edge_colors is not None:
+        edge_cmap = plt.get_cmap(edge_cmap)
+        # lines.set_array performs automatic normalisation. Undesirable.
+        line_color = [(edge_cmap._rgba_bad if np.isnan(v) else edge_cmap(v)) for v in line_edge_values]
     #else:
     #    line_color = None
 
     #lines = plot(x, y, *args, **default_kwargs)
     #lines = ax.plot(*xy, **default_kwargs)
-    lines = mc.LineCollection(segments, colors=line_color, cmap=edge_cmap, **kwargs)#, norm=edge_norm)
-    triang_colors = [edge_cmap(v) for v in triangle_values]
+    lines = mc.LineCollection(segments, colors=line_color, cmap=edge_cmap, linestyles=linestyles, **kwargs)#, norm=edge_norm)
+    triang_colors = [(edge_cmap._rgba_bad if np.isnan(v) else edge_cmap(v)) for v in triangle_values]
     triangle_col = mc.PolyCollection(triangles, edgecolors=triang_colors,
                                     #facecolors=[line_color],
                                     facecolors=triang_colors,
                                     #cmap=edge_cmap,
                                     **kwargs)
 
-    if edge_colors is not None:
-        lines.set_array(np.array(line_edge_values))  # Value to be converted to colors.
+    #if edge_colors is not None:
+    #    lines.set_array(np.array(line_edge_values))  # Value to be converted to colors.
+    #    lines.norm = edge_norm
+
         #print(triangle_col.get_array(), triangle_col.get_cmap())
         #triangle_col.set_array(np.array(triangle_values))  # Value to be converted to colors.
         #print('Triangles:',
@@ -1200,35 +1221,15 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     #ax.set(**kwargs)
     #for node, (x, y) in dfw_child_coords.items():
 
+    extension_kwargs = {k:v for k,v in kwargs.items() if k not in ('norm','linestyles','linewidths', 'colors', 'facecolors')}
     ax.plot(extended_x, extended_y, 'k--',
-            alpha=kwargs.pop('alpha', 1)/2.,
-            linewidth=kwargs.pop('linewidth', mpl.rcParams['lines.linewidth'])/2.,
-            **kwargs)
+            alpha=extension_kwargs.pop('alpha', 1)/2.,
+            linewidth=extension_kwargs.pop('linewidth', mpl.rcParams['lines.linewidth'])/2.,
+            **extension_kwargs)
 
     if label_params is None: label_params = {}  # Also used in yticklabels
     if label_nodes:
-        for (node, dist), items in rev_dfw_descendants(tree, get_items,
-                                                   include_leaves=False,
-                                                   queue=[(root, rootdist)]):
-            for child,d in items:
-                # if not a leaf
-                if get_items(tree, (child, d)):
-                    if child_coords[child].y > child_coords[node].y:
-                        offset_y = 1
-                        va = 'bottom'
-                    else:
-                        offset_y = -1
-                        va = 'top'
-                    # TODO: do not annotate crown of collapsed clades.
-                    ax.annotate(get_label(tree, child), child_coords[child],
-                                textcoords='offset points', xytext=(offset_x, offset_y),
-                                horizontalalignment=annot_ha,
-                                verticalalignment=va, **label_params)
-        if rootdist>0:
-            ax.annotate(get_label(tree, root), child_coords[root],
-                        textcoords='offset points', xytext=(offset_x, -1),
-                        horizontalalignment=annot_ha,
-                        verticalalignment='top')
+        plottree_label_nodes(ax, child_coords, tree, get_items, get_label, root, rootdist, leftleaves, time_dir, **label_params)
 
     #ax.set_xlim(min(root_age, root_age-rootdist), depth+root_age)
     #ax.set_xlim(min(root_age, root_age-rootdist), depth+root_age)
@@ -1284,12 +1285,45 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     return lines, child_coords, subaxes
 
 
+def plottree_label_nodes(ax, child_coords, tree, get_items, get_label, root, rootdist, leftleaves=False, time_dir=-1, shortlist=None, **label_params):
+    if leftleaves:
+        annot_ha = 'left'
+        offset_x = -time_dir
+    else:
+        annot_ha = 'right'
+        offset_x = time_dir
+    for (node, dist), items in rev_dfw_descendants(tree, get_items,
+                                               include_leaves=False,
+                                               queue=[(root, rootdist)]):
+        for child,d in items:
+            # if not a leaf
+            if shortlist is not None and child not in shortlist:
+                continue
+            if get_items(tree, (child, d)):
+                if child_coords[child].y > child_coords[node].y:
+                    offset_y = 1
+                    va = 'bottom'
+                else:
+                    offset_y = -1
+                    va = 'top'
+                # TODO: do not annotate crown of collapsed clades.
+                ax.annotate(get_label(tree, child), child_coords[child],
+                            textcoords='offset points', xytext=(offset_x, offset_y),
+                            horizontalalignment=annot_ha,
+                            verticalalignment=va, **label_params)
+    if rootdist>0 and (shortlist is None or root in shortlist):
+        ax.annotate(get_label(tree, root), child_coords[root],
+                    textcoords='offset points', xytext=(offset_x, -1),
+                    horizontalalignment=annot_ha,
+                    verticalalignment='top', **label_params)
+
 def plottree_set_xlim(lines, xroot, xleaf=None, age_from_root=False):
     seg = lines.get_segments()
     seg[-1][1,0] = xroot
     lines.set_segments(seg)  # Don't know how to hide what's outside of the plotting area. set_clip no effect.
      # = ax.get_xlim()  # rightmost xlim
     lines.axes.set_xbound((xroot, xleaf) if age_from_root else (xleaf, xroot))
+
 
 
 ### Derivates of the violin plot
