@@ -945,7 +945,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
         if rootdist is None: rootdist = 0
     logger.debug('depth = %g; leafstep = %g; present = %g', depth, leafstep, present)
 
-    child_coords = {}  # x (node depth), y (leaf number)
+    child_coords = {}  # x (node depth), y (leaf number)  #TODO: store the parent
 
     segments = []
     line_edge_values = []  # Hold the edge numbers converted to colors.
@@ -1286,19 +1286,26 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
 
 
 def plottree_label_nodes(ax, child_coords, tree, get_items, get_label, root, rootdist, leftleaves=False, time_dir=-1, shortlist=None, **label_params):
+#def plottree_label_nodes(ax, child_coords, labels, leftleaves=False, time_dir=-1, **label_params):
     if leftleaves:
         annot_ha = 'left'
         offset_x = -time_dir
     else:
         annot_ha = 'right'
         offset_x = time_dir
+    #for child in labels:
     for (node, dist), items in rev_dfw_descendants(tree, get_items,
                                                include_leaves=False,
                                                queue=[(root, rootdist)]):
         for child,d in items:
             # if not a leaf
+            #if shortlist is not None:
+            #    child_synonyms = set(synonyms.get(child, [child])).intersection(shortlist)
+            #    if child_synonyms:
+            #        child = list(child_synonyms)[0]
+            #    else:
             if shortlist is not None and child not in shortlist:
-                continue
+                    continue
             if get_items(tree, (child, d)):
                 if child_coords[child].y > child_coords[node].y:
                     offset_y = 1

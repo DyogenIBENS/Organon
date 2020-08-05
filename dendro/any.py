@@ -140,6 +140,12 @@ class myPhylTree(itembased):
 
     @staticmethod
     def set_items(tree, nodedist, items):
+        # TODO: first cleanup original items:
+        #orig_items = tree.items.get(nodedist[0])
+        #for child,_ in orig_items:
+        #    for desc in tree.allDescendants[child]:
+        #        del tree.items[desc]
+        # Run a reinitTree
         tree.items[nodedist[0]] = items
 
     @staticmethod

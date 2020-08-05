@@ -7,7 +7,7 @@
 
 from copy import copy, deepcopy
 
-from dendro.bates import rev_dfw_descendants, iter_distleaves
+from dendro.bates import rev_dfw_descendants, iter_distleaves, dfw_pairs_generalized, dfw_descendants_generalized
 import logging
 logger = logging.getLogger(__name__)
 
@@ -131,6 +131,8 @@ def collapse_clades(tree, get_items, set_items, clades, make_new_clade=None):
     make_new_clade: function to create the new node. Takes (clade, cladesize) as argument.
     By default, prefix the number of leaves to the clade name.
     Useful for PhylTree which does not support duplicated node names.
+
+    Handles nested clades by collapsing the most basal.
     """
     if make_new_clade is None:
         def make_new_clade(clade, cladesize):
@@ -140,13 +142,22 @@ def collapse_clades(tree, get_items, set_items, clades, make_new_clade=None):
                 new = copy(clade)
                 setattr(new, 'name', '%d %s' % (cladesize, clade.name))
                 return new
-    leaf_numbers = []
-    for clade in clades:
+    leaf_numbers = [0]*len(clades)
+    # Iterate from root to leaves
+    iter_tree = list(dfw_pairs_generalized(tree, get_items, queue=[((None,0), (tree.root, 0))]))
+    for _, (clade,_) in iter_tree:
+    #iter_tree = list(dfw_descendants_generalized(tree, get_items, queue=[(tree.root, 0)], copy=True))
+    #for _, items in iter_tree:
+    #    for clade, _ in items:
+        try:
+            clade_i = clades.index(clade)
+        except ValueError:
+            continue
         leafdists = list(iter_distleaves(tree, get_items, root=clade))
-        leaf_numbers.append(len(leafdists))
+        leaf_numbers[clade_i] = len(leafdists)
         maxdist = max(d for l,d in leafdists)
         #TODO: add the mindist information -> draw non ultrametric triangles
         set_items(tree, (clade, None), [(make_new_clade(clade, len(leafdists)), maxdist)])  # (clade, mindist)
-        #TODO: some cleanup is needed in PhylTree (parents, dicLinks, ages)
+                #TODO: some cleanup is needed in PhylTree (parents, dicLinks, ages)
     return leaf_numbers
 
