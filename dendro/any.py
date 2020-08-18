@@ -64,9 +64,10 @@ class ete3(nodebased):
         return tree.get_children()
 
     @staticmethod
-    def set_items(tree, node, new_items):
+    def set_items(tree, nodedist, new_items):
+        nodedist[0].children = []
         for child, dist in new_items:
-            node.add_child(child, dist=dist)
+            nodedist[0].add_child(child, dist=dist)
 
     @staticmethod
     def set_children(tree, node, new_children):
