@@ -1,0 +1,35 @@
+#grey10 = "#1a1a1a" # .1
+#grey45 = "#737373" # .45
+#grey80 = "#CCCCCC" # .8
+text.color : .9
+axes.edgecolor : .9
+axes.labelcolor : .9
+xtick.color : .9
+ytick.color : .9
+boxplot.boxprops.color : .9
+boxplot.capprops.color : .9
+boxplot.flierprops.color : .9
+boxplot.flierprops.markeredgecolor : .9
+boxplot.whiskerprops.color : .9
+hatch.color : .9
+patch.edgecolor : .9
+grid.color : .3
+legend.facecolor : .55
+#legend.edgecolor : .9
+savefig.facecolor : None
+axes.facecolor: None
+#savefig.frameon : False  #background frame transparent
+#savefig.transparent : True # all background transparent # (including ggplot2 style)
+# from matplotlib style 'dark_background'. But doesn't look nice (indistinguishable colors)
+#axes.prop_cycle: cycler('color', ['8dd3c7', 'feffb3', 'bfbbd9', 'fa8174', '81b1d2', 'fdb462', 'b3de69', 'bc82bd', 'ccebc4', 'ffed6f'])
+# Seaborn Deep: the best, with the default Seaborn.
+#axes.prop_cycle: cycler('color', ['4c72b0', 'dd8452', '55a868', 'c44e52', '8172b3', '937860', 'da8bc3', '8c8c8c', 'ccb974', '64b5cd'])
+# Seaborn Muted:
+#axes.prop_cycle: cycler('color', ['4878d0', 'ee854a', '6acc64', 'd65f5f', '956cb4', '8c613c', 'dc7ec0', '797979', 'd5bb67', '82c6e2'])
+# Seaborn Pastel: this one is atrocious on a black background.
+#axes.prop_cycle: cycler('color', ['a1c9f4', 'ffb482', '8de5a1', 'ff9f9b', 'd0bbff', 'debb9b', 'fab0e4', 'cfcfcf', 'fffea3', 'b9f2f0'])
+# Seaborn Colorblind: too saturated.
+#axes.prop_cycle: cycler('color', ['0173b2', 'de8f05', '029e73', 'd55e00', 'cc78bc', 'ca9161', 'fbafe4', '949494', 'ece133', '56b4e9'])
+# Also see sns.color_palette("husl", 8) and sns.hls_palette (Choosing lightness/saturation)
+# 'Set2' NO.
+#axes.prop_cycle: cycler('color', ['66c2a5', 'fc8d62', '8da0cb', 'e78ac3', 'a6d854', 'ffd92f', 'e5c494', 'b3b3b3'])

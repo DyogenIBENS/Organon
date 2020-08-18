@@ -1,0 +1,30 @@
+#grey10 = "#1a1a1a" # .1
+#grey45 = "#737373" # .45
+#grey80 = "#CCCCCC" # .8
+text.color : .1
+axes.edgecolor : .1
+axes.labelcolor : .1
+xtick.color : .1
+ytick.color : .1
+boxplot.boxprops.color : .1
+boxplot.capprops.color : .1
+boxplot.flierprops.color : .1
+boxplot.flierprops.markeredgecolor : .1
+boxplot.whiskerprops.color : .1
+hatch.color : .1
+patch.edgecolor : .1
+grid.color : .8
+grid.alpha : 0.5
+grid.linestyle : --
+legend.facecolor : .45
+legend.framealpha : 0.3
+#legend.edgecolor : .1
+savefig.facecolor : None
+axes.facecolor: None
+#savefig.frameon : False  #background frame transparent
+#savefig.transparent : True # all background transparent # (including ggplot2 style)
+# From Seaborn style:
+axes.prop_cycle: cycler('color', ['4C72B0', '55A868', 'C44E52', '8172B2', 'CCB974', '64B5CD'])
+
+axes.spines.top : False
+axes.spines.right : False
