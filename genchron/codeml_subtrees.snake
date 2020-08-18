@@ -234,7 +234,7 @@ rule get_tree:
 #	input: rules.get_tree.output
 #	output: expand("{{genetree}}/%s/" % SUBTREEDIR)
 #	shell:
-#		"~glouvel/scripts/codeml/prune2family.py -o #TODO"
+#		"~glouvel/scripts/genchron/prune2family.py -o #TODO"
 
 
 # The actual starting rule
@@ -263,7 +263,7 @@ rule reshape_tree:
 		#labels=rules.list_tree_labels.output
 	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_codeml.nwk"
 	shell:
-		"~glouvel/scripts/codeml/reshape_tree.py '{input}' '{output}'"
+		"~glouvel/scripts/genchron/reshape_tree.py '{input}' '{output}'"
 
 if REALIGN:
 	subworkflow realign:
@@ -340,13 +340,13 @@ rule codeml:
 		rub  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_rub"
 	log: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.log"
 	shell:
-		"bash ~glouvel/scripts/codeml/run_codeml_separatedir.sh '{input.ctl}'"
+		"bash ~glouvel/scripts/genchron/run_codeml_separatedir.sh '{input.ctl}'"
 
 #rule allocate_codeml_memory:
 #	input: rules.fasta2phylip.output
 #	output: "{genetree}/{subtreedir}/{ancestor}{genetree}.condor.memory.txt"
 #		#temp("{genetree}/{genetree}.condor.memory.txt")
-#	shell: "~glouvel/scripts/codeml/allocate_codeml_memory.py {input} > {output}"
+#	shell: "~glouvel/scripts/genchron/allocate_codeml_memory.py {input} > {output}"
 		
 rule condor_descript:
 	#input: rules.allocate_codeml_memory.output
@@ -355,7 +355,7 @@ rule condor_descript:
 	shell:
 		'/users/ldog/glouvel/scripts/fluidcondor/condor_descript.py'
 		' {output}'
-		' /users/ldog/glouvel/scripts/codeml/run_codeml_separatedir.sh'
+		' /users/ldog/glouvel/scripts/genchron/run_codeml_separatedir.sh'
 		' -a {params.ctl}'
 		' -cl \'glouvel:125\''
 		' -m 1G'
@@ -391,7 +391,7 @@ rule condor_descript_all:
 	shell:
 		'/users/ldog/glouvel/scripts/fluidcondor/condor_descript.py'
 		' {output}'
-		' /users/ldog/glouvel/scripts/codeml/run_codeml_separatedir.sh'
+		' /users/ldog/glouvel/scripts/genchron/run_codeml_separatedir.sh'
 		' --fromfile {input}'
 		' -cl \'glouvel:125\''
 		' -m "1G"'

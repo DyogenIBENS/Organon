@@ -1,5 +1,5 @@
-codeml.analyse.regress_dating_errors
-codeml.subtrees_stats
+genchron.analyse.regress_dating_errors
+genchron.subtrees_stats
 datasci.dataframe_recipees
 datasci.graphs
 datasci.routines

@@ -23,8 +23,8 @@ from datasci.dataframe_recipees import bounded_background_gradient, \
 from datasci.savior import HtmlReport, css_dark_style, reroute_loggers, \
                            generate_slideshow, slideshow_generator
 
-from codeml.analyse.regress_dating_errors import *
-import codeml.analyse.regress_dating_errors as aregr
+from genchron.analyse.regress_dating_errors import *
+import genchron.analyse.regress_dating_errors as aregr
 
 from LibsDyogen import myPhylTree
 

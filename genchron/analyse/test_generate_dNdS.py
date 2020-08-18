@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-#%run -n ~/scripts/codeml/analyse/generate_dNdStable.py
-from codeml.analyse.generate_dNdStable import *
+#%run -n ~/scripts/genchron/analyse/generate_dNdStable.py
+from genchron.analyse.generate_dNdStable import *
 import os.path as op
 import pandas as pd
 from types import GeneratorType

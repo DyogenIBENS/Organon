@@ -84,5 +84,5 @@ rule reshape4codeml:
 	input: rules.treebest2genomicus.output
 	output: "{outdir}/treebest/{genefam}_best_codeml.nwk"
 	shell:
-		"~glouvel/scripts/codeml/reshape_tree.py {input} {output}"
+		"~glouvel/scripts/genchron/reshape_tree.py {input} {output}"
 

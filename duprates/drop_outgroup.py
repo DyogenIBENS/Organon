@@ -9,7 +9,7 @@ from sys import stdin, stdout, stderr
 import argparse as ap
 import ete3
 from dendro.parsers import read_multinewick
-from codeml.subtrees_stats import find_ingroup_marked
+from genchron.subtrees_stats import find_ingroup_marked
 
 
 def main():

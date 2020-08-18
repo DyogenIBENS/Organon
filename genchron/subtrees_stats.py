@@ -29,9 +29,9 @@ from seqtools import ungap, \
                      algrep, \
                      make_al_compo
 from seqtools.plot_al_conservation import reorder_al, get_position_stats, parsimony_score
-from codeml.codemlparser2 import parse_mlc
-from codeml.find_non_overlapping_codeml_results import list_nonoverlapping_NG
-from codeml.prune2family import split_species_gene
+from pamliped.codemlparser2 import parse_mlc
+from genchron.find_non_overlapping_codeml_results import list_nonoverlapping_NG
+from genchron.prune2family import split_species_gene
 from seqtools.compo_freq import get_seq_counts
 from seqtools.gblocks_parser import parse_gb_html
 from seqtools.fillpositions import parse_seqranges

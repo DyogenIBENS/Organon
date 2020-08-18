@@ -15,8 +15,7 @@ import os
 import fileinput
 import re
 import os.path as op
-#from codemlparser import parse_mlc
-from codeml.codemlparser2 import parse_mlc
+from pamliped.codemlparser2 import parse_mlc
 
 
 # space preceded by closing parenthesis

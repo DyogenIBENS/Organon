@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
-from codeml.prune2family import *
+from genchron.prune2family import *
 from dendro.reconciled import infer_gene_event
 
 

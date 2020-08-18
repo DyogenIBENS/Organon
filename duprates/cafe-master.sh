@@ -20,7 +20,7 @@ family_file=../alignments_analysis/subtrees_stats/"$subtreesdir"_familystats-Sim
 #done <<< all_Simiiformes.subtreesGoodQualO2.Queue.txt
 
 # This was slow: I used splitjob.sh.
-$SCRIPTS/codeml/subtrees_stats.py family -s "$subtreesdir" -I -e 93 -i \
+$SCRIPTS/genchron/subtrees_stats.py family -s "$subtreesdir" -I -e 93 -i \
     all_gene_trees.shuffled.txt Simiiformes "$species_tree" \
     > "$family_file" \
     2> "${family_file%.tsv}.log"

@@ -3,7 +3,7 @@
 
 
 import numpy as np
-from codeml.analyse.regress_dating_errors import *
+from genchron.analyse.regress_dating_errors import *
 import logging
 logger = logging.getLogger(__name__)
 

@@ -1,14 +1,12 @@
 IOtools
 UItools
 UItools.autoCLI
-archiparse
 argparse_custom
-codeml.analyse.generate_dNdStable
-codeml.analyse.regress_dating_errors
-codeml.codemlparser2
-codeml.find_non_overlapping_codeml_results
-codeml.prune2family
-codeml.subtrees_stats
+genchron.analyse.generate_dNdStable
+genchron.analyse.regress_dating_errors
+genchron.find_non_overlapping_codeml_results
+genchron.prune2family
+genchron.subtrees_stats
 datasci.compare
 datasci.dataframe_recipees
 datasci.graphs
@@ -26,6 +24,7 @@ dendro.sorter
 dendro.trimmer
 genomicustools.identify
 objectools
+pamliped.codemlparser2
 seqtools
 seqtools.al_merge_splits
 seqtools.compo_freq

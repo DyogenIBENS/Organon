@@ -25,7 +25,7 @@ from IOtools import Stream
 logger = logging.getLogger(__name__)
 
 
-#from codeml.codemlparser import mlc_parser
+#from pamliped.codemlparser import mlc_parser
 
 np.set_printoptions(formatter={"float_kind": lambda x: "%g" %x})
 
@@ -268,7 +268,7 @@ def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name'
 
 
 
-def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
+def branch2nb(mlc, fulltree):  # ~~> pamliped.codeml_parser?
     """Parse the codeml result file (.mlc) to return 2 trees:
     tree_nbs: the tree with node labelled as numbers.
     tree_ids: the tree with original node labels (including inner nodes).
@@ -449,7 +449,7 @@ def branch2nb(mlc, fulltree):  # ~~> codeml.codeml_parser?
 
 # Needs a unit test for the above (are the missing nodes properly re-inserted?)
 
-def get_dNdS(mlc, skiptrees=False):  # ~~> codeml.codeml_parser?
+def get_dNdS(mlc, skiptrees=False):  # ~~> pamliped.codeml_parser?
     """Parse table of dN/dS from codeml output file.
     
     mlc: filehandle
@@ -499,7 +499,7 @@ def get_dNdS(mlc, skiptrees=False):  # ~~> codeml.codeml_parser?
     return dNdS, dStreeline, dNtreeline
     
 
-def tree_nb_annotate(tree, id2nb, tree_nbs):  # ~~> codeml.codeml_parser?
+def tree_nb_annotate(tree, id2nb, tree_nbs):  # ~~> pamliped.codeml_parser?
     """Add internal node names (numbers used by codeml) in the tree structure."""
     parent_nbs = {tuple(sorted(ch.name for ch in n.children)): n.name \
                 for n in tree_nbs.traverse() if not n.is_leaf()}

@@ -37,9 +37,9 @@ rule all:
 
 #subworkflow codeml_subtrees:
 #    workdir: os.getcwd()  # != "." which is `workflow.basedir` (the snakefile directory)
-#    snakefile: "../codeml/codeml_subtrees.snake"  # Circular import..
+#    snakefile: "../genchron/codeml_subtrees.snake"  # Circular import..
 
-#include: "../codeml/codeml_subtrees.snake"
+#include: "../genchron/codeml_subtrees.snake"
 
 # Optional, if _genes.fa files are not produced. Rules from codeml_subtrees.snake.
 rule list_tree_labels:

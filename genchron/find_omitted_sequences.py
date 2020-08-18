@@ -7,8 +7,8 @@ from Bio import AlignIO
 import ete3
 import argparse
 from UItools.autoCLI import make_subparser_func
-from codeml.subtrees_stats import iter_glob_subtree_files
-from codeml.codemlparser2 import parse_mlc
+from genchron.subtrees_stats import iter_glob_subtree_files
+from pamliped.codemlparser2 import parse_mlc
 from dendro.trimmer import fuse_single_child_nodes_ete3
 import logging
 
@@ -133,7 +133,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     if not args.quiet:
-        logging.getLogger('codeml.subtrees_stats').setLevel(logging.INFO)
+        logging.getLogger('genchron.subtrees_stats').setLevel(logging.INFO)
     delattr(args, 'quiet')
 
     print(args)

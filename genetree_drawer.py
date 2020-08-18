@@ -1122,7 +1122,7 @@ def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
             print("exists.")
 
     # prune genetrees to the right ancestor
-    import codeml.prune2family as prune2family
+    import genchron.prune2family as prune2family
 
     return prune2family.parallel_save_subtrees(all_outputs, ancestors,
                                            ncores=ncores,
