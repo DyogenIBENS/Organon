@@ -70,6 +70,10 @@ def iqr95(v):
     q0, q1 = v.quantile([0.025, 0.975])
     return q1 - q0
 
+def ci95(v):
+    q0, q1 = v.quantile([0.025, 0.975])
+    return (q1 - q0)/2.
+
 
 def mad(v):
     """Median absolute deviation from the median.

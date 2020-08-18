@@ -43,7 +43,7 @@ from datasci.graphs import scatter_density, \
                            darken_hex
 from datasci.compare import pairwise_intersections, align_sorted
 from datasci.stats import r_squared, adj_r_squared, multicol_test, multi_vartest,\
-                          rescale_groups, iqr, iqr90, iqr95, mad, trimstd, trimmean, \
+                          rescale_groups, iqr, iqr90, iqr95, ci95, mad, trimstd, trimmean, \
                           mean_absdevmed, f_test, VIF, partial_r_squared_fromreduced
 from datasci.routines import *
 from datasci.dataframe_recipees import *
@@ -1685,7 +1685,7 @@ def plottree_add_hists(taxon_col, x, positions, data=None, nbins=100,
             #pos_hist -= 1
             #pos_group[uniq_pos_index] = np.NaN  # NaN is always different from itself, so is always unique
     else:
-        distinct_positions = [positions]
+        distinct_positions = [np.arange(len(positions))]  # FIXME, should be integer
     
     #for i, (vtaxon, xi) in enumerate(zip(var_taxon, var_xs), start=1):
     bars = []
@@ -1701,7 +1701,7 @@ def plottree_add_hists(taxon_col, x, positions, data=None, nbins=100,
                     i, len(positions), distinct_pos, distinct_pos.dtype, order)
             logger.debug('Plotting taxa dupli:\n%s',
                  dat.groupby(taxon_col)[xi].count()[
-                     slice(None) if order is None else order[distinct_pos]])
+                     slice(None) if order is None else np.asarray(order)[distinct_pos]])  #FIXME: distinct_pos invalid indexer when recolor_samepos=False
             _, bin_edges, b = cathist(
                     #var_taxon, xi,
                     taxon_col, xi, data=dat,
@@ -2696,6 +2696,7 @@ class fullRegression(object):
             print('T-test: Y(badval) VS Y(goodval): t=%g, p=%g' % tt_badp, file=self.out)
             bad_props[badp] = badval
             bad_props_ttests[badp] = tt_badp
+            self.bad_props_counts[badp] = is_badval.sum()
 
         logger.warning('Hard-coded Bad properties not in the columns: %s',
                        ' '.join(missing_bad_props))
@@ -2703,6 +2704,7 @@ class fullRegression(object):
         #                .drop(bad_props, axis=1, errors='ignore')
 
         self.bad_data_rows = bad_data_rows = self.a_t.reindex(a_n_inde.index).isin(bad_props).any(axis=1)
+        self.bad_props_counts['ANY'] = bad_data_rows.sum()
         a_n_inde2 = a_n_inde.loc[~bad_data_rows]
         tt_bad = stats.ttest_ind(
                     a_n_inde.loc[bad_data_rows, y],
@@ -2730,6 +2732,7 @@ class fullRegression(object):
             self.bad_props_ttests = bad_props_ttests.append(
                                         pd.Series(tt_bad, index=['T', 'P'],
                                                   name='ANY'))
+            self.bad_props_ttests['removed'] = pd.Series(self.bad_props_counts)
             self.display_html(self.bad_props_ttests.style.applymap(
                              lambda v: ('background: khaki' if v<0.01 else
                                         'background: lemonchiffon; alpha: 0.5' if v<=0.05 else ''),
@@ -2801,7 +2804,8 @@ class fullRegression(object):
                                    for sft in inde_features2_source],
                                   index=inde_features2,
                                   name='transform'),
-                        self.a_t[inde_features2_source].agg(['mean', 'std'])\
+                        self.a_t.reindex(a_n_inde2.index)[inde_features2_source]\
+                                .agg(['mean', 'std'])\
                                 .rename(lambda c: 'transformed '+c).T\
                                 .set_axis(inde_features2, inplace=False),
                         pd.Series({ft: ' '.join(self.decorred.get(ft, ()))
@@ -2940,6 +2944,10 @@ class fullRegression(object):
         axes[0].set_xlabel(None)
         #axes[0].set_ylabel(ylabel)
         axes[0].set_title(ax_titles[fig_columns[0]])
+        axes[0].set_xticks([-0.5, 0, 0.5])
+        axes[0].tick_params(bottom=True, labelbottom=True)
+        axes[0].grid(axis='x', color='.2', alpha=0.5)
+        axes[0].set_xticklabels(['-0.5', '0', '0.5'])
 
         if len(axes)>1:
             axes[1].set_xlabel(None)
@@ -2959,7 +2967,7 @@ class fullRegression(object):
         y = self.responses[0]
         N = self.a_n_inde2.shape[0]
         #print(N)
-        sorted_fit = self.refitlasso2.fittedvalues.sort_values()
+        sorted_fit = self.refitlasso2.fittedvalues.sort_values().rename('fitted_y')
         n = N * percent // 100
         fitted_lowest = sorted_fit.head(n).index  # Lowest error
         fitted_highest = sorted_fit.tail(n).index
@@ -3004,10 +3012,10 @@ class fullRegression(object):
         print('\n#### Original data:', file=self.out)
         summary_lowest = self.alls.loc[fitted_lowest,
                                     [y] + top_features
-                                  ].agg(['median', 'mean', 'std'])
+                                  ].agg(['median', 'mean', 'std', ci95])
         summary_highest = self.alls.loc[fitted_highest,
                                     [y] + top_features
-                                  ].agg(['median', 'mean', 'std'])
+                                  ].agg(['median', 'mean', 'std', ci95])
         idx = pd.IndexSlice
         self.predicted_extremes = pd.concat((summary_lowest, summary_highest),
                                keys=['Predicted %s%% lowest' % percent,
@@ -3027,6 +3035,22 @@ class fullRegression(object):
             ax.set_ylabel(y)
             ax.set_xlabel(ft)
             self.show(fig)
+            negative_corr = (self.predicted_extremes.data[ft].loc[('Predicted %s%% lowest' % percent,
+                                                             'mean')]
+                            > self.predicted_extremes.data[ft].loc[('Predicted %s%% highest' % percent,
+                                                               'mean')])
+            sorted_ft_propbad = self.alls.join(sorted_fit)\
+                                   .sort_values(ft, ascending=negative_corr)\
+                                   .assign(frac_invalid=lambda df: (df.fitted_y>=self.fitted_highest_min).expanding().mean())
+            # First index that falls under 50%
+            ft_index_halfbad = np.searchsorted(sorted_ft_propbad.frac_invalid < 0.5, True)-1
+            ft_threshold_halfbad = sorted_ft_propbad[ft].iloc[ft_index_halfbad]
+            self.display_html(sorted_ft_propbad[[ft, 'fitted_y', 'frac_invalid']].head(20))
+            print('Limit of %s such that 50%% of tested trees have a predicted'
+                  ' %s >= %g: %g (%d trees, negative relation=%s)'
+                  % (ft, y, self.fitted_highest_min,
+                     ft_threshold_halfbad, ft_index_halfbad, negative_corr),
+                  file=self.out)
             plt.close()
 
 
@@ -3053,6 +3077,8 @@ class fullRegression(object):
         a_n_inde2 = prediction.a_n_inde2
         if not training_observations2.difference(a_n_inde2.index).empty:
             logger.warning('Lost %d observations in the prediction.', len(training_observations2.difference(a_n_inde2.index)))
+        if a_n_inde2.index.difference(training_observations2).empty:
+            logger.error('Testing set is empty.')
         prediction.a_n_inde2 = a_n_inde2.assign(
                                 **dict(zscore_dataframe(a_n_inde2[self.continuous_inde_features2],
                                                         a_n_inde2.loc[training_observations2])),
@@ -3378,7 +3404,7 @@ class full_dating_regression(fullRegression):
             raise RuntimeError(msg)
 
 
-def predict_nonrobust(reg_approx, same_alls, hr, renames, lang_fr=False):
+def predict_nonrobust(reg_approx, same_alls, hr, renames, lang_fr=False, nfeatures=3):
     """Essentially compare the histogram of response in the training VS testing
     dataset. Then check feature distributions relative to the 90% decile of
     fitted response.
@@ -3636,9 +3662,9 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames, lang_fr=False):
     ax1.set_xlabel('Predicted error')
     hr.show(fig)
     plt.close()
-    return predict_nonrobust_paperfig(reg_approx, renames, lang_fr, hr)
+    return predict_nonrobust_paperfig(reg_approx, renames, lang_fr, hr, nfeatures)
 
-def predict_nonrobust_paperfig(reg_approx, renames, lang_fr=False, hr=None):
+def predict_nonrobust_paperfig(reg_approx, renames, lang_fr=False, hr=None, nfeatures=3):
     """Figure to save for the paper/thesis."""
     training_observations2 = reg_approx.a_n_inde2.index
     prediction_data = reg_approx.prediction.a_n_inde2
@@ -3664,7 +3690,7 @@ def predict_nonrobust_paperfig(reg_approx, renames, lang_fr=False, hr=None):
                   for func, frac in [(fade_color_hex, 0.7), (darken_hex, 0.3)]]
 
     fig = plt.figure(figsize=thesisfigsize)  # contrained_layout=True
-    gridspec = fig.add_gridspec(4,2, hspace=0.45)  #width_ratios=[2,1]
+    gridspec = fig.add_gridspec(nfeatures+1,2, hspace=0.5, height_ratios=[0.15]+[0.85*1/nfeatures]*nfeatures)  #width_ratios=[2,1]
     ax = fig.add_subplot(gridspec[:,0])  # Entire first column
     retro_err_bins = response_retro_trans(np.histogram(predicted, 50)[1])
     heights, bins, _ = ax.hist(
@@ -3686,7 +3712,7 @@ def predict_nonrobust_paperfig(reg_approx, renames, lang_fr=False, hr=None):
             bins, heights[1].tolist() + [heights[1][-1]],
             color='k', alpha=0.8, where='post')
     ax.axvline(retro_err_thr, linestyle='--', color='k', alpha=0.8,
-               label='err=%.2f\n' % retro_err_thr + ('(9e décile du fit)' if lang_fr else '(9th decile of fit)'))
+               label='err=%.2f\n' % retro_err_thr + ('(10e décile du fit)' if lang_fr else '(10th decile of fit)'))
     #ax.annotate('err = %.2f' % retro_err_thr, (retro_err_thr, )
     print('err threshold = %g (%s-transformed) -> original scale: %g'
           %(err_threshold, response_retro_trans.__name__, retro_err_thr), file=hr)
@@ -3703,7 +3729,7 @@ def predict_nonrobust_paperfig(reg_approx, renames, lang_fr=False, hr=None):
     ax.set_xticklabels(xt_labels, minor=True)
     ax.set_xlabel('Erreur prédite (Ma/nœud)' if lang_fr else 'Predicted error (My/node)')
     ax.set_ylabel("Nombre d'arbres" if lang_fr else 'Number of trees')
-    for i, ft in enumerate(reg_approx.refitlasso2.params.drop('const').index[:3]):
+    for i, ft in enumerate(reg_approx.refitlasso2.params.drop('const').index[:nfeatures]):
         axi = fig.add_subplot(gridspec[1+i, 1])
         trained_data = prediction_data[ft].loc[training_observations2]
         tested_data  = prediction_data[ft].drop(training_observations2)
@@ -3727,6 +3753,20 @@ def predict_nonrobust_paperfig(reg_approx, renames, lang_fr=False, hr=None):
              bins, heights[3].tolist() + [heights[3][-1]],
              where='post', color='k', alpha=0.8)
         axi.set_xlabel(renames[ft])
+        xticks = axi.get_xticks()
+        sft = reg_approx.decorr_source.get(ft, ft)
+        sft_center = reg_approx.a_t.loc[training_observations2, sft].mean()
+        sft_scale = reg_approx.a_t.loc[training_observations2, sft].std(ddof=1)
+        print('### %s (from %s)\ntransformed center, scale = %g, %g' % (ft, sft, sft_center, sft_scale), file=hr)
+        print('%s transform: %s' % (sft, reg_approx.reslopes2.loc[ft,'transform']), file=hr)
+        if sft == ft:  # Useful info only if the feature was not decorrelated.
+            #axi.set_xticklabels(['%g' % (xt*sft_scale + sft_center) for xt in xticks])
+            print('Ticks in transformed units (prior to center-rescale): ',
+                  ' '.join('%g' % (xt*sft_scale + sft_center) for xt in xticks), file=hr)
+        if ft in reg_approx.suggested_transform:
+            ft_retro_trans = make_retro_trans(reg_approx.suggested_transform[ft].__name__)
+            print('Ticks in original units (prior to transform): ',
+                  ' '.join('%g' % ft_retro_trans(xt*sft_scale + sft_center) for xt in xticks), file=hr)
         #axi.legend()
     axl = fig.add_subplot(gridspec[0,1])
     axl.legend(*axi.get_legend_handles_labels(), loc='upper right')
