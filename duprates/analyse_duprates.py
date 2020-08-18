@@ -23,7 +23,6 @@ from datasci.dataframe_recipees import bounded_background_gradient, \
 from datasci.savior import HtmlReport, css_dark_style, reroute_loggers, \
                            generate_slideshow, slideshow_generator
 
-from duprates.optim_gamma import inverse_scale #, gamma_negloglikelihood
 from codeml.analyse.regress_dating_errors import *
 import codeml.analyse.regress_dating_errors as aregr
 
@@ -53,6 +52,11 @@ import seaborn as sb
 #sb.set_palette('deep')
 #sb.set_palette('pastel')
 #sb.set_palette('Set2')
+
+def inverse_scale(params):
+    """Switch between scale and inverse_scale parametrization:
+        return (params[0], params[1], 1/params[2])"""
+    return (params[0], params[1], 1/params[2])
 
 # For page width 18.5 cm, fontsize 9, fig ratio 0.6
 thesisfigsize = (9.71, 5.85)
