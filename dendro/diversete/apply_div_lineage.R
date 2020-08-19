@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 
-# RUN THIS ANALYSIS FROM: ~glouvel/ws7/DUPLI_data93/alignments_analysis/
+# RUN THIS ANALYSIS FROM: ~/ws7/DUPLI_data93/alignments_analysis/
 
 
 library(ape)

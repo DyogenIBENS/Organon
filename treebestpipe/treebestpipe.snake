@@ -36,7 +36,7 @@ rule translate:
 	input: rules.shorten.output
 	output: "{outdir}/{genefam}_prot.fa"
 	shell:
-		"~glouvel/scripts/seqtools/fasta_translate.py {input} {output}"
+		"{workflow.basedir}/../seqtools/fasta_translate.py {input} {output}"
 
 rule align:
 	input: rules.translate.output
@@ -60,7 +60,7 @@ rule specify:
 	input: rules.backtrans.output
 	output: "{outdir}/treebest/{genefam}_backtrans-sp.mfa"
 	shell:
-		"~glouvel/scripts/seqtools/specify.py {input} {output}"
+		"{workflow.basedir}/../seqtools/specify.py {input} {output}"
 
 rule treebest:
 	input:
@@ -77,12 +77,12 @@ rule treebest2genomicus:
 	input: rules.treebest.output
 	output: "{outdir}/treebest/{genefam}_best_fulltree.nwk"
 	shell:
-		"~glouvel/scripts/treetools/treebest2genomicus.py {input} %r {output}".format(GTREENAME)
+		"{workflow.basedir}/../dendro/treebest2genomicus.py {input} %r {output}".format(GTREENAME)
 
 rule reshape4codeml:
     # Reformat the newick tree to make readable by codeml.
 	input: rules.treebest2genomicus.output
 	output: "{outdir}/treebest/{genefam}_best_codeml.nwk"
 	shell:
-		"~glouvel/scripts/genchron/reshape_tree.py {input} {output}"
+		"{workflow.basedir}/reshape_tree.py {input} {output}"
 

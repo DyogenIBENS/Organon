@@ -21,7 +21,7 @@ def get_genomicus_release(dirname):
 
 
 def set_genomicus_paths(
-    root = "/kingdoms/dyogen/workspace2/workspace2/alouis/GENOMICUS_SVN/",
+    root=op.expanduser("~/GENOMICUS_SVN/"),
     release=None):                     
     """ guess genomicus paths (ancGenes, tree, genesST) """
 

@@ -8,7 +8,7 @@ from glob import glob
 #    run: "ln {input}"
 
 
-# RUN FROM: ~glouvel/ws2/DUPLI_data93/alignments/
+# RUN FROM: ~/ws2/DUPLI_data93/alignments/
 #
 
 #subworkflow align_fsa:
@@ -44,7 +44,7 @@ rule species_branch_lengths:
         tree='{subgenetree}.nwk'
     output: temp('{subgenetree}_specieslengths.nwk')
     shell:
-        '/users/ldog/glouvel/scripts/dendro/time_fromspeciestree.py {input.speciestree} {input.tree} {output}'
+        '{workflow.basedir}/../dendro/time_fromspeciestree.py {input.speciestree} {input.tree} {output}'
 
 
 rule beastgen:

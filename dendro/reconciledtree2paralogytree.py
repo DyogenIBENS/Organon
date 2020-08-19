@@ -16,13 +16,14 @@ from sys import stdin, stderr, stdout
 import re
 import argparse
 import ete3
+import os.path as op
 
 from LibsDyogen import myPhylTree
 from genetree_drawer import get_taxon, get_taxon_treebest, infer_gene_event
 #from dendro.reconciled
 
 ENSEMBL_VERSION = 85
-PHYLTREEFILE = "/users/ldog/glouvel/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf"
+PHYLTREEFILE = op.expanduser("~/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf")
 
 
 def pdbug(indent, *args, prefix='', sep=' ', end='\n', file=stderr):

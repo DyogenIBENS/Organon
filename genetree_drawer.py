@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 
 ENSEMBL_VERSION = 85
-PHYLTREEFILE = "/users/ldog/glouvel/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf"
+PHYLTREEFILE = op.expanduser("~/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf")
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z_.-]+)ENS') # NOT USED
 FIGSIZE = re.compile(r'(?<=:)(?:(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)|a[0-4])$', re.I)
 PAPERSIZE = {'a4': (8.27, 11.7),
@@ -244,8 +244,7 @@ class GenetreeDrawer(object):
     """Draw a gene tree inside a species tree"""
 
     ensembl_version = ENSEMBL_VERSION
-    phyltreefile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0}/" \
-                   "PhylTree.Ensembl.{0}.conf"
+    phyltreefile = op.expanduser("~/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf")
     
     def __init__(self, phyltreefile=None, ensembl_version=None,
                  colorize_clades=None, commonname=False, latinname=False,
@@ -1074,21 +1073,21 @@ def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
     # 1. Find ancgene name from modern gene?
     # 2. Find the orthologs/ancestors in the given ancestors
 
-    datadir = '/users/ldog/glouvel/ws2/DUPLI_data%d/alignments' % ensembl_version
+    datadir = op.expanduser('~/ws2/DUPLI_data%d/alignments' % ensembl_version)
     assert op.exists(datadir)
 
     if edited:
         # Take gene tree from Genomicus
-        treeforestfile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data%d/"\
-                         "GoodThreshold/tree.4F.cut.bz2" % ensembl_version
+        treeforestfile = op.expanduser("~/GENOMICUS%d/"
+                         "GoodThreshold/tree.4F.cut.bz2" % ensembl_version)
         withAncGenesNames = True
         field = 'family_name'
         output = op.join(datadir, '{genetree}', '{genetree}.nwk')
         fix_suffix = True
     else:
         # Take gene tree from Ensembl
-        treeforestfile = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data%d/"\
-                         "tree.1.ensembl.bz2" % ensembl_version
+        treeforestfile = op.expanduser("~/GENOMICUS%d/"
+                         "tree.1.ensembl.bz2" % ensembl_version)
         withAncGenesNames = False
         field = 'tree_name'
         output = op.join(datadir, '{genetree}', '{genetree}_ensembl.nwk')
@@ -1134,9 +1133,9 @@ def prepare(genetrees, ancestors, ensembl_version=ENSEMBL_VERSION, ncores=1,
 
 
 
-#TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00810000125388/subtrees2/RodentiaENSGT00810000125388.A.a.a.c.a.b.nwk"
-#TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.a.a.a.b.nwk"
-TESTTREE = "/users/ldog/glouvel/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.b.a.b.b.a.b.c.a.a.a.nwk"
+#TESTTREE = "~/ws2/DUPLI_data85/alignments/ENSGT00810000125388/subtrees2/RodentiaENSGT00810000125388.A.a.a.c.a.b.nwk"
+#TESTTREE = "~/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.a.a.a.b.nwk"
+TESTTREE = "~/ws2/DUPLI_data85/alignments/ENSGT00850000132243/subtrees2/SimiiformesENSGT00850000132243.b.q.b.b.a.b.b.a.b.c.a.a.a.nwk"
 
 
 def run(genetrees, gene_params, outfile, genenames=False, tags="", asymmetric=False,

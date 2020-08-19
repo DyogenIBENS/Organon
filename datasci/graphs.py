@@ -29,8 +29,8 @@ MOVETO, CURVE3, LINETO = Path.MOVETO, Path.CURVE3, Path.LINETO
 import logging
 logger = logging.getLogger(__name__)
 
-# Prefered_style: put in ~/.config/matplotlib/smoother
-#mpl.style.use('smoother')
+# Prefered_style: put in ~/.config/matplotlib/softer.mplstyle
+#mpl.style.use('softer')
 
 def softstyle():
     mpl.style.use('softer')

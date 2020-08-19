@@ -3,6 +3,7 @@
 
 
 import argparse as ap
+import os.path as op
 from LibsDyogen import myPhylTree
 import csv
 import logging
@@ -11,9 +12,9 @@ logger.setLevel(logging.INFO)
 
 
 # Examples
-phyltreefile = '/users/ldog/glouvel/ws2/DUPLI_data93/PhylTree.TimeTree201901.Ensembl93-like.noQual.nwk'
-refphyltreefile = '/kingdoms/dyogen/workspace2/workspace2/alouis/GENOMICUS_SVN/data93/PhylTree.Ensembl.93.conf'
-genomequal = '/kingdoms/dyogen/workspace2/workspace2/alouis/GENOMICUS_SVN/data93/GenQualS.txt'
+phyltreefile = op.expanduser('~/ws7/DUPLI_data93/PhylTree.TimeTree201901.Ensembl93-like.noQual.nwk')
+refphyltreefile = op.expanduser('~/GENOMICUS93/PhylTree.Ensembl.93.conf')
+genomequal = op.expanduser('~/GENOMICUS93/GenQualS.txt')
 column_qual = 'Qual'
 
 

@@ -4884,7 +4884,7 @@ if __name__ == '__main__':
 
 # # Chronos dating (PL)
 
-    ages_PL1 = pd.read_csv("/users/ldog/glouvel/ws2/DUPLI_data85/alignments_analysis/ages/Simiiformes_m1w04_ages.subtreesCleanO2-um2-withSG-PL1.tsv",
+    ages_PL1 = pd.read_csv(op.expanduser("~/ws2/DUPLI_data85/alignments_analysis/ages/Simiiformes_m1w04_ages.subtreesCleanO2-um2-withSG-PL1.tsv"),
                              sep='\t', index_col=0)
 
     # ### Compute the number of duplications and speciations in the tree

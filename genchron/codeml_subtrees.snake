@@ -209,19 +209,19 @@ rule prot2gene_in_align:
 	input:  "{genetree}.fa.bz2"
 	output: "{genetree}/{genetree}_genes.fa"
 	shell:
-		"~glouvel/scripts/prot2gene.py"
+		"{workflow.basedir}/../prot2gene.py"
 		" --cgene 1 --cprot 2 --force-overwrite"
 		" -o '{{0}}/{{0}}_genes.fa'"
-		" ~glouvel/ws2/DUPLI_data85/gene_info/%s_fromtree.tsv"
+		" ~/ws2/DUPLI_data85/gene_info/%s_fromtree.tsv"
 		" {input}"
 		# Single quotes are important for shell escaping the braces!
 
 # prepare trees
 rule get_tree:
-	input: "/users/ldog/alouis/ws2/GENOMICUS_SVN/data85/trees/0.35/tree.4F.cut.bz2"
+	input: op.expanduser("~/GENOMICUS85/trees/0.35/tree.4F.cut.bz2")
 	output: "{genetree}/{genetree}.nwk"
 	shell:
-		"~glouvel/install/python2.7/localrepo/ToolsDyogen/treeTools/ALL.extractOneGeneTree.py \
+		"~/install/python2.7/localrepo/ToolsDyogen/treeTools/ALL.extractOneGeneTree.py \
     -field=family_name \
     -toNewick=True \
     -withAncSpeciesNames=True \
@@ -234,7 +234,7 @@ rule get_tree:
 #	input: rules.get_tree.output
 #	output: expand("{{genetree}}/%s/" % SUBTREEDIR)
 #	shell:
-#		"~glouvel/scripts/genchron/prune2family.py -o #TODO"
+#		"{workflow.basedir}/prune2family.py -o #TODO"
 
 
 # The actual starting rule
@@ -251,7 +251,7 @@ rule rm_seq_not_in_tree:
 		al    =rules.prot2gene_in_align.output #"{genetree}_genes.fa"
 	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_genes.fa"
 	shell:
-		"~glouvel/scripts/evosite3d/extract_sequences.py '{input.labels}' "\
+		"~/scripts/evosite3d/extract_sequences.py '{input.labels}' "\
 		"'{input.al}' > '{output}'"
 
 rule reshape_tree:
@@ -263,7 +263,7 @@ rule reshape_tree:
 		#labels=rules.list_tree_labels.output
 	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_codeml.nwk"
 	shell:
-		"~glouvel/scripts/genchron/reshape_tree.py '{input}' '{output}'"
+		"{workflow.basedir}/reshape_tree.py '{input}' '{output}'"
 
 if REALIGN:
 	subworkflow realign:
@@ -276,7 +276,7 @@ else:
 #	input:  realign("{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.fa")
 #	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.phy"
 #	shell:
-#		"/users/ldog/glouvel/scripts/evosite3d/convert_fasta2phylip.py "\
+#		"~/scripts/evosite3d/convert_fasta2phylip.py "\
 #		"'{input}' '{output}'"
 
 
@@ -286,7 +286,7 @@ rule fasta2phylip:
 	#input:  rules.rm_seq_not_in_tree.output #"{ancestorgenetreesuffix}_genes.fa"
 	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{alignment}.phy"
 	shell:
-		"/users/ldog/glouvel/scripts/evosite3d/convert_fasta2phylip.py "\
+		"~/scripts/evosite3d/convert_fasta2phylip.py "\
 		"'{input}' '{output}'"
 
 rule make_ctl_realigned:
@@ -340,22 +340,22 @@ rule codeml:
 		rub  ="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}_rub"
 	log: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}.log"
 	shell:
-		"bash ~glouvel/scripts/genchron/run_codeml_separatedir.sh '{input.ctl}'"
+		"bash {workflow.basedir}/../pamliped/run_codeml_separatedir.sh '{input.ctl}'"
 
 #rule allocate_codeml_memory:
 #	input: rules.fasta2phylip.output
 #	output: "{genetree}/{subtreedir}/{ancestor}{genetree}.condor.memory.txt"
 #		#temp("{genetree}/{genetree}.condor.memory.txt")
-#	shell: "~glouvel/scripts/genchron/allocate_codeml_memory.py {input} > {output}"
+#	shell: "{workflow.basedir}/allocate_codeml_memory.py {input} > {output}"
 		
 rule condor_descript:
 	#input: rules.allocate_codeml_memory.output
 	output: "{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}-{alignment}.condor.txt"
 	params: ctl="{genetree}/{subtreedir}/{ancestorgenetreesuffix}_{model}-{alignment}.ctl"
 	shell:
-		'/users/ldog/glouvel/scripts/fluidcondor/condor_descript.py'
+		'~/scripts/fluidcondor/condor_descript.py'
 		' {output}'
-		' /users/ldog/glouvel/scripts/genchron/run_codeml_separatedir.sh'
+		' {workflow.basedir}/../pamliped/run_codeml_separatedir.sh'
 		' -a {params.ctl}'
 		' -cl \'glouvel:125\''
 		' -m 1G'
@@ -389,11 +389,11 @@ rule condor_descript_all:
 	input: rules.condor_descript_prepare.output
 	output: "{basename}_{ancestor}_{model}-{alignment}.{subtreedir}.condor.txt"
 	shell:
-		'/users/ldog/glouvel/scripts/fluidcondor/condor_descript.py'
+		'~/scripts/fluidcondor/condor_descript.py'
 		' {output}'
-		' /users/ldog/glouvel/scripts/genchron/run_codeml_separatedir.sh'
+		' {workflow.basedir}/../pamliped/run_codeml_separatedir.sh'
 		' --fromfile {input}'
-		' -cl \'glouvel:125\''
+		' -cl "$USER:125"'
 		' -m "1G"'
 		' -ni True'
 

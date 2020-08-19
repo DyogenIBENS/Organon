@@ -64,7 +64,7 @@ mpl.rcParams['figure.figsize'] = thesisfigsize
 #myslideshow_js = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.js') 
 #myslideshow_css = Path.home().joinpath('mydvpt', 'atavistic-doc-tools', 'myslideshow.css') 
 
-# Run from '~glouvel/ws7/DUPLI_data93/alignments_analysis/duprates/'
+# Run from '~/ws7/DUPLI_data93/alignments_analysis/duprates/'
 
 #workdir = op.expanduser('~/ws7/DUPLI_data93/alignments_analysis/duprates')
 workdir = Path.home().joinpath('ws7', 'DUPLI_data93', 'alignments_analysis', 'duprates')

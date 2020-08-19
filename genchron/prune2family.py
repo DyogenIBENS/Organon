@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 
 ENSEMBL_VERSION = 85
-PHYLTREE_FMT = "/users/ldog/alouis/ws2/GENOMICUS_SVN/data{0}/PhylTree.Ensembl.{0}.conf"
+PHYLTREE_FMT = op.expanduser("~/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf")
 NEW_DUP_SUFFIX = re.compile(r'\.([A-Z@]+|[a-z`@]+)$')  # The backtick is allowed because of a bug in older version of LibsDyogen.myProteinTree.getDupSuffix
 NEW_ROOTDUP_SUFFIX = re.compile(r'\.[A-Z@]+$')
 ANCGENE_START = 'ENSGT'

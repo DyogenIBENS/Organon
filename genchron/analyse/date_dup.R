@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 
 usage="
-date_forest.R <datasetname> <calibfile> <treefile> <ncores>
+date_dup.R <datasetname> <calibfile> <treefile> <ncores>
 "
 
 
@@ -622,7 +622,7 @@ date_all_trees <- function(allnewicks, calib, outfilename, date_func=date_PL,
 
 
 run <- function(datasetname, agefile, treefile) {
-                #outdir="/users/ldog/glouvel/ws2/DUPLI_data85/alignments_analysis/ages",
+                #outdir="~/ws2/DUPLI_data85/alignments_analysis/ages",
                 #subtrees_src=".dSsubtrees.nwk") {
   ### DEPRECATED
 

@@ -11,7 +11,7 @@ import ete3
 
 
 def iter_splitgenes_ancgenes(filename):
-    """Example file: /users/ldog/glouvel/ws2/DUPLI_data85/split_genes_info-Rodentia-ancgenes.tsv"""
+    """Example file: ~/ws2/DUPLI_data85/split_genes_info-Rodentia-ancgenes.tsv"""
     with open(filename) as inf:
         for line in inf:
             ancgene, desc_genes, desc_prot = line.rstrip().split('\t')

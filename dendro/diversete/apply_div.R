@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 
-# RUN THIS ANALYSIS FROM: ~glouvel/ws2/DUPLI_data90/div-VS-dup
+# RUN THIS ANALYSIS FROM: ~/ws2/DUPLI_data90/div-VS-dup
 
 library(magrittr)
 library(parallel)
@@ -38,8 +38,8 @@ backup_cleanup <- function() {
 param_str <- "age150-size10"
 
 param_suffix <- paste0("listens90", param_str)
-source_dir <- "/users/ldog/glouvel/ws2/"
-source_dir2 <- "/users/ldog/glouvel/ws7/"
+source_dir <- "~/ws2/"
+source_dir2 <- "~/ws7/"
 div_path   <- "databases/timetree/Opisthokonta-"
 dup_path   <- "DUPLI_data90/"
 

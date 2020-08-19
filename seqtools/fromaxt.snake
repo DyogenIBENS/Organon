@@ -33,7 +33,7 @@ rule seq_from_axt:
 		fasta='sequences/genomic/{query}/axt/{query}_fromaxt.fasta',
 		info='sequences/genomic/{query}/axt/{query}_fromaxt.tsv'
 	shell:
-		'~glouvel/scripts/ucsc_tools/seq_from_axt.py {input.axt} {output.fasta} {output.info} $(awk \'{print "-S "$1" -b "$2+1" -e"$3; exit}\' <{input.bed})'
+		'{workflow.basedir}/seq_from_axt.py {input.axt} {output.fasta} {output.info} $(awk \'{print "-S "$1" -b "$2+1" -e"$3; exit}\' <{input.bed})'
 
 rule reverse_minus:
 	input:
@@ -41,12 +41,12 @@ rule reverse_minus:
 		sizes='sequences/genomes/{query}.chrom.sizes' #rules.rsync_chromsizes.output
 	output: 'sequences/genomic/{query}/axt/{query}_fromaxt.forward.tsv'
 	shell:
-		'~glouvel/scripts/ucsc_tools/bed_reverseminus.py {input.info} {input.sizes} -o {output} -s 3'
+		'{workflow.basedir}/bed_reverseminus.py {input.info} {input.sizes} -o {output} -s 3'
 
 rule join_consecutive:
 	input: rules.reverse_minus.output
 	output: 'sequences/genomic/{query}/axt/{query}_fromaxt.forward.joined.tsv'
 	shell:
-		'~glouvel/scripts/ucsc_tools/bed_join_consecutive.py --noskip-header -s 3 -f {input} {output}'
+		'{workflow.basedir}/bed_join_consecutive.py --noskip-header -s 3 -f {input} {output}'
 
 

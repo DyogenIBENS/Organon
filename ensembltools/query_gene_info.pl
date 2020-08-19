@@ -10,7 +10,7 @@ use BioMart::Initializer;
 use BioMart::Query;
 use BioMart::QueryRunner;
 
-my $confFile = "/users/ldog/glouvel/.local/lib/perl/biomart-perl/conf/martURLLocation85.xml";
+my $confFile = $ENV{"HOME"} . "/.local/lib/perl/biomart-perl/conf/martURLLocation85.xml";
 #
 # NB: change action to 'clean' if you wish to start a fresh configuration
 # and to 'cached' if you want to skip configuration step on subsequent runs from the same registry
