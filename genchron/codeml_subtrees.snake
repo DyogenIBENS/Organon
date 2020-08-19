@@ -209,7 +209,7 @@ rule prot2gene_in_align:
 	input:  "{genetree}.fa.bz2"
 	output: "{genetree}/{genetree}_genes.fa"
 	shell:
-		"{workflow.basedir}/../prot2gene.py"
+		"{workflow.basedir}/../ensembltools/prot2gene.py"
 		" --cgene 1 --cprot 2 --force-overwrite"
 		" -o '{{0}}/{{0}}_genes.fa'"
 		" ~/ws2/DUPLI_data85/gene_info/%s_fromtree.tsv"
