@@ -1,0 +1,219 @@
+Scientific name	SPECIES	UCSC VERSION	RELEASE DATE	RELEASE NAME	STATUS
+Homo sapiens	Human	hg38	Dec. 2013	Genome Reference Consortium GRCh38	Available
+Homo sapiens	Human	hg19	Feb. 2009	Genome Reference Consortium GRCh37	Available
+Homo sapiens	Human	hg18	Mar. 2006	NCBI Build 36.1	Available
+Homo sapiens	Human	hg17	May 2004	NCBI Build 35	Available
+Homo sapiens	Human	hg16	Jul. 2003	NCBI Build 34	Available
+Homo sapiens	Human	hg15	Apr. 2003	NCBI Build 33	Archived
+Homo sapiens	Human	hg13	Nov. 2002	NCBI Build 31	Archived
+Homo sapiens	Human	hg12	Jun. 2002	NCBI Build 30	Archived
+Homo sapiens	Human	hg11	Apr. 2002	NCBI Build 29	Archived (data only)
+Homo sapiens	Human	hg10	Dec. 2001	NCBI Build 28	Archived (data only)
+Homo sapiens	Human	hg8	Aug. 2001	UCSC-assembled	Archived (data only)
+Homo sapiens	Human	hg7	Apr. 2001	UCSC-assembled	Archived (data only)
+Homo sapiens	Human	hg6	Dec. 2000	UCSC-assembled	Archived (data only)
+Homo sapiens	Human	hg5	Oct. 2000	UCSC-assembled	Archived (data only)
+Homo sapiens	Human	hg4	Sep. 2000	UCSC-assembled	Archived (data only)
+Homo sapiens	Human	hg3	Jul. 2000	UCSC-assembled	Archived (data only)
+Homo sapiens	Human	hg2	Jun. 2000	UCSC-assembled	Archived (data only)
+Homo sapiens	Human	hg1	May 2000	UCSC-assembled	Archived (data only)
+Vicugna pacos	Alpaca	vicPac2	Mar. 2013	Broad Institute Vicugna_pacos-2.0.1	Available
+Vicugna pacos	Alpaca	vicPac1	Jul. 2008	Broad Institute VicPac1.0	Available
+Dasypus novemcinctus	Armadillo	dasNov3	Dec. 2011	Broad Institute DasNov3	Available
+Papio hamadryas	Baboon	papHam1	Nov. 2008	Baylor College of Medicine HGSC Pham_1.0	Available
+Papio anubis	Baboon	papAnu2	Mar. 2012	Baylor College of Medicine Panu_2.0	Available
+Pan paniscus	Bonobo	panPan1	May 2012	Max-Planck Institute panpan1	Available
+Apteryx australis	Brown kiwi	aptMan1	Jun. 2015	Max-Planck Institute for Evolutionary Anthropology AptMant0	Available
+Otolemur garnettii	Bushbaby	otoGar3	Mar. 2011	Broad Institute OtoGar3	Available
+Felis catus	Cat	felCat8	Nov. 2014	ICGSC Felis_catus_8.0	Available
+Felis catus	Cat	felCat5	Sep. 2011	ICGSC Felis_catus-6.2	Available
+Felis catus	Cat	felCat4	Dec. 2008	NHGRI catChrV17e	Available
+Felis catus	Cat	felCat3	Mar. 2006	Broad Institute Release 3	Available
+Pan troglodytes	Chimp	panTro5	May 2016	CGSC Build 3.0	Available
+Pan troglodytes	Chimp	panTro4	Feb. 2011	CGSC Build 2.1.4	Available
+Pan troglodytes	Chimp	panTro3	Oct. 2010	CGSC Build 2.1.3	Available
+Pan troglodytes	Chimp	panTro2	Mar. 2006	CGSC Build 2.1	Available
+Pan troglodytes	Chimp	panTro1	Nov. 2003	CGSC Build 1.1	Available
+Cricetulus griseus	Chinese hamster	criGri1	Jul. 2013	Beijing Genomics Institution-Shenzhen C_griseus_v1.0	Available
+Manis pentadactyla	Chinese pangolin	manPen1	Aug. 2014	Washington University (WashU) M_pentadactyla-1.1.1	Available
+Bos taurus	Cow	bosTau8	Jun. 2014	University of Maryland v3.1.1	Available
+Bos taurus	Cow	bosTau7	Oct. 2011	Baylor College of Medicine HGSC Btau_4.6.1	Available
+Bos taurus	Cow	bosTau6	Nov. 2009	University of Maryland v3.1	Available
+Bos taurus	Cow	bosTau4	Oct. 2007	Baylor College of Medicine HGSC Btau_4.0	Available
+Bos taurus	Cow	bosTau3	Aug. 2006	Baylor College of Medicine HGSC Btau_3.1	Available
+Bos taurus	Cow	bosTau2	Mar. 2005	Baylor College of Medicine HGSC Btau_2.0	Available
+Bos taurus	Cow	bosTau1	Sep. 2004	Baylor College of Medicine HGSC Btau_1.0	Archived
+Macaca fascicularis	Crab-eating macaque	macFas5	Jun. 2013	Washington University Macaca_fascicularis_5.0	Available
+Canis lupus familiaris	Dog	canFam3	Sep. 2011	Broad Institute v3.1	Available
+Canis lupus familiaris	Dog	canFam2	May 2005	Broad Institute v2.0	Available
+Canis lupus familiaris	Dog	canFam1	Jul. 2004	Broad Institute v1.0	Available
+Tursiops truncatus	Dolphin	turTru2	Oct. 2011	Baylor College of Medicine Ttru_1.4	Available
+Loxodonta africana	Elephant	loxAfr3	Jul. 2009	Broad Institute LoxAfr3	Available
+Mustela putorius furo	Ferret	musFur1	Apr. 2011	Ferret Genome Sequencing Consortium MusPutFur1.0	Available
+Nomascus leucogenys	Gibbon	nomLeu3	Oct. 2012	Gibbon Genome Sequencing Consortium Nleu3.0	Available
+Nomascus leucogenys	Gibbon	nomLeu2	Jun. 2011	Gibbon Genome Sequencing Consortium Nleu1.1	Available
+Nomascus leucogenys	Gibbon	nomLeu1	Jan. 2010	Gibbon Genome Sequencing Consortium Nleu1.0	Available
+Aquila chrysaetos	Golden eagle	aquChr2	Oct. 2014	University of Washington aquChr2-1.0.2	Available
+Gorilla gorilla	Gorilla	gorGor5	Mar. 2016	University of Washington GSMRT3	Available
+Gorilla gorilla	Gorilla	gorGor4	Dec. 2014	Wellcome Trust Sanger Institute gorGor4	Available
+Gorilla gorilla	Gorilla	gorGor3	May 2011	Wellcome Trust Sanger Institute gorGor3.1	Available
+Chlorocebus sabaeus	Green Monkey	chlSab2	Mar. 2014	Vervet Genomics Consortium 1.1	Available
+Cavia porcellus	Guinea pig	cavPor3	Feb. 2008	Broad Institute cavPor3	Available
+Erinaceus europaeus	Hedgehog	eriEur2	May 2012	Broad Institute EriEur2.0	Available
+Erinaceus europaeus	Hedgehog	eriEur1	Jun. 2006	Broad Institute Draft_v1	Available
+Equus caballus	Horse	equCab2	Sep. 2007	Broad Institute EquCab2	Available
+Equus caballus	Horse	equCab1	Jan. 2007	Broad Institute EquCab1	Available
+Dipodomys ordii	Kangaroo rat	dipOrd1	Jul. 2008	Baylor/Broad Institute DipOrd1.0	Available
+Galeopterus variegatus	Malayan flying lemur	galVar1	Jul. 2014	WashU G_variegatus-3.0.2	Available
+Trichechus manatus	Manatee	triMan1	Oct. 2011	Broad Institute TriManLat1.0	Available
+Callithrix jacchus	Marmoset	calJac3	Mar. 2009	WUSTL Callithrix_jacchus-v3.2	Available
+Callithrix jacchus	Marmoset	calJac1	Jun. 2007	WUSTL Callithrix_jacchus-v2.0.2	Available
+Pteropus vampyrus	Megabat	pteVam1	Jul. 2008	Broad Institute Ptevap1.0	Available
+Myotis lucifugus	Microbat	myoLuc2	Jul. 2010	Broad Institute MyoLuc2.0	Available
+Balaenoptera acutorostrata	Minke whale	balAcu1	Oct. 2013	KORDI BalAcu1.0	Available
+Mus musculus	Mouse	mm10	Dec. 2011	Genome Reference Consortium GRCm38	Available
+Mus musculus	Mouse	mm9	Jul. 2007	NCBI Build 37	Available
+Mus musculus	Mouse	mm8	Feb. 2006	NCBI Build 36	Available
+Mus musculus	Mouse	mm7	Aug. 2005	NCBI Build 35	Available
+Mus musculus	Mouse	mm6	Mar. 2005	NCBI Build 34	Archived
+Mus musculus	Mouse	mm5	May 2004	NCBI Build 33	Archived
+Mus musculus	Mouse	mm4	Oct. 2003	NCBI Build 32	Archived
+Mus musculus	Mouse	mm3	Feb. 2003	NCBI Build 30	Archived
+Mus musculus	Mouse	mm2	Feb. 2002	MGSCv3	Archived
+Mus musculus	Mouse	mm1	Nov. 2001	MGSCv2	Archived (data only)
+Microcebus murinus	Mouse lemur	micMur2	May 2015	Baylor/Broad Institute Mmur_2.0	Available
+Microcebus murinus	Mouse lemur	micMur1	Jul. 2007	Broad Institute MicMur1.0	Available
+Heterocephalus glaber	Naked mole-rat	hetGla2	Jan. 2012	Broad Institute HetGla_female_1.0	Available
+Heterocephalus glaber	Naked mole-rat	hetGla1	Jul. 2011	Beijing Genomics Institute HetGla_1.0	Available
+Monodelphis domestica	Opossum	monDom5	Oct. 2006	Broad Institute release MonDom5	Available
+Monodelphis domestica	Opossum	monDom4	Jan. 2006	Broad Institute release MonDom4	Available
+Monodelphis domestica	Opossum	monDom1	Oct. 2004	Broad Institute release MonDom1	Available
+Pongo abelii	Orangutan	ponAbe2	Jul. 2007	WUSTL Pongo_albelii-2.0.2	Available
+Ailuropoda melanoleuca	Panda	ailMel1	Dec. 2009	BGI-Shenzhen AilMel 1.0	Available
+Sus scrofa	Pig	susScr3	Aug. 2011	Swine Genome Sequencing Consortium Sscrofa10.2	Available
+Sus scrofa	Pig	susScr2	Nov. 2009	Swine Genome Sequencing Consortium Sscrofa9.2	Available
+Ochotona princeps	Pika	ochPri3	May 2012	Broad Institute OchPri3.0	Available
+Ochotona princeps	Pika	ochPri2	Jul. 2008	Broad Institute OchPri2	Available
+Ornithorhynchus anatinus	Platypus	ornAna2	Feb. 2007	WUSTL v5.0.1	Available
+Ornithorhynchus anatinus	Platypus	ornAna1	Mar. 2007	WUSTL v5.0.1	Available
+Nasalis larvatus	Proboscis Monkey	nasLar1	Nov. 2014	Proboscis Monkey Functional Genome Consortium Charlie1.0	Available
+Oryctolagus cuniculus	Rabbit	oryCun2	Apr. 2009	Broad Institute release OryCun2	Available
+Rattus norvegicus	Rat	rn6	Jul. 2014	RGSC Rnor_6.0	Available
+Rattus norvegicus	Rat	rn5	Mar. 2012	RGSC Rnor_5.0	Available
+Rattus norvegicus	Rat	rn4	Nov. 2004	Baylor College of Medicine HGSC v3.4	Available
+Rattus norvegicus	Rat	rn3	Jun. 2003	Baylor College of Medicine HGSC v3.1	Available
+Rattus norvegicus	Rat	rn2	Jan. 2003	Baylor College of Medicine HGSC v2.1	Archived
+Rattus norvegicus	Rat	rn1	Nov. 2002	Baylor College of Medicine HGSC v1.0	Archived
+Macaca mulatta	Rhesus	rheMac8	Nov. 2015	Baylor College of Medicine HGSC Mmul_8.0.1	Available
+Macaca mulatta	Rhesus	rheMac3	Oct. 2010	Beijing Genomics Institute CR_1.0	Available
+Macaca mulatta	Rhesus	rheMac2	Jan. 2006	Baylor College of Medicine HGSC v1.0 Mmul_051212	Available
+Macaca mulatta	Rhesus	rheMac1	Jan. 2005	Baylor College of Medicine HGSC Mmul_0.1	Archived
+Procavia capensis	Rock hyrax	proCap1	Jul. 2008	Baylor College of Medicine HGSC Procap1.0	Available
+Ovis aries	Sheep	oviAri3	Aug. 2012	ISGC Oar_v3.1	Available
+Ovis aries	Sheep	oviAri1	Feb. 2010	ISGC Ovis aries 1.0	Available
+Sorex araneus	Shrew	sorAra2	Aug. 2008	Broad Institute SorAra2.0	Available
+Sorex araneus	Shrew	sorAra1	Jun. 2006	Broad Institute SorAra1.0	Available
+Choloepus hoffmanni	Sloth	choHof1	Jul. 2008	Broad Institute ChoHof1.0	Available
+Ictidomys tridecemlineatus	Squirrel	speTri2	Nov. 2011	Broad Institute SpeTri2.0	Available
+Saimiri boliviensis	Squirrel monkey	saiBol1	Oct. 2011	Broad Institute SaiBol1.0	Available
+Carlito syrichta	Tarsier	tarSyr2	Sep. 2013	WashU Tarsius_syrichta-2.0.1	Available
+Carlito syrichta	Tarsier	tarSyr1	Aug. 2008	WUSTL/Broad Institute Tarsyr1.0	Available
+Sarcophilus harrisii	Tasmanian devil	sarHar1	Feb. 2011	Wellcome Trust Sanger Institute Devil_refv7.0	Available
+Echinops telfairi	Tenrec	echTel2	Nov. 2012	Broad Institute EchTel2.0	Available
+Echinops telfairi	Tenrec	echTel1	Jul. 2005	Broad Institute echTel1	Available
+Tupaia belangeri	Tree shrew	tupBel1	Dec. 2006	Broad Institute Tupbel1.0	Available
+Orycteropus afer	Aardvark	oryAfe1			
+Elephantulus edwardii	Cape Elephant Shrew	eleEdw1			
+Condylura cristata	Star-nosed mole	conCri1
+Chrysochloris asiatica	Cape golden mole	chrAsi1			
+Macropus eugenii	Wallaby	macEug2	Sep. 2009	Tammar Wallaby Genome Sequencing Consortium Meug_1.1	Available
+Ceratotherium simum	White rhinoceros	cerSim1	May 2012	Broad Institute CerSimSim1.0	Available
+Alligator mississippiensis	American alligator	allMis1	Aug. 2012	Int. Crocodilian Genomes Working Group allMis0.2	Available
+Gadus morhua	Atlantic cod	gadMor1	May 2010	Genofisk GadMor_May2010	Available
+Melopsittacus undulatus	Budgerigar	melUnd1	Sep. 2011	WUSTL v6.3	Available
+Gallus gallus	Chicken	galGal5	Dev. 2015	ICGC Gallus-gallus-5.0	Available
+Gallus gallus	Chicken	galGal4	Nov. 2011	ICGC Gallus-gallus-4.0	Available
+Gallus gallus	Chicken	galGal3	May 2006	WUSTL Gallus-gallus-2.1	Available
+Gallus gallus	Chicken	galGal2	Feb. 2004	WUSTL Gallus-gallus-1.0	Available
+Anas platyrhynchos	Duck	anaPla1			
+Latimeria chalumnae	Coelacanth	latCha1	Aug. 2011	Broad Institute LatCha1	Available
+Callorhinchus milii	Elephant shark	calMil1	Dec. 2013	IMCB Callorhinchus_milli_6.1.3	Available
+Takifugu rubripes	Fugu	fr3	Oct. 2011	JGI v5.0	Available
+Takifugu rubripes	Fugu	fr2	Oct. 2004	JGI v4.0	Available
+Takifugu rubripes	Fugu	fr1	Aug. 2002	JGI v3.0	Available
+Petromyzon marinus	Lamprey	petMar2	Sep. 2010	WUGSC 7.0	Available
+Petromyzon marinus	Lamprey	petMar1	Mar. 2007	WUSTL v3.0	Available
+Anolis carolinensis	Lizard	anoCar2	May 2010	Broad Institute AnoCar2	Available
+Anolis carolinensis	Lizard	anoCar1	Feb. 2007	Broad Institute AnoCar1	Available
+Pelodiscus sinensis	Chinese softshell turtle	pelSin1			
+Oryzias latipes	Medaka	oryLat2	Oct. 2005	NIG v1.0	Available
+Geospiza fortis	Medium ground finch	geoFor1	Apr. 2012	BGI GeoFor_1.0 / NCBI 13302	Available
+Oreochromis niloticus	Nile tilapia	oreNil2	Jan. 2011	Broad Institute Release OreNil1.1	Available
+Chrysemys picta	Painted turtle	chrPic1	Dec. 2011	IPTGSC Chrysemys_picta_bellii-3.0.1	Available
+Gasterosteus aculeatus	Stickleback	gasAcu1	Feb. 2006	Broad Institute Release 1.0	Available
+Tetraodon nigroviridis	Tetraodon	tetNig2	Mar. 2007	Genoscope v7	Available
+Tetraodon nigroviridis	Tetraodon	tetNig1	Feb. 2004	Genoscope v7	Available
+Nanorana parkeri	Tibetan frog	nanPar1	Mar. 2015	Beijing Genomics Institute BGI_ZX_20015	Available
+Meleagris gallopavo	Turkey	melGal5	Nov. 2014	Turkey Genome Consortium v5.0	Available
+Meleagris gallopavo	Turkey	melGal1	Dec. 2009	Turkey Genome Consortium v2.01	Available
+Xenopus tropicalis	X. tropicalis	xenTro7	Sep. 2012	JGI v.7.0	Available
+Xenopus tropicalis	X. tropicalis	xenTro3	Nov. 2009	JGI v.4.2	Available
+Xenopus tropicalis	X. tropicalis	xenTro2	Aug. 2005	JGI v.4.1	Available
+Xenopus tropicalis	X. tropicalis	xenTro1	Oct. 2004	JGI v.3.0	Available
+Taeniopygia guttata	Zebra finch	taeGut2	Feb. 2013	WashU taeGut324	Available
+Taeniopygia guttata	Zebra finch	taeGut1	Jul. 2008	WUSTL v3.2.4	Available
+Danio rerio	Zebrafish	danRer10	Sep. 2014	Genome Reference Consortium GRCz10	Available
+Danio rerio	Zebrafish	danRer7	Jul. 2010	Sanger Institute Zv9	Available
+Danio rerio	Zebrafish	danRer6	Dec. 2008	Sanger Institute Zv8	Available
+Danio rerio	Zebrafish	danRer5	Jul. 2007	Sanger Institute Zv7	Available
+Danio rerio	Zebrafish	danRer4	Mar. 2006	Sanger Institute Zv6	Available
+Danio rerio	Zebrafish	danRer3	May 2005	Sanger Institute Zv5	Available
+Danio rerio	Zebrafish	danRer2	Jun. 2004	Sanger Institute Zv4	Archived
+Danio rerio	Zebrafish	danRer1	Nov. 2003	Sanger Institute Zv3	Archived
+Ciona intestinalis	C. intestinalis	ci3	Apr. 2011	Kyoto KH	Available
+Ciona intestinalis	C. intestinalis	ci2	Mar. 2005	JGI v2.0	Available
+Ciona intestinalis	C. intestinalis	ci1	Dec. 2002	JGI v1.0	Available
+Branchiostoma floridae	Lancelet	braFlo1	Mar. 2006	JGI v1.0	Available
+Strongylocentrotus purpuratus	S. purpuratus	strPur2	Sep. 2006	Baylor College of Medicine HGSC v. Spur 2.1	Available
+Strongylocentrotus purpuratus	S. purpuratus	strPur1	Apr. 2005	Baylor College of Medicine HGSC v. Spur_0.5	Available
+Apis mellifera	A. mellifera	apiMel2	Jan. 2005	Baylor College of Medicine HGSC v.Amel_2.0	Available
+Apis mellifera	A. mellifera	apiMel1	Jul. 2004	Baylor College of Medicine HGSC v.Amel_1.2	Available
+Anopheles gambiae	A. gambiae	anoGam1	Feb. 2003	IAGP v.MOZ2	Available
+Drosophila ananassae	D. ananassae	droAna2	Aug. 2005	Agencourt Arachne release	Available
+Drosophila ananassae	D. ananassae	droAna1	Jul. 2004	TIGR Celera release	Available
+Drosophila erecta	D. erecta	droEre1	Aug. 2005	Agencourt Arachne release	Available
+Drosophila grimshawi	D. grimshawi	droGri1	Aug. 2005	Agencourt Arachne release	Available
+Drosophila melanogaster	D. melanogaster	dm6	Aug. 2014	BDGP Release 6 + ISO1 MT	Available
+Drosophila melanogaster	D. melanogaster	dm3	Apr. 2006	BDGP Release 5	Available
+Drosophila melanogaster	D. melanogaster	dm2	Apr. 2004	BDGP Release 4	Available
+Drosophila melanogaster	D. melanogaster	dm1	Jan. 2003	BDGP Release 3	Available
+Drosophila mojavensis	D. mojavensis	droMoj2	Aug. 2005	Agencourt Arachne release	Available
+Drosophila mojavensis	D. mojavensis	droMoj1	Aug. 2004	Agencourt Arachne release	Available
+Drosophila persimilis	D. persimilis	droPer1	Oct. 2005	Broad Institute release	Available
+Drosophila pseudoobscura	D. pseudoobscura	dp3	Nov. 2004	FlyBase Release 1.0	Available
+Drosophila pseudoobscura	D. pseudoobscura	dp2	Aug. 2003	Baylor College of Medicine HGSC Freeze 1	Available
+Drosophila sechellia	D. sechellia	droSec1	Oct. 2005	Broad Institute Release 1.0	Available
+Drosophila simulans	D. simulans	droSim1	Apr. 2005	WUSTL Release 1.0	Available
+Drosophila virilis	D. virilis	droVir2	Aug. 2005	Agencourt Arachne release	Available
+Drosophila virilis	D. virilis	droVir1	Jul. 2004	Agencourt Arachne release	Available
+Drosophila yakuba	D. yakuba	droYak2	Nov. 2005	WUSTL Release 2.0	Available
+Drosophila yakuba	D. yakuba	droYak1	Apr. 2004	WUSTL Release 1.0	Available
+Caenorhabditis brenneri	C. brenneri	caePb2	Feb. 2008	WUSTL 6.0.1	Available
+Caenorhabditis brenneri	C. brenneri	caePb1	Jan. 2007	WUSTL 4.0	Available
+Caenorhabditis briggsae	C. briggsae	cb3	Jan. 2007	WUSTL Cb3	Available
+Caenorhabditis briggsae	C. briggsae	cb1	Jul. 2002	WormBase v. cb25.agp8	Available
+Caenorhabditis elegans	C. elegans	ce11	Feb. 2013	C. elegans Sequencing Consortium WBcel235	Available
+Caenorhabditis elegans	C. elegans	ce10	Oct. 2010	WormBase v. WS220	Available
+Caenorhabditis elegans	C. elegans	ce6	May 2008	WormBase v. WS190	Available
+Caenorhabditis elegans	C. elegans	ce4	Jan. 2007	WormBase v. WS170	Available
+Caenorhabditis elegans	C. elegans	ce2	Mar. 2004	WormBase v. WS120	Available
+Caenorhabditis elegans	C. elegans	ce1	May 2003	WormBase v. WS100	Archived
+Caenorhabditis japonica	C. japonica	caeJap1	Mar. 2008	WUSTL 3.0.2	Available
+Caenorhabditis remanei	C. remanei	caeRem3	May 2007	WUSTL 15.0.1	Available
+Caenorhabditis remanei	C. remanei	caeRem2	Mar. 2006	WUSTL 1.0	Available
+Caenorhabditis pacificus	P. pacificus	priPac1	Feb. 2007	WUSTL 5.0	Available
+Aplysia californica	Sea Hare	aplCal1	Sep. 2008	Broad Release Aplcal2.0	Available
+Saccharomyces cerevisiae	Yeast	sacCer3	April 2011	SGD April 2011 sequence	Available
+Saccharomyces cerevisiae	Yeast	sacCer2	June 2008	SGD June 2008 sequence	Available
+Saccharomyces cerevisiae	Yeast	sacCer1	Oct. 2003	SGD 1 Oct 2003 sequence	Available
+Ebolavirus	Ebola Virus	eboVir3	June 2014	Sierra Leone 2014 (G3683/KM034562.1)	Available

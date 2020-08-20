@@ -73,7 +73,7 @@ while (my $dataset = <>) {
 	#####################################################################
 
     # bizarrement, une fois le fichier rempli, la connexion a la base de
-    # données bloque, et l'itération suivante n'est exécutée qu'après
+    # donnees bloque, et l'iteration suivante n'est executee qu'apres
     # "Problems with the web server: 500 read timeout"
 }
 
