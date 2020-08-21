@@ -16,7 +16,11 @@ from itertools import product, combinations
 
 import numpy as np
 import matplotlib as mpl
-mpl.use('Agg', warn=False)
+try:
+    mpl.use('Agg', warn=False)
+except TypeError:
+    # keyword warn disappeared in recent matplotlib
+    mpl.use('Agg')
 import matplotlib.pyplot as plt
 from Bio import AlignIO, Align, Alphabet
 try:

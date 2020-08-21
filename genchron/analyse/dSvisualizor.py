@@ -51,7 +51,11 @@ from textwrap import dedent
 
 import matplotlib as mpl
 #print(mpl.get_backend())
-mpl.use('Agg', warn=False) # for figures to show up when the script is called from the shell
+try:
+    mpl.use('Agg', warn=False) # for figures to show up when the script is called from the shell
+except TypeError:
+    # keyword warn disappeared in recent matplotlib
+    mpl.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator #AutoLocator
 #plt.ion()
